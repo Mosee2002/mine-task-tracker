@@ -9,8 +9,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. SECURE PASSWORD REGISTRY (MOCK USER DATABASE)
-# In production, these are stored as encrypted hashes in your database
+# 2. SECURE PASSWORD REGISTRY
 USER_CREDENTIALS = {
     "worker1": {"password": "crew123", "name": "John Doe", "role": "Worker"},
     "worker2": {"password": "crew456", "name": "Alex Smith", "role": "Worker"},
@@ -58,15 +57,13 @@ if 'tasks_db' not in st.session_state:
 
 crew_list = ["Unassigned", "John Doe", "Alex Smith", "Sarah Connor"]
 
-# 4. INITIALIZE AUTHENTICATION STATE VARIABLES
+# 4. INITIALIZE AUTHENTICATION STATE
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
 
-# -------------------------------------------------------------
-# SCREEN 1: THE LOGIN GATEWAY INTERFACE
-# -------------------------------------------------------------
+# SCREEN 1: LOGIN GATEWAY
 if not st.session_state.authenticated:
     st.title("🔒 Industrial Portal Secure Login")
     st.subheader("Mine & Workshop Digital Task Management System")
@@ -85,7 +82,6 @@ if not st.session_state.authenticated:
             else:
                 st.error("Invalid Username or Security Password. Access Denied.")
                 
-    # Helper text for testing purposes during stakeholder demo
     with st.expander("🔑 Demo Testing Credentials (Click to Expand)"):
         st.markdown("""
         *   **Worker Account:** User: `worker1` | Password: `crew123` *(John Doe)*
@@ -93,13 +89,10 @@ if not st.session_state.authenticated:
         *   **Superintendent Account:** User: `superintendent1` | Password: `boss000` *(Mike Tyson)*
         """)
 
-# -------------------------------------------------------------
-# SCREEN 2: THE SECURED APPLICATION HUB
-# -------------------------------------------------------------
+# SCREEN 2: SECURED HUB
 else:
     user = st.session_state.user_payload
     
-    # Secure Sidebar Header & Logout Mechanism
     with st.sidebar:
         st.markdown(f"### Welcome back, **{user['name']}**")
         st.info(f"🔰 Cleared Role: **{user['role']}**")
@@ -108,13 +101,12 @@ else:
             st.session_state.authenticated = False
             st.session_state.user_payload = None
             st.rerun()
-            
         st.markdown("---")
         st.caption("📍 Node: Main Workshop & Mine Shaft A")
 
-    # ROLE DISPATCH A: WORKER INTERFACE (🔒 Hard Restricted Access)
+    # ROLE A: WORKER INTERFACE
     if user['role'] == "Worker":
-        st.title(" Worker Workspace")
+        st.title("👷 Field Worker Workspace")
         st.subheader(f"Active Shift Task Queue — {user['name']}")
         
         my_tasks = st.session_state.tasks_db[st.session_state.tasks_db['assigned_to'] == user['name']]
@@ -148,7 +140,7 @@ else:
                                 st.session_state.tasks_db.at[idx, 'updated_at'] = datetime.now().strftime("%Y-%m-%d %H:%M")
                                 st.rerun()
 
-    # ROLE DISPATCH B: SUPERVISOR INTERFACE (🔒 Hard Restricted Access)
+    # ROLE B: SUPERVISOR INTERFACE
     elif user['role'] == "Supervisor":
         st.title("📋 Supervisor Control Terminal")
         t1, t2, t3 = st.tabs(["⚡ Shift Dispatch Control", "🔍 QA Inspection Deck", "➕ Log New Task"])
@@ -194,3 +186,11 @@ else:
                                 st.session_state.tasks_db.at[idx, 'updated_at'] = datetime.now().strftime("%Y-%m-%d %H:%M")
                                 st.rerun()
         with t3:
+            st.markdown("### Generate New Maintenance Work Order")
+            with st.form("new_task_form", clear_on_submit=True):
+                new_title = st.text_input("Task Title / Description")
+                new_loc = st.text_input("Mine Sector / Workshop Bench Location")
+                new_pri = st.selectbox("Task Urgency/Priority Tiers", ["Low", "Medium", "High", "Critical"])
+                new_tech = st.selectbox("Assign Primary Technician", crew_list)
+                if st.form_submit_button("Publish Task to Cloud Master Log"):
+                    if new_title and new_loc:
