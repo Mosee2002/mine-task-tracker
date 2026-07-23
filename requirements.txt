@@ -1,0 +1,4 @@
+streamlit
+supabase
+st-supabase-connection
+requests
