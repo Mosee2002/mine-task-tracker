@@ -8,8 +8,9 @@ st.set_page_config(page_title="Mine Task Tracker", layout="wide")
 
 # 2. DIRECT CLOUD DATABASE CONNECTOR TERMINAL
 # Paste your exact codes inside the quotation marks below
-SUPABASE_URL = "https://your-project-id.supabase.co"
-SUPABASE_KEY = "your-anonymous-api-key-string"
+SUPABASE_URL = "https://supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6..."
+
 
 # Format communication channels directly using native web request protocols
 DB_HEADERS = {
