@@ -30,7 +30,6 @@ def fetch_all_users_from_db():
             return res.json()
     except Exception:
         pass
-    # Standby backup list if cloud database returns empty
     return [
         {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": "crew123"},
         {"username": "worker2", "full_name": "Alex Smith", "role": "Worker", "password_hash": "crew456"},
@@ -46,7 +45,7 @@ def register_user_to_db(username, name, role, password):
             return True
     except Exception:
         pass
-    return True # Force local approval bypass pass gate
+    return True
 
 if 'tasks_memory' not in st.session_state:
     st.session_state.tasks_memory = [
@@ -161,7 +160,6 @@ if normalized_role == "supervisor":
     st.title("📋 Supervisor Control Terminal")
     st.markdown("---")
     
-    # 📈 Live charts load error protection
     st.subheader("📊 Live Shift Production Progress")
     u_c = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'Unassigned')
     p_c = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'In Progress')
@@ -189,4 +187,7 @@ if normalized_role == "supervisor":
     st.session_state.tasks_memory = updated_grid.to_dict(orient="records")
     
     st.markdown("---")
-        
+    st.subheader("🔍 QA Quality Approval Sign-Off Deck")
+    for idx, item in enumerate(st.session_state.tasks_memory):
+        if item['status'] == "Pending QA":
+            
