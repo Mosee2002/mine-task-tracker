@@ -1,31 +1,19 @@
 import streamlit as st
-import requests
 import pandas as pd
 from datetime import datetime
 
 # 1. LIVE WEB LAYOUT CONFIGURATION
 st.set_page_config(page_title="Mine Task Tracker", layout="wide")
 
-# 2. DIRECT CLOUD DATABASE CONNECTOR TERMINAL
-# Paste your exact codes inside the quotation marks below
-SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0..."
+# 2. INTERNAL PERSISTENT BACKUP MEMORY
+if 'tasks_db' not in st.session_state:
+    st.session_state.tasks_db = pd.DataFrame([
+        {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto_verified": False, "jsa_completed": False, "updated_at": "2026-07-23 04:30"},
+        {"id": 102, "title": "Calibrate Underground Gas Detectors", "location": "Level 4 North Shaft", "status": "Unassigned", "priority": "Critical", "assigned_to": "Unassigned", "loto_verified": False, "jsa_completed": False, "updated_at": "2026-07-23 01:15"},
+        {"id": 103, "title": "Rewire Overhead Crane Control Box", "location": "Main Workshop Bay 1", "status": "Pending QA", "priority": "Medium", "assigned_to": "Alex Smith", "loto_verified": True, "jsa_completed": True, "updated_at": "2026-07-23 05:00"}
+    ])
 
-
-# Format communication channels directly using native web request protocols
-DB_HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "return=representation"
-}
-
-def load_live_database_rows():
-    try:
-        response = requests.get(f"{SUPABASE_URL}/rest/v1/facility_tasks?select=*", headers=DB_HEADERS, timeout=10)
-        return pd.DataFrame(response.json()) if response.status_code == 200 else pd.DataFrame()
-    except Exception:
-        return pd.DataFrame()
+crew_list = ["Unassigned", "John Doe", "Alex Smith", "Sarah Connor"]
 
 # 3. IDENTITY AND SECURITY DATA TIER
 USER_CREDENTIALS = {
@@ -58,10 +46,10 @@ if not st.session_state.authenticated:
         st.write("User: supervisor1 | Pass: super789")
         st.write("User: superintendent1 | Pass: boss000")
 
-# SCREEN 2: THE DATA CONNECTIONS HUB
+# SCREEN 2: THE SECURED OPERATIONAL HUB
 else:
     user = st.session_state.user_payload
-    tasks_df = load_live_database_rows()
+    tasks_df = st.session_state.tasks_db
     
     with st.sidebar:
         st.markdown(f"### User: **{user['name']}**")
@@ -71,13 +59,9 @@ else:
             st.session_state.user_payload = None
             st.rerun()
 
-    if tasks_df.empty:
-        st.warning("⚠️ No data columns returned. Double-check your URL and Key strings in lines 11 & 12.")
-        st.stop()
-
     # INTERFACE TIER A: FIELD WORKERS
     if user['role'] == "Worker":
-        st.title("👷 Field Worker Workspace")
+        st.title(" Worker Workspace")
         my_tasks = tasks_df[tasks_df['assigned_to'] == user['name']]
         
         if my_tasks.empty:
@@ -91,17 +75,15 @@ else:
                     loto = st.checkbox("Lockout / Tagout (LOTO) Isolated", value=row['loto_verified'], key=f"wk_loto_{row['id']}")
                     jsa = st.checkbox("Job Safety Analysis (JSA) Signed", value=row['jsa_completed'], key=f"wk_jsa_{row['id']}")
                     
-                    if (loto != row['loto_verified']) or (jsa != row['jsa_completed']):
-                        patch_data = {"loto_verified": loto, "jsa_completed": jsa}
-                        requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{row['id']}", headers=DB_HEADERS, json=patch_data)
-                        st.rerun()
+                    st.session_state.tasks_db.at[idx, 'loto_verified'] = loto
+                    st.session_state.tasks_db.at[idx, 'jsa_completed'] = jsa
                     
                     if not loto or not jsa:
                         st.error("🔒 Safety Interlocks Active. Fulfill items to update status.")
                     else:
                         action_status = st.selectbox("Update Status:", ["In Progress", "Pending QA", "Blocked"], key=f"wk_stat_{row['id']}")
                         if action_status != row['status']:
-                            requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{row['id']}", headers=DB_HEADERS, json={"status": action_status})
+                            st.session_state.tasks_db.at[idx, 'status'] = action_status
                             st.rerun()
 
     # INTERFACE TIER B: SUPERVISORS
@@ -122,11 +104,11 @@ else:
                     b1, b2 = st.columns(2)
                     with b1:
                         if st.button("✅ Verify & Archive", key=f"sup_app_{row['id']}"):
-                            requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{row['id']}", headers=DB_HEADERS, json={"status": "Complete"})
+                            st.session_state.tasks_db.at[idx, 'status'] = "Complete"
                             st.rerun()
                     with b2:
                         if st.button("❌ Reject Back to Shift", key=f"sup_rej_{row['id']}"):
-                            requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{row['id']}", headers=DB_HEADERS, json={"status": "In Progress"})
+                            st.session_state.tasks_db.at[idx, 'status'] = "In Progress"
                             st.rerun()
         with t3:
             new_title = st.text_input("Task Summary")
@@ -136,9 +118,10 @@ else:
             
             if st.button("Publish Work Ticket"):
                 if new_title and new_loc:
-                    new_task = {"title": new_title, "location": new_loc, "priority": new_pri, "assigned_to": new_tech, "status": "In Progress" if new_tech != "Unassigned" else "Unassigned"}
-                    requests.post(f"{SUPABASE_URL}/rest/v1/facility_tasks", headers=DB_HEADERS, json=new_task)
-                    st.success("Dispatched to cloud database ledger successfully!")
+                    new_id = int(st.session_state.tasks_db["id"].max() + 1)
+                    new_row = {"id": new_id, "title": new_title, "location": new_loc, "priority": new_pri, "assigned_to": new_tech, "status": "In Progress" if new_tech != "Unassigned" else "Unassigned", "loto_verified": False, "jsa_completed": False, "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
+                    st.session_state.tasks_db = pd.concat([st.session_state.tasks_db, pd.DataFrame([new_row])], ignore_index=True)
+                    st.success("Dispatched to database ledger successfully!")
                     st.rerun()
 
     # INTERFACE TIER C: SUPERINTENDENTS
