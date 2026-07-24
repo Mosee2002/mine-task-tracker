@@ -66,7 +66,7 @@ if not st.session_state.authenticated:
                     st.error("Username taken.")
                 else:
                     st.session_state.user_registry[reg_user] = {"password": reg_pass, "name": reg_name, "role": reg_role}
-                    st.success("Registered!")
+                    st.success("Registered successfully!")
 
 # -------------------------------------------------------------
 # SCREEN 2: ACTIVE SECURED WORKSPACES
@@ -135,16 +135,13 @@ else:
         
         with sup_t1:
             st.subheader("📈 Live Shift Production Progress")
-            # Fail-safe indexing array structures
-            u_count = len(tasks_df[tasks_df['status'] == 'Unassigned'])
-            p_count = len(tasks_df[tasks_df['status'] == 'In Progress'])
-            q_count = len(tasks_df[tasks_df['status'] == 'Pending QA'])
-            c_count = len(tasks_df[tasks_df['status'] == 'Complete'])
-            b_count = len(tasks_df[tasks_df['status'] == 'Blocked'])
+            u_count = int(sum(tasks_df['status'] == 'Unassigned'))
+            p_count = int(sum(tasks_df['status'] == 'In Progress'))
+            q_count = int(sum(tasks_df['status'] == 'Pending QA'))
+            c_count = int(sum(tasks_df['status'] == 'Complete'))
+            b_count = int(sum(tasks_df['status'] == 'Blocked'))
             
-            chart_data = pd.DataFrame({
-                "Tasks Count": [u_count, p_count, q_count, c_count, b_count]
-            }, index=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"])
+            chart_data = pd.DataFrame({"Tasks Count": [u_count, p_count, q_count, c_count, b_count]}, index=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"])
             st.bar_chart(chart_data, color="#FF4B4B")
             
         with sup_t2:
@@ -179,4 +176,5 @@ else:
                 st.rerun()
 
             st.markdown("---")
-            
+            msg_to_workers = st.text_area("Broadcast message to field teams...")
+                
