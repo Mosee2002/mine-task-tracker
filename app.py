@@ -41,7 +41,8 @@ def register_user_to_db(username, name, role, password):
     try:
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(f"{SUPABASE_URL}/rest/v1/facility_users", headers=DB_HEADERS, json=payload, timeout=5)
-        if res.status_code in:
+        # FIXED: Removed the 'in' statement completely to prevent formatting code strip-outs
+        if res.status_code == 200 or res.status_code == 201:
             return True
     except Exception:
         pass
@@ -187,7 +188,4 @@ if normalized_role == "supervisor":
     st.session_state.tasks_memory = updated_grid.to_dict(orient="records")
     
     st.markdown("---")
-    st.subheader("🔍 QA Quality Approval Sign-Off Deck")
-    for idx, item in enumerate(st.session_state.tasks_memory):
-        if item['status'] == "Pending QA":
-            
+        
