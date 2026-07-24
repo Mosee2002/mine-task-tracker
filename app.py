@@ -7,8 +7,8 @@ st.set_page_config(page_title="Mine Task Tracker", layout="wide")
 
 # 2. DIRECT CLOUD DATABASE CONNECTOR KEYS
 # Make sure to update these two strings with your real keys from Supabase
-SUPABASE_URL = "https://supabase.co"
-SUPABASE_KEY = "your-anonymous-public-api-key-string"
+SUPABASE_URL = "https://supabase.co" 
+SUPABASE_KEY = "PASTE_YOUR_SUPABASE_ANON_PUBLIC_KEY_HERE"
 
 DB_HEADERS = {
     "apikey": SUPABASE_KEY,
@@ -36,8 +36,10 @@ def register_user_to_db(username, name, role, password):
         url = f"{SUPABASE_URL}/rest/v1/facility_users"
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(url, headers=DB_HEADERS, json=payload, timeout=10)
-        # FIXED: Explicit status check for successful entry insertion
-        return True if res.status_code in [200, 201] else False
+        # FIXED: Explicitly accepts 200 and 201 HTTP verification success parameters
+        if res.status_code in:
+            return True
+        return False
     except Exception:
         return False
 
@@ -209,3 +211,4 @@ elif normalized_role == "superintendent":
     
     st.markdown("---")
     st.subheader("📊 Production Yield Progress Evaluation")
+    
