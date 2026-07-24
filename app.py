@@ -7,8 +7,8 @@ st.set_page_config(page_title="Mine Task Tracker", layout="wide")
 
 # 2. DIRECT CLOUD DATABASE CONNECTOR KEYS
 # Make sure to update these two strings with your real keys from Supabase
-SUPABASE_URL = "https://supabase.co"
-SUPABASE_KEY = "PASTE_YOUR_SUPABASE_ANON_PUBLIC_KEY_HERE"
+SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
 DB_HEADERS = {
     "apikey": SUPABASE_KEY,
