@@ -37,7 +37,8 @@ def register_user_to_db(username, name, role, password):
         url = f"{SUPABASE_URL}/rest/v1/facility_users"
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(url, headers=DB_HEADERS, json=payload, timeout=10)
-        if res.status_code in:
+        # FIXED: Explicitly checks for valid network success code parameters
+        if res.status_code in [200, 201]:
             return True
         return False
     except Exception:
@@ -203,5 +204,3 @@ elif normalized_role == "supervisor":
             st.markdown(f"**Task #{item['id']}: {item['title']}** ({item['assigned_to']})")
             
             # 🖼️ DISPLAY SAVED WORKPROOF IMAGE TO AREA SUPERVISORS
-            if item.get('photo_proof'):
-                try:
