@@ -36,7 +36,8 @@ def register_user_to_db(username, name, role, password):
         url = f"{SUPABASE_URL}/rest/v1/facility_users"
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(url, headers=DB_HEADERS, json=payload, timeout=10)
-        return True if res.status_code in [200, 21] else False
+        # FIXED: Explicit status check for successful entry insertion
+        return True if res.status_code in [200, 201] else False
     except Exception:
         return False
 
@@ -70,6 +71,7 @@ if not st.session_state.authenticated:
             st.session_state.user_payload = matched_user
             st.session_state.authenticated = True
             st.success("Authenticated! Tap button again to access terminal panels.")
+            st.rerun()
         else:
             st.error("Invalid credentials entered or database unreachable.")
             
@@ -88,7 +90,7 @@ if not st.session_state.authenticated:
             if success:
                 st.success("Account profile successfully registered to cloud table ledger! Sign in above.")
             else:
-                st.error("Registration failed. Username may be taken or table RLS blocks request.")
+                st.error("Registration failed. Username may be taken or table configurations block request.")
     st.stop()
 
 # -------------------------------------------------------------
@@ -110,6 +112,7 @@ with st.sidebar:
     if st.button("🚪 Logout Application"):
         st.session_state.authenticated = False
         st.session_state.user_payload = None
+        st.rerun()
 
 # === WORKER BOARD LOGIC ===
 if normalized_role == "worker":
@@ -206,5 +209,3 @@ elif normalized_role == "superintendent":
     
     st.markdown("---")
     st.subheader("📊 Production Yield Progress Evaluation")
-    v_unassigned = sum(1 for t in raw_tasks if t['status'] == 'Unassigned')
-    v_progress = sum(1 for t in raw_tasks if t['status'] == 'In Progress')
