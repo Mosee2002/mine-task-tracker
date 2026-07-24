@@ -36,8 +36,8 @@ def register_user_to_db(username, name, role, password):
         url = f"{SUPABASE_URL}/rest/v1/facility_users"
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(url, headers=DB_HEADERS, json=payload, timeout=10)
-        # FIXED: Explicitly checks for valid network success code parameters
-        if res.status_code in:
+        # FIXED: Added the explicit validation success codes array block [200, 201]
+        if res.status_code in [200, 201]:
             return True
         return False
     except Exception:
@@ -211,4 +211,3 @@ elif normalized_role == "superintendent":
     
     st.markdown("---")
     st.subheader("📊 Production Yield Progress Evaluation")
-    
