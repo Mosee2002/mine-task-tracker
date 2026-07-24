@@ -5,7 +5,7 @@ from datetime import datetime
 # 1. PAGE SETUP
 st.set_page_config(page_title="Mine Task Tracker & Analytics", layout="wide")
 
-# 2. STATE DATA REGISTRY
+# 2. STATE DATA REGISTRY FOR CORE REPOSITORIES
 if "user_registry" not in st.session_state:
     st.session_state.user_registry = {
         "supervisor1": {"password": "super789", "name": "Sarah Connor", "role": "Supervisor"},
@@ -30,10 +30,11 @@ if 'authenticated' not in st.session_state:
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
 
-crew_list = ["Unassigned"] + [info["name"] for info in st.session_state.user_registry.values() if info["role"] == "Worker"]
+# Build clean dynamic dropdown arrays to capture every created worker profile name
+crew_list = ["Unassigned"] + [info["name"] for info in st.session_state.user_registry.values() if str(info["role"]).strip().lower() == "worker"]
 
 # -------------------------------------------------------------
-# SCREEN 1: LOGIN & REGISTRATION
+# SCREEN 1: LOGIN & REGISTRATION SECTOR
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
     st.title("🔒 Industrial Portal Secure Entry")
@@ -75,16 +76,19 @@ else:
     user = st.session_state.user_payload
     tasks_df = st.session_state.tasks_db
     
+    # Clean string conversion normalization to force validation pass hooks
+    normalized_role = str(user['role']).strip().lower()
+    
     with st.sidebar:
         st.markdown(f"### User: **{user['name']}**")
-        st.info(f"Role: {user['role']}")
-        if st.button("🚪 Logout Application"):
+        st.info(f"Authorized Role: {user['role']}")
+        if st.button("🚪 Logout Application", use_container_width=True):
             st.session_state.authenticated = False
             st.session_state.user_payload = None
             st.rerun()
 
-    # --- WORKER VIEW ---
-    if user['role'] == "Worker":
+    # --- WORKER PORTALS INTERFACE DISPATCH ---
+    if normalized_role == "worker":
         st.title("👷 Field Worker Workspace")
         
         st.subheader("🔔 Supervisor Broadcast Notices")
@@ -122,8 +126,8 @@ else:
             open_jobs_df = tasks_df[tasks_df['status'] != "Complete"]
             st.dataframe(open_jobs_df[["id", "title", "location", "priority", "status", "assigned_to"]], hide_index=True, use_container_width=True)
 
-    # --- SUPERVISOR VIEW ---
-    elif user['role'] == "Supervisor":
+    # --- SUPERVISOR PORTALS INTERFACE DISPATCH ---
+    elif normalized_role == "supervisor":
         st.title("📋 Supervisor Control Terminal")
         
         if st.session_state.supt_to_sup_messages:
@@ -171,10 +175,4 @@ else:
             new_tech = st.selectbox("Assign Profile", crew_list)
             if st.button("Publish Ticket"):
                 new_id = int(st.session_state.tasks_db["id"].max() + 1)
-                new_row = {"id": new_id, "title": new_title, "location": new_loc, "priority": new_pri, "assigned_to": new_tech, "status": "In Progress" if new_tech != "Unassigned" else "Unassigned", "loto_verified": False, "jsa_completed": False, "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M")}
-                st.session_state.tasks_db = pd.concat([st.session_state.tasks_db, pd.DataFrame([new_row])], ignore_index=True)
-                st.rerun()
-
-            st.markdown("---")
-            msg_to_workers = st.text_area("Broadcast message to field teams...")
-                
+    
