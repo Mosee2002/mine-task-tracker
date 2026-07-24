@@ -5,7 +5,7 @@ from datetime import datetime
 # 1. PAGE SETUP
 st.set_page_config(page_title="Mine Task Tracker & Analytics", layout="wide")
 
-# 2. STATE DATA REGISTRY
+# 2. STATE DATA REGISTRY FOR PERSISTENT SESSION TRACKING
 if "user_registry" not in st.session_state:
     st.session_state.user_registry = {
         "supervisor1": {"password": "super789", "name": "Sarah Connor", "role": "Supervisor"},
@@ -30,10 +30,11 @@ if 'authenticated' not in st.session_state:
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
 
+# Dynamically look for any newly registered workers to map to crew lists
 crew_list = ["Unassigned"] + [info["name"] for info in st.session_state.user_registry.values() if info["role"] == "Worker"]
 
 # -------------------------------------------------------------
-# SCREEN 1: LOGIN & REGISTRATION
+# SCREEN 1: LOGIN & CREATING ACCOUNT PROFILES
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
     st.title("🔒 Industrial Portal Secure Entry")
@@ -50,7 +51,7 @@ if not st.session_state.authenticated:
                     st.session_state.user_payload = st.session_state.user_registry[user_in]
                     st.rerun()
                 else:
-                    st.error("Invalid credentials.")
+                    st.error("Invalid credentials entered.")
                     
     with register_column:
         st.subheader("🆕 Create Account / Set Password")
@@ -61,15 +62,15 @@ if not st.session_state.authenticated:
             reg_pass = st.text_input("Set Custom Password", type="password")
             if st.form_submit_button("Register Profile"):
                 if not reg_user or not reg_name or not reg_pass:
-                    st.error("All fields mandatory.")
+                    st.error("All registration fields are mandatory.")
                 elif reg_user in st.session_state.user_registry:
-                    st.error("Username taken.")
+                    st.error("Username already taken.")
                 else:
                     st.session_state.user_registry[reg_user] = {"password": reg_pass, "name": reg_name, "role": reg_role}
-                    st.success("Registered!")
+                    st.success("Registration complete! Profile uploaded.")
 
 # -------------------------------------------------------------
-# SCREEN 2: ACTIVE SECURED WORKSPACES
+# SCREEN 2: THE SECURED OPERATIONAL APP SECTORS
 # -------------------------------------------------------------
 else:
     user = st.session_state.user_payload
@@ -83,11 +84,11 @@ else:
             st.session_state.user_payload = None
             st.rerun()
 
-    # --- WORKER INTERFACE ---
+    # --- WORKER VIEW ---
     if user['role'] == "Worker":
         st.title("👷 Field Worker Workspace")
         
-        st.subheader("🔔 Supervisor Broadcast Notices")
+        st.subheader("📣 Supervisor Broadcast Notices")
         if not st.session_state.sup_to_wrk_messages:
             st.info("No active broadcast dispatch notices from supervisors.")
         else:
@@ -99,7 +100,7 @@ else:
         with tab_personal:
             my_tasks = tasks_df[tasks_df['assigned_to'] == user['name']]
             if my_tasks.empty:
-                st.info("No explicitly assigned jobs.")
+                st.info("No tasks currently assigned directly to your name.")
             else:
                 for idx, row in my_tasks.iterrows():
                     with st.container(border=True):
@@ -122,7 +123,7 @@ else:
             open_jobs_df = tasks_df[tasks_df['status'] != "Complete"]
             st.dataframe(open_jobs_df[["id", "title", "location", "priority", "status", "assigned_to"]], hide_index=True, use_container_width=True)
 
-    # --- SUPERVISOR INTERFACE ---
+    # --- SUPERVISOR VIEW ---
     elif user['role'] == "Supervisor":
         st.title("📋 Supervisor Control Terminal")
         
@@ -135,7 +136,7 @@ else:
         
         with sup_t1:
             st.subheader("📈 Live Shift Production Progress")
-            status_counts = tasks_df['status'].value_counts()
+            status_counts = tasks_df['status'].value_counts() if not tasks_df.empty else {}
             chart_data = pd.DataFrame({"Tasks Count": [status_counts.get(s, 0) for s in ["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"]]}, index=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"])
             st.bar_chart(chart_data, color="#FF4B4B")
             
@@ -144,7 +145,7 @@ else:
             st.session_state.tasks_db = updated_grid
             
         with sup_t3:
-            pending_items = tasks_df[tasks_df['status'] == "Pending QA"]
+            pending_items = tasks_df[tasks_df['status'] == "Pending QA"] if not tasks_df.empty else pd.DataFrame()
             if pending_items.empty:
                 st.info("No field cards awaiting verification.")
             else:
@@ -171,8 +172,4 @@ else:
                 st.rerun()
 
             st.markdown("---")
-            msg_to_workers = st.text_area("Broadcast message to field teams...")
-            if st.button("Send Message to Workers"):
-                st.session_state.sup_to_wrk_messages.append({"sender": user['name'], "text": msg_to_workers, "time": datetime.now().strftime("%H:%M")})
-                st.rerun()
-
+                        
