@@ -1,0 +1,16 @@
+{
+  "short_name": "MineTracker",
+  "name": "Mine & Workshop Task Portal",
+  "icons": [
+    {
+      "src": "https://flaticon.com",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0E1117",
+  "theme_color": "#FF4B4B",
+  "display": "standalone",
+  "orientation": "portrait"
+}
