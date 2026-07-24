@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
+import base64
 
 # 1. FACILITY SYSTEM APPLICATION ARCHITECTURE INITIALIZATION
 st.set_page_config(page_title="Mine Task Tracker", layout="wide")
@@ -36,8 +37,7 @@ def register_user_to_db(username, name, role, password):
         url = f"{SUPABASE_URL}/rest/v1/facility_users"
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(url, headers=DB_HEADERS, json=payload, timeout=10)
-        # FIXED: Added the explicit validation success codes array block [200, 201]
-        if res.status_code in [200, 201]:
+        if res.status_code in:
             return True
         return False
     except Exception:
@@ -103,7 +103,7 @@ normalized_role = str(user['role']).strip().lower()
 
 # Fetch active database rows live on loop load executions
 raw_tasks = fetch_all_tasks_from_db()
-tasks_df = pd.DataFrame(raw_tasks) if raw_tasks else pd.DataFrame(columns=["id", "title", "location", "status", "priority", "assigned_to", "loto_verified", "jsa_completed"])
+tasks_df = pd.DataFrame(raw_tasks) if raw_tasks else pd.DataFrame(columns=["id", "title", "location", "status", "priority", "assigned_to", "loto_verified", "jsa_completed", "photo_proof"])
 
 raw_users = fetch_all_users_from_db()
 crew_list = ["Unassigned"] + [u["full_name"] for u in raw_users if str(u["role"]).strip().lower() == "worker"]
@@ -128,6 +128,10 @@ if normalized_role == "worker":
             has_tasks = True
             with st.container(border=True):
                 st.markdown(f"#### Task #{item['id']}: {item['title']}")
+                
+                # Check for existing photo confirmation records
+                photo_saved = item.get('photo_proof') is not None and str(item.get('photo_proof')).strip() != ""
+                
                 loto = st.checkbox("LOTO Isolated", value=item['loto_verified'], key=f"wk_loto_{item['id']}")
                 jsa = st.checkbox("JSA Signed", value=item['jsa_completed'], key=f"wk_jsa_{item['id']}")
                 
@@ -136,12 +140,34 @@ if normalized_role == "worker":
                     st.rerun()
                 
                 if not loto or not jsa:
-                    st.error("🔒 Safety Interlocks Active.")
+                    st.error("🔒 Safety Interlocks Active. Fulfill compliance checkmarks first.")
                 else:
-                    action_status = st.selectbox("Update Status:", ["In Progress", "Pending QA", "Blocked"], index=["In Progress", "Pending QA", "Blocked"].index(item['status']) if item['status'] in ["In Progress", "Pending QA", "Blocked"] else 0, key=f"wk_stat_{item['id']}")
-                    if action_status != item['status']:
+                    # 📷 REBUILT CAMERA PORTAL INTEGRATION MODULE
+                    if not photo_saved:
+                        st.info("📸 Proof of Work Picture Required to submit for QA sign-off.")
+                        cam_image = st.camera_input("Snapshot Completed Work Integration", key=f"cam_{item['id']}")
+                        if cam_image is not None:
+                            bytes_data = cam_image.getvalue()
+                            b64_string = base64.b64encode(bytes_data).decode('utf-8')
+                            requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"photo_proof": b64_string})
+                            st.success("Work proof image uploaded securely!")
+                            st.rerun()
+                    else:
+                        st.success("✅ Work proof image uploaded successfully!")
+                        if st.button("🔄 Clear and Retake Photo", key=f"clear_cam_{item['id']}"):
+                            requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"photo_proof": None})
+                            st.rerun()
+
+                    # Status selector lock logic gate control parameters
+                    status_options = ["In Progress", "Pending QA", "Blocked"]
+                    action_status = st.selectbox("Update Status:", status_options, index=status_options.index(item['status']) if item['status'] in status_options else 0, key=f"wk_stat_{item['id']}", disabled=not photo_saved)
+                    
+                    if not photo_saved and action_status == "Pending QA":
+                        st.error("You must capture a picture before moving status to Pending QA.")
+                    elif action_status != item['status']:
                         requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"status": action_status})
                         st.rerun()
+                        
     if not has_tasks:
         st.info("No explicit jobs assigned to your specific tag name right now.")
                         
@@ -166,7 +192,7 @@ elif normalized_role == "supervisor":
     
     st.markdown("---")
     st.subheader("⚡ Shift Job Editing Grid")
-    st.dataframe(tasks_df, hide_index=True, use_container_width=True)
+    st.dataframe(tasks_df[["id", "title", "location", "priority", "status", "assigned_to"]], hide_index=True, use_container_width=True)
     
     st.markdown("---")
     st.subheader("🔍 Quality Assurance Sign-Off Deck")
@@ -175,39 +201,7 @@ elif normalized_role == "supervisor":
         if item['status'] == "Pending QA":
             has_pending = True
             st.markdown(f"**Task #{item['id']}: {item['title']}** ({item['assigned_to']})")
-            if st.button("✅ Approve & Close Task", key=f"sup_app_{item['id']}"):
-                requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"status": "Complete"})
-                st.rerun()
-            if st.button("❌ Reject back to Field", key=f"sup_rej_{item['id']}"):
-                requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"status": "In Progress"})
-                st.rerun()
-    if not has_pending:
-        st.info("No field validation records are currently awaiting verification.")
-
-    st.markdown("---")
-    st.subheader("➕ Generate New Maintenance Work Order")
-    new_title = st.text_input("Task Title Summary")
-    new_loc = st.text_input("Target Location Sector")
-    new_pri = st.selectbox("Urgency Grade", ["Low", "Medium", "High", "Critical"])
-    new_tech = st.selectbox("Assign Primary Tech Profile", crew_list)
-    if st.button("Publish Work Ticket"):
-        if new_title and new_loc:
-            requests.post(f"{SUPABASE_URL}/rest/v1/facility_tasks", headers=DB_HEADERS, json={"title": new_title, "location": new_loc, "priority": new_pri, "assigned_to": new_tech, "status": "In Progress" if new_tech != "Unassigned" else "Unassigned"})
-            st.success("Dispatched successfully!")
-            st.rerun()
-
-# === SUPERINTENDENT BOARD LOGIC ===
-elif normalized_role == "superintendent":
-    st.title("📊 Control Room Live Command Hub")
-    
-    t_all = len(raw_tasks)
-    t_done = sum(1 for t in raw_tasks if t['status'] == 'Complete')
-    t_block = sum(1 for t in raw_tasks if t['status'] == 'Blocked')
-    
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Total Active Records", t_all)
-    m2.metric("Archive Closures", t_done)
-    m3.metric("🚨 Active Shift Delays", t_block)
-    
-    st.markdown("---")
-    st.subheader("📊 Production Yield Progress Evaluation")
+            
+            # 🖼️ DISPLAY SAVED WORKPROOF IMAGE TO AREA SUPERVISORS
+            if item.get('photo_proof'):
+                try:
