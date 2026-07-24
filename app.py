@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 from datetime import datetime
 
 # 1. LIVE WEB LAYOUT CONFIGURATION
-st.set_page_config(page_title="Mine Task Tracker", layout="wide")
+st.set_page_config(page_title="Mine Task Tracker & Analytics", layout="wide")
 
 # 2. STATE DATA REGISTRY FOR CORE REPOSITORIES
 if "user_registry" not in st.session_state:
@@ -15,10 +16,11 @@ if "user_registry" not in st.session_state:
 if 'tasks_db' not in st.session_state:
     st.session_state.tasks_db = pd.DataFrame([
         {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "Unassigned", "loto_verified": False, "jsa_completed": False, "updated_at": "2026-07-23 04:30"},
-        {"id": 102, "title": "Calibrate Underground Gas Detectors", "location": "Level 4 North Shaft", "status": "Unassigned", "priority": "Critical", "assigned_to": "Unassigned", "loto_verified": False, "jsa_completed": False, "updated_at": "2026-07-23 01:15"}
+        {"id": 102, "title": "Calibrate Underground Gas Detectors", "location": "Level 4 North Shaft", "status": "Unassigned", "priority": "Critical", "assigned_to": "Unassigned", "loto_verified": False, "jsa_completed": False, "updated_at": "2026-07-23 01:15"},
+        {"id": 103, "title": "Inspect Overhead Workshop Crane Cables", "location": "Workshop Bench 1", "status": "Complete", "priority": "High", "assigned_to": "Sarah Connor", "loto_verified": True, "jsa_completed": True, "updated_at": "2026-07-22 14:00"},
+        {"id": 104, "title": "Re-wire Level 3 Sump Pump Float", "location": "Level 3 South Sump", "status": "Blocked", "priority": "Medium", "assigned_to": "Unassigned", "loto_verified": True, "jsa_completed": False, "updated_at": "2026-07-24 02:00"}
     ])
 
-# Communications ledger channel memory lists
 if "supt_to_sup_messages" not in st.session_state:
     st.session_state.supt_to_sup_messages = []
 if "sup_to_wrk_messages" not in st.session_state:
@@ -89,17 +91,15 @@ else:
     if user['role'] == "Worker":
         st.title("👷 Field Worker Workspace")
         
-        # Real-time Broadcast Messages received from Supervisors
         st.subheader("🔔 Communications Channel from Supervisors")
         if not st.session_state.sup_to_wrk_messages:
             st.info("No active broadcast dispatch notices active from supervisors.")
         else:
             for msg in reversed(st.session_state.sup_to_wrk_messages):
-                st.warning(f"📣 **{msg['sender']}** ({msg['time']}): {msg['text']}")
+                st.warning(f"📢 **{msg['sender']}** ({msg['time']}): {msg['text']}")
 
         st.markdown("---")
         
-        # Dual Segment View layout setup for Workers
         tab_personal, tab_master_board = st.tabs(["📋 My Assigned Job Dashboard", "🗂️ Master Facility Open Board"])
         
         with tab_personal:
@@ -120,25 +120,20 @@ else:
                         if not loto or not jsa:
                             st.error("🔒 Safety Interlocks Active. Fulfill compliance checkmarks to update status.")
                         else:
-                            action_status = st.selectbox("Update Status:", ["In Progress", "Pending QA", "Blocked"], key=f"wk_stat_{row['id']}")
+                            status_options = ["In Progress", "Pending QA", "Blocked"]
+                            current_idx = status_options.index(row['status']) if row['status'] in status_options else 0
+                            action_status = st.selectbox("Update Status:", status_options, index=current_idx, key=f"wk_stat_{row['id']}")
                             if action_status != row['status']:
                                 st.session_state.tasks_db.at[idx, 'status'] = action_status
                                 st.rerun()
                                 
         with tab_master_board:
             st.subheader("🌐 Complete List of Pending and Unassigned Shift Tasks")
-            st.caption("Every worker can inspect this board to review open, unassigned, or blocked maintenance work across the yard.")
-            
-            # Displays all tasks that are NOT complete so workers see what needs doing
             open_jobs_df = tasks_df[tasks_df['status'] != "Complete"]
             if open_jobs_df.empty:
                 st.success("All facility maintenance tasks closed out for this rotation!")
             else:
-                st.dataframe(
-                    open_jobs_df[["id", "title", "location", "priority", "status", "assigned_to"]],
-                    hide_index=True,
-                    use_container_width=True
-                )
+                st.dataframe(open_jobs_df[["id", "title", "location", "priority", "status", "assigned_to"]], hide_index=True, use_container_width=True)
 
     # -------------------------------------------------------------
     # APPLICATION PROFILE B: SUPERVISOR VIEW
@@ -146,7 +141,6 @@ else:
     elif user['role'] == "Supervisor":
         st.title("📋 Supervisor Control Terminal")
         
-        # Real-time Broadcast Messages received from Superintendents
         st.subheader("📥 Direct Messages from Superintendents")
         if not st.session_state.supt_to_sup_messages:
             st.info("No directive notifications logged from upper management command room.")
@@ -156,9 +150,23 @@ else:
 
         st.markdown("---")
         
-        t1, t2, t3, t4 = st.tabs(["⚡ Shift Control Matrix", "🔍 QA Sign-Off Deck", "➕ Create New Task", "📣 Message Workers"])
+        t1, t2, t3, t4, t5 = st.tabs(["📊 Live Progress Graphs", "⚡ Shift Control Matrix", "🔍 QA Sign-Off Deck", "➕ Create New Task", "📣 Message Workers"])
         
         with t1:
+            st.subheader("📈 Live Shift Production Charts")
+            
+            # Formulating chart matrices dynamically from database rows
+            status_counts = tasks_df['status'].value_counts()
+            all_statuses = ["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"]
+            chart_data = pd.DataFrame({
+                "Tasks Count": [status_counts.get(s, 0) for s in all_statuses]
+            }, index=all_statuses)
+            
+            # Render visual bar engine
+            st.bar_chart(chart_data, color="#FF4B4B")
+            st.caption("Bar metrics indicate real-time bottlenecking data across maintenance workflows.")
+            
+        with t2:
             st.markdown("### Master Drag and Drop/Edit Tracker")
             updated_grid = st.data_editor(
                 st.session_state.tasks_db,
@@ -170,21 +178,4 @@ else:
             )
             st.session_state.tasks_db = updated_grid
             
-        with t2:
-            pending_items = tasks_df[tasks_df['status'] == "Pending QA"]
-            if pending_items.empty:
-                st.info("No field validation records are currently awaiting verification.")
-            else:
-                for idx, row in pending_items.iterrows():
-                    st.markdown(f"**Task #{row['id']}: {row['title']}** ({row['assigned_to']})")
-                    b1, b2 = st.columns(2)
-                    with b1:
-                        if st.button("✅ Verify & Close", key=f"sup_app_{row['id']}"):
-                            st.session_state.tasks_db.at[idx, 'status'] = "Complete"
-                            st.rerun()
-                    with b2:
-                        if st.button("❌ Return to Shift", key=f"sup_rej_{row['id']}"):
-                            st.session_state.tasks_db.at[idx, 'status'] = "In Progress"
-                            st.rerun()
         with t3:
-            new_title = st.text_input("Task Summary")
