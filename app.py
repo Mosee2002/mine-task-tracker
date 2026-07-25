@@ -192,3 +192,4 @@ elif normalized_role == "supervisor":
     st.markdown("#### 🔍 Quality Assurance Review Deck")
     for idx, item in enumerate(raw_tasks):
         if item['status'] == "Pending QA":
+            
