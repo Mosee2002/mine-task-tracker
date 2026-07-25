@@ -194,3 +194,4 @@ if normalized_role == "worker":
                     else:
                         st.success("✅ Work proof image saved securely!")
                         if st.button("🔄 Retake Photo", key=f"clear_cam_{item['id']}"):
+                            
