@@ -65,7 +65,6 @@ def register_user_to_db(username, name, role, password):
     try:
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(f"{SUPABASE_URL}/rest/v1/facility_users", headers=DB_HEADERS, json=payload, timeout=10)
-        # FIXED: Removed 'in' syntax completely to prevent empty code blocks
         if res.status_code == 200 or res.status_code == 201:
             return True
     except Exception:
@@ -152,7 +151,7 @@ with st.sidebar:
 
 # === LAYER 1: WORKER PORTAL ===
 if normalized_role == "worker":
-    st.title(" Field Worker Workspace")
+    st.title("👷 Field Worker Workspace")
     st.markdown("---")
     st.subheader("📋 My Active Task Dashboard")
     
@@ -177,7 +176,7 @@ if normalized_role == "worker":
                     st.error("🔒 Safety Interlocks Active. Fulfill compliance items to open camera module.")
                 else:
                     if not photo_saved:
-                        st.info(" Camera Activated: Take a snapshot of the work area to release the submit lock.")
+                        st.info("📸 Camera Activated: Take a snapshot of the work area to release the submit lock.")
                         cam_image = st.camera_input("Capture Proof of Work", key=f"cam_{item['id']}")
                         if cam_image is not None:
                             b64_string = base64.b64encode(cam_image.getvalue()).decode('utf-8')
@@ -185,7 +184,7 @@ if normalized_role == "worker":
                             st.rerun()
                     else:
                         st.success("✅ Work proof image saved securely!")
-                        if st.button(" Retake Photo", key=f"clear_cam_{item['id']}"):
+                        if st.button("🔄 Retake Photo", key=f"clear_cam_{item['id']}"):
                             requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"photo_proof": None})
                             st.rerun()
 
@@ -201,3 +200,4 @@ if normalized_role == "worker":
     st.markdown("---")
     st.subheader("🌐 Complete List of All Facility Open Tasks")
     if not tasks_df.empty:
+        open_jobs = tasks_df[tasks_df['status'] != "Complete"]
