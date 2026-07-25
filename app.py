@@ -3,13 +3,14 @@ import pandas as pd
 import requests
 import base64
 
-# 1. FACILITY SYSTEM APPLICATION ARCHITECTURE INITIALIZATION
-st.set_page_config(page_title="Electrical Workshop Task Tracker Portal", layout="wide")
+# 1. PAGE SETUP & COLOR SCHEME CONFIGURATION
+st.set_page_config(page_title="Mine Task Tracker & Control Portal", layout="wide")
 
-# 2. DYNAMIC REAL-TIME THEME COORDINATOR ENGINE
+# Initialize universal theme parameters inside background memory slots safely
 if "app_theme" not in st.session_state:
     st.session_state.app_theme = "Industrial Dark"
 
+# Inject styling parameters cleanly without loop behaviors
 if st.session_state.app_theme == "Industrial Dark":
     st.markdown("""
         <style>
@@ -35,7 +36,7 @@ else:
         </style>
     """, unsafe_allow_html=True)
 
-# 3. YOUR VERIFIED CLOUD DATABASE CREDENTIALS
+# 2. YOUR SECURE CLOUD DATABASE CREDENTIALS
 SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
@@ -46,12 +47,13 @@ DB_HEADERS = {
     "Prefer": "return=representation"
 }
 
+# 3. GLOBAL APPLICATION STATE INITALIZATION
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
 
-# LOCAL DATA INITIALIZER: Runs if your cloud database table has zero tasks inside it
+# Smart Local Hybrid Storage logs to build rows immediately if your online table is empty
 if 'fallback_tasks' not in st.session_state:
     st.session_state.fallback_tasks = [
         {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
@@ -60,7 +62,7 @@ if 'fallback_tasks' not in st.session_state:
         {"id": 104, "title": "Re-wire Level 3 Sump Pump Float", "location": "Level 3 South Sump", "status": "Blocked", "priority": "Medium", "assigned_to": "Unassigned", "loto_verified": True, "jsa_completed": False, "photo_proof": None}
     ]
 
-# 4. DATABASE TRANSACTIONS
+# 4. DATABASE CONNECTIVITY NETWORKS
 def fetch_all_users_from_db():
     try:
         res = requests.get(f"{SUPABASE_URL}/rest/v1/facility_users?select=*", headers=DB_HEADERS, timeout=5)
@@ -69,9 +71,9 @@ def fetch_all_users_from_db():
     except Exception:
         pass
     return [
-        {"username": "worker1", "full_name": "Moses Anaba", "role": "Worker", "password_hash": "crew123"},
-        {"username": "supervisor1", "full_name": "Elvis Amevor", "role": "Supervisor", "password_hash": "super789"},
-        {"username": "superintendent1", "full_name": "Patrick Amanor", "role": "Superintendent", "password_hash": "boss000"}
+        {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": "crew123"},
+        {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": "super789"},
+        {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": "boss000"}
     ]
 
 def register_user_to_db(username, name, role, password):
@@ -94,7 +96,7 @@ def fetch_all_tasks_from_db():
     return st.session_state.fallback_tasks
 
 # -------------------------------------------------------------
-# INTERFACE GATEWAY 1: SECURITY PROFILE LOGIN WINDOW
+# INTERFACE LAYER 1: SECURITY ENTRY GATEWAY (IF NOT ACCREDITED)
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
     st.title("🔒 Industrial Portal Secure Entry")
@@ -116,10 +118,10 @@ if not st.session_state.authenticated:
             if matched_user:
                 st.session_state.user_payload = matched_user
                 st.session_state.authenticated = True
-                st.success("Authenticated! Press button again to load workspace dashboard.")
-                st.rerun()
+                st.success("Access Granted! Tap the button below to load your active profile panel.")
+                st.button("👉 Click to Open Workspace Panel")
             else:
-                st.error("Invalid credentials entered.")
+                st.error("Invalid credentials or database unreachable.")
             
     with register_column:
         st.subheader("🆕 Create Account / Set Password")
@@ -137,7 +139,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -------------------------------------------------------------
-# INTERFACE GATEWAY 2: CORE WORKSPACE TIERS
+# INTERFACE LAYER 2: CHOSEN AUTHENTICATED SYSTEM PORTALS
 # -------------------------------------------------------------
 user = st.session_state.user_payload
 normalized_role = str(user['role']).strip().lower()
@@ -149,15 +151,18 @@ raw_users = fetch_all_users_from_db()
 crew_list = ["Unassigned"] + [u["full_name"] for u in raw_users]
 
 with st.sidebar:
-    st.markdown(f"### Profile: **{user['full_name']}**")
-    st.info(f"Role: {user['role']}")
+    st.markdown(f"### User: **{user['full_name']}**")
+    st.info(f"Access Role: {user['role']}")
     st.markdown(f"🎨 Theme: **{st.session_state.app_theme}**")
     if st.button("🚪 Logout Application", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user_payload = None
-        st.rerun()
+        # FIXED: Removed st.rerun() loop crash blocks completely for flat safe re-renders
+        st.info("Logged out safely. Click any entry field or button to lock the portal doorway.")
 
-# === LAYER 1: WORKER PORTAL ===
+# =============================================================
+# WORKSPACE SECTOR A: FIELD TECHNICIANS (WORKER PORTAL)
+# =============================================================
 if normalized_role == "worker":
     st.title("👷 Field Worker Workspace")
     st.markdown("---")
@@ -169,7 +174,7 @@ if normalized_role == "worker":
             has_tasks = True
             with st.container(border=True):
                 st.markdown(f"#### Task #{item['id']}: {item['title']}")
-                st.write(f"📍 Sector: {item['location']} | Status: `{item['status']}`")
+                st.write(f"📍 Sector Location: {item['location']} | Status Tier: `{item['status']}`")
                 
                 photo_saved = item.get('photo_proof') is not None and str(item.get('photo_proof')).strip() != ""
                 
@@ -180,19 +185,10 @@ if normalized_role == "worker":
                 st.session_state.fallback_tasks[idx]['jsa_completed'] = jsa
                 
                 if not loto or not jsa:
-                    st.error("🔒 Safety Interlocks Active. Fulfill compliance items to open camera module.")
+                    st.error("🔒 Safety Interlocks Active. Fulfill compliance checkmarks to release controls.")
                 else:
                     if not photo_saved:
-                        st.info("📸 Camera Activated: Take a snapshot of the work area to release the submit lock.")
+                        st.info("📸 Camera Activated: Capture a task proof snapshot to release status menus.")
                         cam_image = st.camera_input("Capture Proof of Work", key=f"cam_{item['id']}")
                         if cam_image is not None:
                             b64_string = base64.b64encode(cam_image.getvalue()).decode('utf-8')
-                            st.session_state.fallback_tasks[idx]['photo_proof'] = b64_string
-                            st.rerun()
-                    else:
-                        st.success("✅ Work proof image saved securely!")
-                        if st.button("🔄 Retake Photo", key=f"clear_cam_{item['id']}"):
-                            st.session_state.fallback_tasks[idx]['photo_proof'] = None
-                            st.rerun()
-
-                    status_options = ["In Progress", "Pending QA", "Blocked"]
