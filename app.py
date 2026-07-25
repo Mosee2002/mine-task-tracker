@@ -3,39 +3,10 @@ import pandas as pd
 import requests
 import base64
 
-# 1. LIVE SITE APPLICATION ARCHITECTURE INITIALIZATION
-st.set_page_config(page_title="Mine Task Tracker & Control Portal", layout="wide")
+# 1. CORE WEB PAGE INITIALIZATION (NO CUSTOM BACKEND THEME INJECTIONS)
+st.title("⚙️ Mine & Workshop Digital Tracker")
 
-# 2. DYNAMIC REAL-TIME THEME COORDINATOR ENGINE
-if "app_theme" not in st.session_state:
-    st.session_state.app_theme = "Industrial Dark"
-
-if st.session_state.app_theme == "Industrial Dark":
-    st.markdown("""
-        <style>
-        .stApp {background-color: #0E1117 !important; color: #FFFFFF !important;}
-        h1, h2, h3, p, span, label {color: #FFFFFF !important;}
-        div[data-testid='stMetric'] {background-color: #1F2937 !important; border-radius: 8px; padding: 15px; border-left: 5px solid #00D1FF !important;}
-        </style>
-    """, unsafe_allow_html=True)
-elif st.session_state.app_theme == "High-Vis Safety Yellow":
-    st.markdown("""
-        <style>
-        .stApp {background-color: #FBBF24 !important; color: #000000 !important;}
-        h1, h2, h3, p, span, label {color: #000000 !important;}
-        div[data-testid='stMetric'] {background-color: #FFFFFF !important; border-radius: 8px; padding: 15px; border-left: 5px solid #000000 !important; box-shadow: 3px 3px 10px rgba(0,0,0,0.2);}
-        </style>
-    """, unsafe_allow_html=True)
-else:
-    st.markdown("""
-        <style>
-        .stApp {background-color: #FFFFFF !important; color: #000000 !important;}
-        h1, h2, h3, p, span, label {color: #000000 !important;}
-        div[data-testid='stMetric'] {background-color: #F3F4F6 !important; border-radius: 8px; padding: 15px; border-left: 5px solid #FF4B4B !important;}
-        </style>
-    """, unsafe_allow_html=True)
-
-# 3. VERIFIED OPERATIONAL CLOUD DATABASE CONNECTIONS
+# 2. VERIFIED OPERATIONAL CLOUD DATABASE CONNECTIONS
 SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
@@ -46,12 +17,13 @@ DB_HEADERS = {
     "Prefer": "return=representation"
 }
 
+# Initialize session parameters
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
 
-# LOCAL BACKUP MEMORY LEDGER: Automatically deploys clean variables if database rows return blank
+# LOCAL DATA OVERRIDE REGISTRY
 if 'fallback_tasks' not in st.session_state:
     st.session_state.fallback_tasks = [
         {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
@@ -60,7 +32,7 @@ if 'fallback_tasks' not in st.session_state:
         {"id": 104, "title": "Re-wire Level 3 Sump Pump Float", "location": "Level 3 South Sump", "status": "Blocked", "priority": "Medium", "assigned_to": "Unassigned", "loto_verified": True, "jsa_completed": False, "photo_proof": None}
     ]
 
-# 4. LIVE DATABASE CONTEXT ENGINE
+# 3. NATIVE POSTGRESQL NETWORK API OPERATIONS
 def fetch_all_users_from_db():
     try:
         res = requests.get(f"{SUPABASE_URL}/rest/v1/facility_users?select=*", headers=DB_HEADERS, timeout=5)
@@ -94,50 +66,49 @@ def fetch_all_tasks_from_db():
     return st.session_state.fallback_tasks
 
 # -------------------------------------------------------------
-# INTERFACE GATEWAY 1: SECURITY GATEWAY USER LOGINS
+# GATEWAY VIEW 1: ACCESS LOGIN GATEWAY
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
-    st.title("🔒 Industrial Portal Secure Entry")
-    login_column, register_column = st.columns(2)
+    st.markdown("### 🔒 Secure Login Gateway")
+    user_in = st.text_input("Username", key="lin_user").strip().lower()
+    pass_in = st.text_input("Password", type="password", key="lin_pass")
     
-    with login_column:
-        st.subheader("Sign In")
-        user_in = st.text_input("Username", key="lin_user").strip().lower()
-        pass_in = st.text_input("Password", type="password", key="lin_pass")
+    if st.button("Authenticate Profile"):
+        all_users = fetch_all_users_from_db()
+        matched_user = None
+        for u in all_users:
+            if str(u["username"]).strip().lower() == user_in and str(u["password_hash"]).strip() == pass_in:
+                matched_user = u
+                break
         
-        if st.button("Authenticate Profile"):
-            all_users = fetch_all_users_from_db()
-            matched_user = None
-            for u in all_users:
-                if str(u["username"]).strip().lower() == user_in and str(u["password_hash"]).strip() == pass_in:
-                    matched_user = u
-                    break
+        if matched_user:
+            st.session_state.user_payload = matched_user
+            st.session_state.authenticated = True
+            st.success("Access Profile Verified! Tap button below to enter.")
+        else:
+            st.error("Invalid credentials entered.")
             
-            if matched_user:
-                st.session_state.user_payload = matched_user
-                st.session_state.authenticated = True
-                st.success("Access Profile Verified! Tap button below to open active dashboard panels.")
-                st.button("👉 Load Active Terminal Workspace")
-            else:
-                st.error("Invalid credentials entered.")
-            
-    with register_column:
-        st.subheader("🆕 Create Account / Set Password")
-        reg_user = st.text_input("Choose Login Username", key="rg_u").strip().lower()
-        reg_name = st.text_input("Enter Full Name", key="rg_n")
-        reg_role = st.selectbox("Assign Access Level Role", ["Worker", "Supervisor", "Superintendent"], key="rg_r")
-        reg_pass = st.text_input("Set Security Password", type="password", key="rg_p")
-        
-        if st.button("Register to System Ledger"):
-            if not reg_user or not reg_name or not reg_pass:
-                st.error("All data input values are mandatory.")
-            else:
-                register_user_to_db(reg_user, reg_name, reg_role, reg_pass)
-                st.success("Account profile registered successfully! Sign in on the left form layout.")
+    if st.session_state.authenticated:
+        st.button("👉 LOAD APPLICATION DASHBOARD")
+        st.stop()
+
+    st.markdown("---")
+    st.markdown("### 🆕 Create New Account")
+    reg_user = st.text_input("Choose Login Username", key="rg_u").strip().lower()
+    reg_name = st.text_input("Enter Full Name", key="rg_n")
+    reg_role = st.selectbox("Assign Access Level Role", ["Worker", "Supervisor", "Superintendent"], key="rg_r")
+    reg_pass = st.text_input("Set Security Password", type="password", key="rg_p")
+    
+    if st.button("Register Account"):
+        if not reg_user or not reg_name or not reg_pass:
+            st.error("All input fields are mandatory.")
+        else:
+            register_user_to_db(reg_user, reg_name, reg_role, reg_pass)
+            st.success("Account profile registered successfully! Log in above.")
     st.stop()
 
 # -------------------------------------------------------------
-# INTERFACE GATEWAY 2: CORE PRODUCTION WORKSPACES
+# GATEWAY VIEW 2: LOGGED-IN PORTAL TRACKER TIERS
 # -------------------------------------------------------------
 user = st.session_state.user_payload
 normalized_role = str(user['role']).strip().lower()
@@ -147,47 +118,77 @@ raw_users = fetch_all_users_from_db()
 crew_list = ["Unassigned"] + [u["full_name"] for u in raw_users]
 
 with st.sidebar:
-    st.markdown(f"### Profile: **{user['full_name']}**")
-    st.info(f"Role Tier: {user['role']}")
-    st.markdown(f"🎨 Theme Status: **{st.session_state.app_theme}**")
-    if st.button("🚪 Logout Application", use_container_width=True):
+    st.write(f"Logged in as: **{user['full_name']}**")
+    st.write(f"Access Role: **{user['role']}**")
+    if st.button("🚪 Logout Application"):
         st.session_state.authenticated = False
         st.session_state.user_payload = None
-        st.info("Logged out. Click anywhere on screen to secure doorway.")
 
-# === MODULE TIER 1: TECHNICIAN FIELD DEVICE PORTAL ===
+# === VIEW TIER A: FIELD WORKERS ===
 if normalized_role == "worker":
-    st.title("👷 Field Worker Workspace")
-    st.markdown("---")
-    st.subheader("📋 My Active Task Dashboard")
-    
+    st.subheader("👷 Active Technician Assignment Panel")
     has_tasks = False
     for idx, item in enumerate(raw_tasks):
         if item['assigned_to'] == user['full_name']:
             has_tasks = True
-            with st.container(border=True):
-                st.markdown(f"#### Task #{item['id']}: {item['title']}")
-                st.write(f"📍 Sector Location: {item['location']} | Status: `{item['status']}`")
-                
-                photo_saved = item.get('photo_proof') is not None and str(item.get('photo_proof')).strip() != ""
-                
-                loto = st.checkbox("LOTO Isolated", value=item['loto_verified'], key=f"wk_loto_{item['id']}")
-                jsa = st.checkbox("JSA Signed", value=item['jsa_completed'], key=f"wk_jsa_{item['id']}")
-                
-                st.session_state.fallback_tasks[idx]['loto_verified'] = loto
-                st.session_state.fallback_tasks[idx]['jsa_completed'] = jsa
-                
-                if not loto or not jsa:
-                    st.error("🔒 Safety Interlocks Active. Fulfill compliance checkmarks to release controls.")
+            st.markdown(f"**Task #{item['id']}: {item['title']}**")
+            st.write(f"Location: {item['location']} | Status: {item['status']}")
+            
+            photo_saved = item.get('photo_proof') is not None and str(item.get('photo_proof')).strip() != ""
+            loto = st.checkbox("LOTO Isolated", value=item['loto_verified'], key=f"wk_loto_{item['id']}")
+            jsa = st.checkbox("JSA Signed", value=item['jsa_completed'], key=f"wk_jsa_{item['id']}")
+            
+            st.session_state.fallback_tasks[idx]['loto_verified'] = loto
+            st.session_state.fallback_tasks[idx]['jsa_completed'] = jsa
+            
+            if not loto or not jsa:
+                st.warning("🔒 Safety requirements active. Check LOTO and JSA.")
+            else:
+                if not photo_saved:
+                    st.info("📸 Camera Active: Snapshot completed equipment items to open submit settings.")
+                    cam_image = st.camera_input("Capture Proof of Work", key=f"cam_{item['id']}")
+                    if cam_image is not None:
+                        b64_string = base64.b64encode(cam_image.getvalue()).decode('utf-8')
+                        st.session_state.fallback_tasks[idx]['photo_proof'] = b64_string
                 else:
-                    if not photo_saved:
-                        st.info("📸 Camera Active: Snapshot completed equipment items to clear submit lock.")
-                        cam_image = st.camera_input("Capture Proof of Work", key=f"cam_{item['id']}")
-                        if cam_image is not None:
-                            b64_string = base64.b64encode(cam_image.getvalue()).decode('utf-8')
-                            st.session_state.fallback_tasks[idx]['photo_proof'] = b64_string
-                    else:
-                        st.success("✅ Work proof image saved securely!")
-                        if st.button(" Retake Photo", key=f"clear_cam_{item['id']}"):
-                            st.session_state.fallback_tasks[idx]['photo_proof'] = None
+                    st.success("✅ Work proof photo saved securely!")
+                    if st.button("🔄 Retake Photo", key=f"clear_cam_{item['id']}"):
+                        st.session_state.fallback_tasks[idx]['photo_proof'] = None
 
+                action_status = st.selectbox("Update Status:", ["In Progress", "Pending QA", "Blocked"], index=["In Progress", "Pending QA", "Blocked"].index(item['status']) if item['status'] in ["In Progress", "Pending QA", "Blocked"] else 0, key=f"wk_stat_{item['id']}", disabled=not photo_saved)
+                if action_status != item['status']:
+                    st.session_state.fallback_tasks[idx]['status'] = action_status
+            st.markdown("---")
+            
+    if not has_tasks:
+        st.info("No active maintenance tasks currently assigned directly to your account name.")
+
+# === VIEW TIER B: AREA SUPERVISORS ===
+elif normalized_role == "supervisor":
+    st.subheader("📋 Supervisor Operations Control Desk")
+    
+    st.markdown("#### Live Shift Statistics")
+    u_c = sum(1 for t in raw_tasks if t['status'] == 'Unassigned')
+    p_c = sum(1 for t in raw_tasks if t['status'] == 'In Progress')
+    q_c = sum(1 for t in raw_tasks if t['status'] == 'Pending QA')
+    c_c = sum(1 for t in raw_tasks if t['status'] == 'Complete')
+    b_c = sum(1 for t in raw_tasks if t['status'] == 'Blocked')
+    st.bar_chart(pd.DataFrame({"Count": [u_c, p_c, q_c, c_c, b_c]}, index=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"]))
+    
+    st.markdown("#### ⚡ Shift Crew Task Assignment Matrix")
+    updated_grid = st.data_editor(
+        pd.DataFrame(raw_tasks),
+        column_config={
+            "id": st.column_config.NumberColumn("ID", disabled=True),
+            "assigned_to": st.column_config.SelectboxColumn("Assign Crew Worker", options=crew_list, required=True),
+            "status": st.column_config.SelectboxColumn("Status Tier", options=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"]),
+            "priority": st.column_config.SelectboxColumn("Urgency Priority", options=["Low", "Medium", "High", "Critical"])
+        },
+        disabled=["id", "title", "location", "photo_proof"],
+        hide_index=True, use_container_width=True
+    )
+    st.session_state.fallback_tasks = updated_grid.to_dict(orient="records")
+    
+    st.markdown("#### 🔍 Quality Assurance Review Deck")
+    for idx, item in enumerate(raw_tasks):
+        if item['status'] == "Pending QA":
