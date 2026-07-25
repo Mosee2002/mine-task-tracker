@@ -35,7 +35,7 @@ else:
         </style>
     """, unsafe_allow_html=True)
 
-# 3. YOUR SECURE CLOUD DATABASE CREDENTIALS (HARDCODED INTEGRATION)
+# 3. FIXED: INTEGRATED YOUR PROVIDE SUPABASE LINK AND ANON PUBLIC KEY
 SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
@@ -65,7 +65,9 @@ def register_user_to_db(username, name, role, password):
     try:
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(f"{SUPABASE_URL}/rest/v1/facility_users", headers=DB_HEADERS, json=payload, timeout=10)
-        if res.status_code == 200 or res.status_code == 201:
+        if res.status_code == 200:
+            return True
+        if res.status_code == 201:
             return True
     except Exception:
         pass
@@ -106,7 +108,7 @@ if not st.session_state.authenticated:
                 st.success("Authenticated! Press button again to load workspace dashboard.")
                 st.rerun()
             else:
-                st.error("Invalid credentials or unable to reach user registry.")
+                st.error("Invalid credentials entered or database unreachable.")
             
     with register_column:
         st.subheader("🆕 Create Account / Set Password")
@@ -201,4 +203,3 @@ if normalized_role == "worker":
         open_jobs = tasks_df[tasks_df['status'] != "Complete"]
         st.dataframe(open_jobs[["id", "title", "location", "priority", "status", "assigned_to"]], hide_index=True, use_container_width=True)
 
-# === LAYER 2: SUPERVISOR PORTAL ===
