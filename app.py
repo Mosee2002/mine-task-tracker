@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import base64
 
-# 1. CORE WEB PAGE INITIALIZATION (NO CUSTOM BACKEND THEME INJECTIONS)
+# 1. FACILITY WEB APP INITIALIZATION (NO CSS DESIGN LAYOUTS)
 st.title("⚙️ Mine & Workshop Digital Tracker")
 
 # 2. VERIFIED OPERATIONAL CLOUD DATABASE CONNECTIONS
@@ -17,13 +17,12 @@ DB_HEADERS = {
     "Prefer": "return=representation"
 }
 
-# Initialize session parameters
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
 
-# LOCAL DATA OVERRIDE REGISTRY
+# LOCAL DATA REGISTRY FOR OVERRIDE FALLBACKS
 if 'fallback_tasks' not in st.session_state:
     st.session_state.fallback_tasks = [
         {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
@@ -66,7 +65,7 @@ def fetch_all_tasks_from_db():
     return st.session_state.fallback_tasks
 
 # -------------------------------------------------------------
-# GATEWAY VIEW 1: ACCESS LOGIN GATEWAY
+# INTERFACE GATEWAY 1: SECURITY GATEWAY USER LOGINS
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
     st.markdown("### 🔒 Secure Login Gateway")
@@ -84,12 +83,12 @@ if not st.session_state.authenticated:
         if matched_user:
             st.session_state.user_payload = matched_user
             st.session_state.authenticated = True
-            st.success("Access Profile Verified! Tap button below to enter.")
+            st.success("Access Profile Verified! Tap button below to load your active panel rows.")
         else:
             st.error("Invalid credentials entered.")
             
     if st.session_state.authenticated:
-        st.button("👉 LOAD APPLICATION DASHBOARD")
+        st.button("👉 LOAD DASHBOARD PANELS")
         st.stop()
 
     st.markdown("---")
@@ -108,7 +107,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -------------------------------------------------------------
-# GATEWAY VIEW 2: LOGGED-IN PORTAL TRACKER TIERS
+# INTERFACE GATEWAY 2: CORE PRODUCTION WORKSPACES
 # -------------------------------------------------------------
 user = st.session_state.user_payload
 normalized_role = str(user['role']).strip().lower()
@@ -119,55 +118,53 @@ crew_list = ["Unassigned"] + [u["full_name"] for u in raw_users]
 
 with st.sidebar:
     st.write(f"Logged in as: **{user['full_name']}**")
-    st.write(f"Access Role: **{user['role']}**")
-    if st.button("🚪 Logout Application"):
+    st.write(f"Access Role Tier: **{user['role']}**")
+    if st.button("🚪 Logout Application", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user_payload = None
 
-# === VIEW TIER A: FIELD WORKERS ===
+# === MODULE TIER 1: WORKER VIEW PANEL ===
 if normalized_role == "worker":
     st.subheader("👷 Active Technician Assignment Panel")
     has_tasks = False
     for idx, item in enumerate(raw_tasks):
         if item['assigned_to'] == user['full_name']:
             has_tasks = True
-            st.markdown(f"**Task #{item['id']}: {item['title']}**")
-            st.write(f"Location: {item['location']} | Status: {item['status']}")
-            
-            photo_saved = item.get('photo_proof') is not None and str(item.get('photo_proof')).strip() != ""
-            loto = st.checkbox("LOTO Isolated", value=item['loto_verified'], key=f"wk_loto_{item['id']}")
-            jsa = st.checkbox("JSA Signed", value=item['jsa_completed'], key=f"wk_jsa_{item['id']}")
-            
-            st.session_state.fallback_tasks[idx]['loto_verified'] = loto
-            st.session_state.fallback_tasks[idx]['jsa_completed'] = jsa
-            
-            if not loto or not jsa:
-                st.warning("🔒 Safety requirements active. Check LOTO and JSA.")
-            else:
-                if not photo_saved:
-                    st.info("📸 Camera Active: Snapshot completed equipment items to open submit settings.")
-                    cam_image = st.camera_input("Capture Proof of Work", key=f"cam_{item['id']}")
-                    if cam_image is not None:
-                        b64_string = base64.b64encode(cam_image.getvalue()).decode('utf-8')
-                        st.session_state.fallback_tasks[idx]['photo_proof'] = b64_string
+            with st.container(border=True):
+                st.markdown(f"**Task #{item['id']}: {item['title']}**")
+                st.write(f"📍 Location: {item['location']} | Status: `{item['status']}`")
+                
+                photo_saved = item.get('photo_proof') is not None and str(item.get('photo_proof')).strip() != ""
+                loto = st.checkbox("LOTO Isolated", value=item['loto_verified'], key=f"wk_loto_{item['id']}")
+                jsa = st.checkbox("JSA Signed", value=item['jsa_completed'], key=f"wk_jsa_{item['id']}")
+                
+                st.session_state.fallback_tasks[idx]['loto_verified'] = loto
+                st.session_state.fallback_tasks[idx]['jsa_completed'] = jsa
+                
+                if not loto or not jsa:
+                    st.warning("🔒 Safety requirements active. Check LOTO and JSA.")
                 else:
-                    st.success("✅ Work proof photo saved securely!")
-                    if st.button("🔄 Retake Photo", key=f"clear_cam_{item['id']}"):
-                        st.session_state.fallback_tasks[idx]['photo_proof'] = None
+                    if not photo_saved:
+                        st.info("📸 Camera Active: Snapshot completed equipment items to clear submit lock.")
+                        cam_image = st.camera_input("Capture Proof of Work", key=f"cam_{item['id']}")
+                        if cam_image is not None:
+                            b64_string = base64.b64encode(cam_image.getvalue()).decode('utf-8')
+                            st.session_state.fallback_tasks[idx]['photo_proof'] = b64_string
+                    else:
+                        st.success("✅ Work proof photo saved securely!")
+                        if st.button("🔄 Retake Photo", key=f"clear_cam_{item['id']}"):
+                            st.session_state.fallback_tasks[idx]['photo_proof'] = None
 
-                action_status = st.selectbox("Update Status:", ["In Progress", "Pending QA", "Blocked"], index=["In Progress", "Pending QA", "Blocked"].index(item['status']) if item['status'] in ["In Progress", "Pending QA", "Blocked"] else 0, key=f"wk_stat_{item['id']}", disabled=not photo_saved)
-                if action_status != item['status']:
-                    st.session_state.fallback_tasks[idx]['status'] = action_status
-            st.markdown("---")
-            
+                    action_status = st.selectbox("Update Status:", ["In Progress", "Pending QA", "Blocked"], index=["In Progress", "Pending QA", "Blocked"].index(item['status']) if item['status'] in ["In Progress", "Pending QA", "Blocked"] else 0, key=f"wk_stat_{item['id']}", disabled=not photo_saved)
+                    if action_status != item['status']:
+                        st.session_state.fallback_tasks[idx]['status'] = action_status
     if not has_tasks:
         st.info("No active maintenance tasks currently assigned directly to your account name.")
 
-# === VIEW TIER B: AREA SUPERVISORS ===
-elif normalized_role == "supervisor":
+# === MODULE TIER 2: AREA SUPERVISOR CONTROL DECK ===
+if normalized_role == "supervisor":
     st.subheader("📋 Supervisor Operations Control Desk")
     
-    st.markdown("#### Live Shift Statistics")
     u_c = sum(1 for t in raw_tasks if t['status'] == 'Unassigned')
     p_c = sum(1 for t in raw_tasks if t['status'] == 'In Progress')
     q_c = sum(1 for t in raw_tasks if t['status'] == 'Pending QA')
@@ -190,6 +187,3 @@ elif normalized_role == "supervisor":
     st.session_state.fallback_tasks = updated_grid.to_dict(orient="records")
     
     st.markdown("#### 🔍 Quality Assurance Review Deck")
-    for idx, item in enumerate(raw_tasks):
-        if item['status'] == "Pending QA":
-            
