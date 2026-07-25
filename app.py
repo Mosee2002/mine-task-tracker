@@ -4,7 +4,7 @@ import requests
 import base64
 
 # 1. FACILITY SYSTEM APPLICATION ARCHITECTURE INITIALIZATION
-st.set_page_config(page_title="Mine Task Tracker & Control Portal", layout="wide")
+st.set_page_config(page_title="Electrical Workshop Task Tracker Portal", layout="wide")
 
 # 2. DYNAMIC REAL-TIME THEME COORDINATOR ENGINE
 if "app_theme" not in st.session_state:
@@ -51,7 +51,7 @@ if 'authenticated' not in st.session_state:
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
 
-# LOCAL DATA INITIALIZER: Runs only if your cloud database table has zero tasks inside it
+# LOCAL DATA INITIALIZER: Runs if your cloud database table has zero tasks inside it
 if 'fallback_tasks' not in st.session_state:
     st.session_state.fallback_tasks = [
         {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
@@ -68,11 +68,10 @@ def fetch_all_users_from_db():
             return res.json()
     except Exception:
         pass
-    # Local worker profiles to ensure you never get locked out
     return [
-        {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": "crew123"},
-        {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": "super789"},
-        {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": "boss000"}
+        {"username": "worker1", "full_name": "Moses Anaba", "role": "Worker", "password_hash": "crew123"},
+        {"username": "supervisor1", "full_name": "Elvis Amevor", "role": "Supervisor", "password_hash": "super789"},
+        {"username": "superintendent1", "full_name": "Patrick Amanor", "role": "Superintendent", "password_hash": "boss000"}
     ]
 
 def register_user_to_db(username, name, role, password):
@@ -92,7 +91,6 @@ def fetch_all_tasks_from_db():
             return res.json()
     except Exception:
         pass
-    # FIXED: Automatically injects your successful data view if your database table is empty [INDEX]
     return st.session_state.fallback_tasks
 
 # -------------------------------------------------------------
@@ -194,4 +192,7 @@ if normalized_role == "worker":
                     else:
                         st.success("✅ Work proof image saved securely!")
                         if st.button("🔄 Retake Photo", key=f"clear_cam_{item['id']}"):
-                            
+                            st.session_state.fallback_tasks[idx]['photo_proof'] = None
+                            st.rerun()
+
+                    status_options = ["In Progress", "Pending QA", "Blocked"]
