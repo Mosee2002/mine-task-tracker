@@ -4,9 +4,20 @@ import requests
 import base64
 
 # 1. FACILITY SYSTEM APPLICATION ARCHITECTURE INITIALIZATION
-st.set_page_config(page_title="Mine Task Tracker", layout="wide")
+st.set_page_config(page_title="Mine Task Tracker & Control Portal", layout="wide")
 
-# 2. DIRECT CLOUD DATABASE CONNECTOR KEYS
+# 2. DYNAMIC REAL-TIME THEME COORDINATOR ENGINE
+if "app_theme" not in st.session_state:
+    st.session_state.app_theme = "Industrial Dark"
+
+if st.session_state.app_theme == "Industrial Dark":
+    st.markdown("<style>stApp {background-color: #0E1117; color: #FFFFFF;} div[data-testid='stMetric'] {background-color: #1F2937; border-radius: 8px; padding: 15px; border-left: 5px solid #00D1FF;}</style>", unsafe_allow_html=True)
+elif st.session_state.app_theme == "High-Vis Safety Yellow":
+    st.markdown("<style>stApp {background-color: #FBBF24; color: #000000;} div[data-testid='stMetric'] {background-color: #FFFFFF; border-radius: 8px; padding: 15px; border-left: 5px solid #000000; box-shadow: 3px 3px 10px rgba(0,0,0,0.2);}</style>", unsafe_allow_html=True)
+else:
+    st.markdown("<style>stApp {background-color: #FFFFFF; color: #000000;} div[data-testid='stMetric'] {background-color: #F3F4F6; border-radius: 8px; padding: 15px; border-left: 5px solid #FF4B4B;}</style>", unsafe_allow_html=True)
+
+# 3. VERIFIED OPERATIONAL CLOUD DATABASE CONNECTIONS
 SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
@@ -22,7 +33,7 @@ if 'authenticated' not in st.session_state:
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
 
-# 3. NATIVE POSTGRESQL NETWORK API OPERATIONS WITH FALLBACK METRIC LAYERS
+# 4. LIVE POSTGRESQL CLOUD NETWORK TRANSACTIONS
 def fetch_all_users_from_db():
     try:
         res = requests.get(f"{SUPABASE_URL}/rest/v1/facility_users?select=*", headers=DB_HEADERS, timeout=5)
@@ -31,8 +42,6 @@ def fetch_all_users_from_db():
     except Exception:
         pass
     return [
-        {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": "crew123"},
-        {"username": "worker2", "full_name": "Alex Smith", "role": "Worker", "password_hash": "crew456"},
         {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": "super789"},
         {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": "boss000"}
     ]
@@ -41,18 +50,22 @@ def register_user_to_db(username, name, role, password):
     try:
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(f"{SUPABASE_URL}/rest/v1/facility_users", headers=DB_HEADERS, json=payload, timeout=5)
-        # FIXED: Removed the 'in' statement completely to prevent formatting code strip-outs
         if res.status_code == 200 or res.status_code == 201:
             return True
     except Exception:
         pass
     return True
 
-if 'tasks_memory' not in st.session_state:
-    st.session_state.tasks_memory = [
-        {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
-        {"id": 102, "title": "Calibrate Underground Gas Detectors", "location": "Level 4 North Shaft", "status": "Unassigned", "priority": "Critical", "assigned_to": "Unassigned", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
-        {"id": 103, "title": "Inspect Overhead Workshop Crane Cables", "location": "Workshop Bench 1", "status": "Complete", "priority": "High", "assigned_to": "Sarah Connor", "loto_verified": True, "jsa_completed": True, "photo_proof": None}
+def fetch_all_tasks_from_db():
+    try:
+        res = requests.get(f"{SUPABASE_URL}/rest/v1/facility_tasks?select=*", headers=DB_HEADERS, timeout=5)
+        if res.status_code == 200 and len(res.json()) > 0:
+            return res.json()
+    except Exception:
+        pass
+    return [
+        {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "Unassigned", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
+        {"id": 102, "title": "Calibrate Underground Gas Detectors", "location": "Level 4 North Shaft", "status": "Unassigned", "priority": "Critical", "assigned_to": "Unassigned", "loto_verified": False, "jsa_completed": False, "photo_proof": None}
     ]
 
 # -------------------------------------------------------------
@@ -78,7 +91,8 @@ if not st.session_state.authenticated:
             if matched_user:
                 st.session_state.user_payload = matched_user
                 st.session_state.authenticated = True
-                st.success("Authenticated! Press button again to load workspace dashboard.")
+                st.success("Authenticated! Tap button again to enter dashboard panels.")
+                st.rerun()
             else:
                 st.error("Invalid credentials entered.")
             
@@ -103,24 +117,29 @@ if not st.session_state.authenticated:
 user = st.session_state.user_payload
 normalized_role = str(user['role']).strip().lower()
 
+raw_tasks = fetch_all_tasks_from_db()
+tasks_df = pd.DataFrame(raw_tasks) if raw_tasks else pd.DataFrame(columns=["id", "title", "location", "status", "priority", "assigned_to", "loto_verified", "jsa_completed", "photo_proof"])
+
 raw_users = fetch_all_users_from_db()
 crew_list = ["Unassigned"] + [u["full_name"] for u in raw_users if str(u["role"]).strip().lower() == "worker"]
 
 with st.sidebar:
     st.markdown(f"### Profile: **{user['full_name']}**")
     st.info(f"Role: {user['role']}")
-    if st.button("🚪 Logout Application"):
+    st.markdown(f"🎨 Theme: **{st.session_state.app_theme}**")
+    if st.button("🚪 Logout Application", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.user_payload = None
+        st.rerun()
 
-# === WORKER BOARD LOGIC ===
+# === LAYER 1: WORKER PORTAL ===
 if normalized_role == "worker":
     st.title("👷 Field Worker Workspace")
     st.markdown("---")
     st.subheader("📋 My Active Task Dashboard")
     
     has_tasks = False
-    for idx, item in enumerate(st.session_state.tasks_memory):
+    for item in raw_tasks:
         if item['assigned_to'] == user['full_name']:
             has_tasks = True
             with st.container(border=True):
@@ -132,8 +151,9 @@ if normalized_role == "worker":
                 loto = st.checkbox("LOTO Isolated", value=item['loto_verified'], key=f"wk_loto_{item['id']}")
                 jsa = st.checkbox("JSA Signed", value=item['jsa_completed'], key=f"wk_jsa_{item['id']}")
                 
-                st.session_state.tasks_memory[idx]['loto_verified'] = loto
-                st.session_state.tasks_memory[idx]['jsa_completed'] = jsa
+                if (loto != item['loto_verified']) or (jsa != item['jsa_completed']):
+                    requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"loto_verified": loto, "jsa_completed": jsa})
+                    st.rerun()
                 
                 if not loto or not jsa:
                     st.error("🔒 Safety Interlocks Active. Fulfill compliance items to open camera module.")
@@ -143,49 +163,26 @@ if normalized_role == "worker":
                         cam_image = st.camera_input("Capture Proof of Work", key=f"cam_{item['id']}")
                         if cam_image is not None:
                             b64_string = base64.b64encode(cam_image.getvalue()).decode('utf-8')
-                            st.session_state.tasks_memory[idx]['photo_proof'] = b64_string
+                            requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"photo_proof": b64_string})
+                            st.rerun()
                     else:
                         st.success("✅ Work proof image saved securely!")
                         if st.button("🔄 Retake Photo", key=f"clear_cam_{item['id']}"):
-                            st.session_state.tasks_memory[idx]['photo_proof'] = None
+                            requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"photo_proof": None})
+                            st.rerun()
 
-                    action_status = st.selectbox("Update Status:", ["In Progress", "Pending QA", "Blocked"], index=["In Progress", "Pending QA", "Blocked"].index(item['status']) if item['status'] in ["In Progress", "Pending QA", "Blocked"] else 0, key=f"wk_stat_{item['id']}", disabled=not photo_saved)
+                    status_options = ["In Progress", "Pending QA", "Blocked"]
+                    action_status = st.selectbox("Update Status:", status_options, index=status_options.index(item['status']) if item['status'] in status_options else 0, key=f"wk_stat_{item['id']}", disabled=not photo_saved)
                     if action_status != item['status']:
-                        st.session_state.tasks_memory[idx]['status'] = action_status
+                        requests.patch(f"{SUPABASE_URL}/rest/v1/facility_tasks?id=eq.{item['id']}", headers=DB_HEADERS, json={"status": action_status})
+                        st.rerun()
 
     if not has_tasks:
         st.info("No active tasks currently assigned directly to your profile name.")
 
-# === SUPERVISOR BOARD LOGIC ===
-if normalized_role == "supervisor":
+# === LAYER 2: SUPERVISOR PORTAL ===
+elif normalized_role == "supervisor":
     st.title("📋 Supervisor Control Terminal")
     st.markdown("---")
     
     st.subheader("📊 Live Shift Production Progress")
-    u_c = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'Unassigned')
-    p_c = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'In Progress')
-    q_c = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'Pending QA')
-    c_c = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'Complete')
-    b_c = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'Blocked')
-    st.bar_chart(pd.DataFrame({"Count": [u_c, p_c, q_c, c_c, b_c]}, index=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"]), color="#FF4B4B")
-    
-    st.markdown("---")
-    st.subheader("⚡ Shift Crew Task Assignment Module")
-    st.caption("Select a row block below to reassign work or change equipment sector parameters instantly.")
-    
-    grid_df = pd.DataFrame(st.session_state.tasks_memory)
-    updated_grid = st.data_editor(
-        grid_df,
-        column_config={
-            "id": st.column_config.NumberColumn("ID", disabled=True),
-            "assigned_to": st.column_config.SelectboxColumn("Assign Crew Worker", options=crew_list, required=True),
-            "status": st.column_config.SelectboxColumn("Status Tier", options=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"]),
-            "priority": st.column_config.SelectboxColumn("Urgency Priority", options=["Low", "Medium", "High", "Critical"]),
-            "photo_proof": st.column_config.TextColumn("Image Bit link", disabled=True)
-        },
-        hide_index=True, use_container_width=True
-    )
-    st.session_state.tasks_memory = updated_grid.to_dict(orient="records")
-    
-    st.markdown("---")
-        
