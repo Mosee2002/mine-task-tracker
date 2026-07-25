@@ -3,10 +3,21 @@ import pandas as pd
 import requests
 import base64
 
-# 1. FACILITY WEB APP INITIALIZATION (NO CSS DESIGN LAYOUTS)
+# 1. FACILITY WEB APP INITIALIZATION (NO COMPLEX STYLE INJECTIONS)
 st.title("⚙️ Mine & Workshop Digital Tracker")
 
-# 2. VERIFIED OPERATIONAL CLOUD DATABASE CONNECTIONS
+# 2. DYNAMIC REAL-TIME THEME COORDINATOR ENGINE
+if "app_theme" not in st.session_state:
+    st.session_state.app_theme = "Industrial Dark"
+
+if st.session_state.app_theme == "Industrial Dark":
+    st.markdown("<style>.stApp {background-color: #0E1117 !important; color: #FFFFFF !important;}</style>", unsafe_allow_html=True)
+elif st.session_state.app_theme == "High-Vis Safety Yellow":
+    st.markdown("<style>.stApp {background-color: #FBBF24 !important; color: #000000 !important;}</style>", unsafe_allow_html=True)
+else:
+    st.markdown("<style>.stApp {background-color: #FFFFFF !important; color: #000000 !important;}</style>", unsafe_allow_html=True)
+
+# 3. VERIFIED OPERATIONAL CLOUD DATABASE CONNECTIONS
 SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
@@ -21,6 +32,8 @@ if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
+if 'broadcast_messages' not in st.session_state:
+    st.session_state.broadcast_messages = []
 
 # LOCAL DATA REGISTRY FOR OVERRIDE FALLBACKS
 if 'fallback_tasks' not in st.session_state:
@@ -31,7 +44,7 @@ if 'fallback_tasks' not in st.session_state:
         {"id": 104, "title": "Re-wire Level 3 Sump Pump Float", "location": "Level 3 South Sump", "status": "Blocked", "priority": "Medium", "assigned_to": "Unassigned", "loto_verified": True, "jsa_completed": False, "photo_proof": None}
     ]
 
-# 3. NATIVE POSTGRESQL NETWORK API OPERATIONS
+# 4. NATIVE POSTGRESQL NETWORK API OPERATIONS
 def fetch_all_users_from_db():
     try:
         res = requests.get(f"{SUPABASE_URL}/rest/v1/facility_users?select=*", headers=DB_HEADERS, timeout=5)
@@ -83,7 +96,7 @@ if not st.session_state.authenticated:
         if matched_user:
             st.session_state.user_payload = matched_user
             st.session_state.authenticated = True
-            st.success("Access Profile Verified! Tap button below to load your active panel rows.")
+            st.success("Access Profile Verified! Tap button below to load workspace dashboard panels.")
         else:
             st.error("Invalid credentials entered.")
             
@@ -107,9 +120,10 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -------------------------------------------------------------
-# INTERFACE GATEWAY 2: CORE PRODUCTION WORKSPACES
+# INTERFACE GATEWAY 2: CORE WORKSPACE TIERS
 # -------------------------------------------------------------
 user = st.session_state.user_payload
+# FIXED: Forces character string normalization to prevent layout mismatches
 normalized_role = str(user['role']).strip().lower()
 
 raw_tasks = fetch_all_tasks_from_db()
@@ -126,6 +140,13 @@ with st.sidebar:
 # === MODULE TIER 1: WORKER VIEW PANEL ===
 if normalized_role == "worker":
     st.subheader("👷 Active Technician Assignment Panel")
+    
+    # Render broadcast messages sent by Supervisors
+    if st.session_state.broadcast_messages:
+        st.info("📢 **Supervisor Notice Board:**")
+        for msg in reversed(st.session_state.broadcast_messages):
+            st.warning(f"💬 {msg}")
+            
     has_tasks = False
     for idx, item in enumerate(raw_tasks):
         if item['assigned_to'] == user['full_name']:
@@ -162,28 +183,9 @@ if normalized_role == "worker":
         st.info("No active maintenance tasks currently assigned directly to your account name.")
 
 # === MODULE TIER 2: AREA SUPERVISOR CONTROL DECK ===
-if normalized_role == "supervisor":
+elif normalized_role == "supervisor":
     st.subheader("📋 Supervisor Operations Control Desk")
     
     u_c = sum(1 for t in raw_tasks if t['status'] == 'Unassigned')
     p_c = sum(1 for t in raw_tasks if t['status'] == 'In Progress')
     q_c = sum(1 for t in raw_tasks if t['status'] == 'Pending QA')
-    c_c = sum(1 for t in raw_tasks if t['status'] == 'Complete')
-    b_c = sum(1 for t in raw_tasks if t['status'] == 'Blocked')
-    st.bar_chart(pd.DataFrame({"Count": [u_c, p_c, q_c, c_c, b_c]}, index=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"]))
-    
-    st.markdown("#### ⚡ Shift Crew Task Assignment Matrix")
-    updated_grid = st.data_editor(
-        pd.DataFrame(raw_tasks),
-        column_config={
-            "id": st.column_config.NumberColumn("ID", disabled=True),
-            "assigned_to": st.column_config.SelectboxColumn("Assign Crew Worker", options=crew_list, required=True),
-            "status": st.column_config.SelectboxColumn("Status Tier", options=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"]),
-            "priority": st.column_config.SelectboxColumn("Urgency Priority", options=["Low", "Medium", "High", "Critical"])
-        },
-        disabled=["id", "title", "location", "photo_proof"],
-        hide_index=True, use_container_width=True
-    )
-    st.session_state.fallback_tasks = updated_grid.to_dict(orient="records")
-    
-    st.markdown("#### 🔍 Quality Assurance Review Deck")
