@@ -17,7 +17,7 @@ elif st.session_state.app_theme == "High-Vis Safety Yellow":
 else:
     st.markdown("<style>.stApp {background-color: #FFFFFF !important; color: #000000 !important;}</style>", unsafe_allow_html=True)
 
-# 3. VERIFIED CLOUD DATABASE CREDENTIALS
+# 3. VERIFIED CLOUD DATABASE CONNECTIONS
 SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
@@ -118,7 +118,6 @@ if not st.session_state.authenticated:
 # FLAT NO-ELIF ROLE INTERFACE INITIALIZATION ENGINE
 # -------------------------------------------------------------
 user = st.session_state.user_payload
-# Normalize matching checks completely by using string cleaning blocks [INDEX]
 role_check = str(user['role']).strip().lower()
 
 raw_tasks = fetch_all_tasks_from_db()
@@ -132,9 +131,9 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.session_state.user_payload = None
 
-# FLAT PORTAL PANEL 1: FOR FIELD WORKERS (Triggers if string is worker)
+# FLAT PORTAL PANEL 1: FOR FIELD WORKERS
 if "worker" in role_check:
-    st.subheader("👷 Active Technician Assignment Panel")
+    st.subheader("Active Technician Assignment Panel")
     if st.session_state.broadcast_messages:
         for msg in reversed(st.session_state.broadcast_messages):
             st.warning(f"📣 Broadcast Notice: {msg}")
@@ -168,7 +167,7 @@ if "worker" in role_check:
                     if action_status != item['status']:
                         st.session_state.fallback_tasks[idx]['status'] = action_status
 
-# FLAT PORTAL PANEL 2: FOR SHIFT SUPERVISORS (Triggers if string is supervisor)
+# FLAT PORTAL PANEL 2: FOR SHIFT SUPERVISORS
 if "supervisor" in role_check:
     st.subheader("📋 Supervisor Operations Control Desk")
     u_c = sum(1 for t in raw_tasks if t['status'] == 'Unassigned')
@@ -182,3 +181,5 @@ if "supervisor" in role_check:
     updated_grid = st.data_editor(
         pd.DataFrame(raw_tasks),
         column_config={
+            "id": st.column_config.NumberColumn("ID", disabled=True),
+            "assigned_to": st.column_config.SelectboxColumn("Assign Crew Worker", options=crew_list, required=True),
