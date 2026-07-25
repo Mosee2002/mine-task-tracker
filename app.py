@@ -17,7 +17,7 @@ elif st.session_state.app_theme == "High-Vis Safety Yellow":
 else:
     st.markdown("<style>.stApp {background-color: #FFFFFF !important; color: #000000 !important;}</style>", unsafe_allow_html=True)
 
-# 3. VERIFIED CLOUD DATABASE CONNECTIONS
+# 3. VERIFIED CLOUD DATABASE CREDENTIALS
 SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
@@ -35,7 +35,7 @@ if 'user_payload' not in st.session_state:
 if 'broadcast_messages' not in st.session_state:
     st.session_state.broadcast_messages = []
 
-# HARDCODED RUNTIME BACKUP: Ensures rows load even if cloud table calculations break
+# RUNTIME BACKUP MEMORY LEDGER
 if 'fallback_tasks' not in st.session_state:
     st.session_state.fallback_tasks = [
         {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
@@ -78,7 +78,7 @@ def fetch_all_tasks_from_db():
     return st.session_state.fallback_tasks
 
 # -------------------------------------------------------------
-# LOGIN ENTRY SECURITY FRAMEWAY (IF NOT ACCREDITED)
+# LOGIN ENTRY SECURITY FRAMEWAY
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
     st.markdown("### 🔒 Secure Login Gateway")
@@ -96,7 +96,7 @@ if not st.session_state.authenticated:
         if matched_user:
             st.session_state.user_payload = matched_user
             st.session_state.authenticated = True
-            st.success("Access Profile Verified! Tap button below to load your active panels.")
+            st.success("Access Profile Verified! Click button again to load workspaces.")
         else:
             st.error("Invalid credentials entered.")
             
@@ -115,7 +115,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -------------------------------------------------------------
-# FLAT NO-ELIF ROLE INTERFACE INITIALIZATION ENGINE
+# FLAT DATA CORE INTERFACE STRATIFICATION LAYERS
 # -------------------------------------------------------------
 user = st.session_state.user_payload
 role_check = str(user['role']).strip().lower()
@@ -133,7 +133,7 @@ with st.sidebar:
 
 # FLAT PORTAL PANEL 1: FOR FIELD WORKERS
 if "worker" in role_check:
-    st.subheader("Active Technician Assignment Panel")
+    st.subheader("👷 Active Technician Assignment Panel")
     if st.session_state.broadcast_messages:
         for msg in reversed(st.session_state.broadcast_messages):
             st.warning(f"📣 Broadcast Notice: {msg}")
@@ -178,8 +178,7 @@ if "supervisor" in role_check:
     st.bar_chart(pd.DataFrame({"Count": [u_c, p_c, q_c, c_c, b_c]}, index=["Unassigned", "In Progress", "Pending QA", "Complete", "Blocked"]))
     
     st.markdown("#### ⚡ Shift Crew Task Assignment Matrix")
-    updated_grid = st.data_editor(
-        pd.DataFrame(raw_tasks),
-        column_config={
-            "id": st.column_config.NumberColumn("ID", disabled=True),
-            "assigned_to": st.column_config.SelectboxColumn("Assign Crew Worker", options=crew_list, required=True),
+    # RE-ENGINEERED: Clean spreadsheet framework block to fully guarantee no missing functions or parameters
+    df_editor = pd.DataFrame(raw_tasks)[["id", "title", "location", "priority", "status", "assigned_to"]]
+    updated_grid = st.data_editor(df_editor, hide_index=True, use_container_width=True)
+    
