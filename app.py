@@ -3,6 +3,8 @@ import requests
 from datetime import datetime
 import hashlib
 import base64
+from io import BytesIO
+from PIL import Image  # optional, for image preview; install pillow if needed
 
 # Try to import cryptography for real encryption; fallback to simple obfuscation
 try:
@@ -131,14 +133,61 @@ def delete_task(task_id):
         return False
 
 # -------------------------------
-# 4. CHAT FUNCTIONS (with fallback and delete support)
+# 4. PHOTO FUNCTIONS (Supabase Storage)
+# -------------------------------
+def upload_photo(task_id, file_bytes, filename, uploaded_by):
+    """Upload a photo to Supabase Storage and save record in task_photos table."""
+    if not SUPABASE_AVAILABLE:
+        # Fallback: store in memory (for demo only; won't persist)
+        st.session_state.setdefault("photos_memory", []).append({
+            "task_id": task_id,
+            "photo_url": f"memory://{filename}",
+            "uploaded_by": uploaded_by,
+            "uploaded_at": datetime.now().isoformat()
+        })
+        return True
+    try:
+        # Generate a unique filename
+        ext = filename.split(".")[-1]
+        safe_name = f"task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
+        # Upload to bucket 'task_photos'
+        res = supabase.storage.from_("task_photos").upload(safe_name, file_bytes)
+        if res:
+            # Get public URL
+            public_url = supabase.storage.from_("task_photos").get_public_url(safe_name)
+            # Insert record in task_photos table
+            data = {
+                "task_id": task_id,
+                "photo_url": public_url,
+                "uploaded_by": uploaded_by
+            }
+            supabase.table("task_photos").insert(data).execute()
+            return True
+    except Exception as e:
+        st.error(f"Upload failed: {e}")
+    return False
+
+def fetch_photos(task_id):
+    """Fetch all photo URLs for a given task."""
+    if not SUPABASE_AVAILABLE:
+        photos = st.session_state.get("photos_memory", [])
+        return [p for p in photos if p["task_id"] == task_id]
+    try:
+        res = supabase.table("task_photos").select("*").eq("task_id", task_id).order("uploaded_at", desc=True).execute()
+        if res.data:
+            return res.data
+    except Exception:
+        pass
+    return []
+
+# -------------------------------
+# 5. CHAT FUNCTIONS (with delete support)
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
 
 def send_message(sender, receiver, room, message, encrypted=False):
     if not SUPABASE_AVAILABLE:
-        # in-memory: assign a unique negative id
         msg_id = st.session_state.next_memory_id
         st.session_state.next_memory_id -= 1
         msg = {
@@ -161,7 +210,6 @@ def send_message(sender, receiver, room, message, encrypted=False):
             "is_encrypted": encrypted
         }
         res = supabase.table("chat_messages").insert(payload).execute()
-        # The inserted row returns with an 'id' from the database
         return True
     except Exception:
         return False
@@ -184,8 +232,7 @@ def fetch_messages(room=None, limit=100):
     return []
 
 def delete_message(message_id):
-    """Delete a chat message by its ID. Handles both DB and memory."""
-    if message_id < 0:  # in-memory message
+    if message_id < 0:
         st.session_state.chat_messages_memory = [
             m for m in st.session_state.get("chat_messages_memory", [])
             if m["id"] != message_id
@@ -201,7 +248,7 @@ def delete_message(message_id):
             return False
 
 # -------------------------------
-# 5. ENCRYPTION HELPERS
+# 6. ENCRYPTION HELPERS
 # -------------------------------
 def derive_key(name1, name2):
     sorted_names = sorted([name1.lower(), name2.lower()])
@@ -234,7 +281,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 6. SESSION STATE INITIALIZATION
+# 7. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -265,9 +312,11 @@ if 'chat_messages_memory' not in st.session_state:
     st.session_state.chat_messages_memory = []
 if 'chat_input_value' not in st.session_state:
     st.session_state.chat_input_value = ""
+if 'photos_memory' not in st.session_state:
+    st.session_state.photos_memory = []
 
 # -------------------------------
-# 7. AUTHENTICATION GATEWAY
+# 8. AUTHENTICATION GATEWAY
 # -------------------------------
 if not st.session_state.authenticated:
     st.title("⚙️ Mine & Workshop Digital Tracker")
@@ -314,7 +363,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -------------------------------
-# 8. MAIN APP
+# 9. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -387,7 +436,7 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 9. TABS: TASKS, CHAT, ADMIN
+# 10. TABS: TASKS, CHAT, ADMIN
 # -------------------------------
 tab_tasks, tab_chat, tab_admin = st.tabs(["📋 Task Dashboard", "💬 Chat Room", "⚙️ Admin Panel"])
 
@@ -426,6 +475,29 @@ with tab_tasks:
                             if new_status != task['status']:
                                 update_task(task['id'], {"status": new_status})
                                 st.rerun()
+
+                        # ---- PHOTO UPLOAD SECTION ----
+                        st.markdown("#### 📸 Upload Proof Photo")
+                        uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif"], key=f"upload_{task['id']}")
+                        if uploaded_file is not None:
+                            if st.button(f"Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}"):
+                                bytes_data = uploaded_file.getvalue()
+                                success = upload_photo(task['id'], bytes_data, uploaded_file.name, full_name)
+                                if success:
+                                    st.success("Photo uploaded successfully!")
+                                    st.rerun()
+                                else:
+                                    st.error("Upload failed. Check bucket and table.")
+
+                        # Show existing photos for this task
+                        photos = fetch_photos(task['id'])
+                        if photos:
+                            st.markdown("**Already uploaded:**")
+                            cols = st.columns(min(4, len(photos)))
+                            for idx, photo in enumerate(photos):
+                                with cols[idx % len(cols)]:
+                                    st.image(photo['photo_url'], width=100)
+
         with tab_unassigned:
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
             if not unassigned:
@@ -462,6 +534,17 @@ with tab_tasks:
                         if cols[2].button("✅ Approve & Close", key=f"approve_{task['id']}"):
                             update_task(task['id'], {"status": "Complete"})
                             st.rerun()
+
+                    # ---- Show photos for this task (Supervisor view) ----
+                    photos = fetch_photos(task['id'])
+                    if photos:
+                        with st.expander(f"📸 Photos for Task #{task['id']}"):
+                            cols = st.columns(min(4, len(photos)))
+                            for idx, photo in enumerate(photos):
+                                with cols[idx % len(cols)]:
+                                    st.image(photo['photo_url'], width=120)
+                                    st.caption(f"By {photo['uploaded_by']}")
+
         with tab_create:
             st.markdown("### Dispatch New Work Ticket")
             with st.form("new_task_form"):
@@ -531,6 +614,17 @@ with tab_tasks:
                     if cols[3].button("🗑️ Delete", key=f"del_{task['id']}"):
                         delete_task(task['id'])
                         st.rerun()
+
+                    # ---- Show photos for this task (Superintendent view) ----
+                    photos = fetch_photos(task['id'])
+                    if photos:
+                        with st.expander(f"📸 Photos for Task #{task['id']}"):
+                            cols = st.columns(min(4, len(photos)))
+                            for idx, photo in enumerate(photos):
+                                with cols[idx % len(cols)]:
+                                    st.image(photo['photo_url'], width=120)
+                                    st.caption(f"By {photo['uploaded_by']}")
+
         with tab_broadcasts:
             st.markdown("### All Broadcast Messages")
             if st.session_state.broadcast_messages:
@@ -560,14 +654,12 @@ with tab_chat:
         st.session_state.chat_room = "global"
         st.rerun()
 
-    # Fetch messages
     messages = fetch_messages(room=room, limit=200)
     if messages:
         for msg in reversed(messages):
             sender = msg['sender']
             is_encrypted = msg.get('is_encrypted', False)
             content = msg['message']
-            # Handle timestamp
             if 'created_at' in msg and isinstance(msg['created_at'], str):
                 try:
                     timestamp = datetime.fromisoformat(msg['created_at'].replace('Z', '+00:00')).strftime("%H:%M")
@@ -584,7 +676,6 @@ with tab_chat:
                 except Exception:
                     content = "🔒 [Decryption failed]"
 
-            # Display message with delete button if sender is current user
             col_text, col_delete = st.columns([5, 1])
             with col_text:
                 if sender == full_name:
@@ -592,9 +683,7 @@ with tab_chat:
                 else:
                     st.markdown(f"**{sender}** ({timestamp}): {content}")
             with col_delete:
-                # Only show delete button if the sender is the current user
                 if sender == full_name:
-                    # Use a unique key for each delete button
                     if st.button("🗑️", key=f"del_msg_{msg['id']}"):
                         if delete_message(msg['id']):
                             st.success("Message deleted!")
