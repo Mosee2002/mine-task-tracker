@@ -1,12 +1,12 @@
 import streamlit as st
 
 # 1. CORE APPLICATION SURFACE INITIALIZATION
-st.title("⚙️ Mine & Workshop Digital Tracker")
+st.title("⚙️ Mine & Electrical Workshop Digital Tracker")
 
 # 2. FIXED SYSTEM MEMORY MEMORY REGISTRY 
 if "user_registry" not in st.session_state:
     st.session_state.user_registry = {
-        "supervisor1": {"password": "super789", "name": "Sarah Connor", "role": "Supervisor"},
+        "supervisor1": {"password": "super789", "name": "Elvis Amevor", "role": "Supervisor"},
         "superintendent1": {"password": "boss000", "name": "Anaba Moses", "role": "Superintendent"}
     }
 
