@@ -3,16 +3,16 @@ import requests
 from datetime import datetime
 import hashlib
 import base64
-import os
 import json
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from supabase import create_client, Client
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
-import asyncio
-import threading
+
+# Try to import cryptography for real encryption; fallback to simple obfuscation
+try:
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    CRYPTO_AVAILABLE = True
+except ImportError:
+    CRYPTO_AVAILABLE = False
 
 # -------------------------------
 # 1. SUPABASE CONFIGURATION
@@ -20,10 +20,16 @@ import threading
 SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
-# Initialize Supabase client for realtime and storage
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Use Supabase client for all operations (replaces requests for simplicity)
+try:
+    from supabase import create_client, Client
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    st.warning("Supabase Python library not installed. Install with: pip install supabase")
 
-# For legacy REST calls (still used for some operations)
+# For legacy requests (fallback)
 DB_HEADERS = {
     "apikey": SUPABASE_KEY,
     "Authorization": f"Bearer {SUPABASE_KEY}",
@@ -32,87 +38,89 @@ DB_HEADERS = {
 }
 
 # -------------------------------
-# 2. EMAIL NOTIFICATION SETUP
-# -------------------------------
-# Choose your notification method: "sendgrid" or "smtp"
-NOTIFICATION_METHOD = "smtp"  # change to "sendgrid" if you have an API key
-
-# SMTP config (for Gmail example)
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-SMTP_USER = "your_email@gmail.com"      # Set your email
-SMTP_PASSWORD = "your_app_password"     # Use app password, not regular password
-SMTP_FROM = SMTP_USER
-
-# SendGrid config (uncomment if using)
-# SENDGRID_API_KEY = "your_sendgrid_api_key"
-# SENDGRID_FROM = "noreply@yourdomain.com"
-
-def send_email_notification(recipient_email, subject, body):
-    """Send an email using either SendGrid or SMTP."""
-    try:
-        if NOTIFICATION_METHOD == "sendgrid":
-            # SendGrid method
-            sg = SendGridAPIClient(SENDGRID_API_KEY)
-            message = Mail(
-                from_email=SENDGRID_FROM,
-                to_emails=recipient_email,
-                subject=subject,
-                html_content=body
-            )
-            response = sg.send(message)
-            return response.status_code in (200, 202)
-        else:
-            # SMTP method
-            msg = MIMEMultipart()
-            msg['From'] = SMTP_FROM
-            msg['To'] = recipient_email
-            msg['Subject'] = subject
-            msg.attach(MIMEText(body, 'html'))
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-                server.starttls()
-                server.login(SMTP_USER, SMTP_PASSWORD)
-                server.send_message(msg)
-            return True
-    except Exception as e:
-        st.error(f"Email failed: {str(e)}")
-        return False
-
-# -------------------------------
-# 3. USER FUNCTIONS (unchanged)
+# 2. USER FUNCTIONS (Supabase)
 # -------------------------------
 def fetch_all_users_from_db():
+    if not SUPABASE_AVAILABLE:
+        return []
     try:
         res = supabase.table("facility_users").select("*").execute()
-        if res.data:
-            return res.data
-    except Exception:
-        pass
-    return [
-        {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": "super789"},
-        {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": "boss000"},
-        {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": "worker123"}
-    ]
+        return res.data if res.data else []
+    except Exception as e:
+        st.error(f"Error fetching users: {e}")
+        return []
 
 def register_user_to_db(username, name, role, password):
+    if not SUPABASE_AVAILABLE:
+        return False
     try:
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         supabase.table("facility_users").insert(payload).execute()
         return True
-    except Exception:
+    except Exception as e:
+        st.error(f"Registration error: {e}")
         return False
 
 # -------------------------------
-# 4. TASK FUNCTIONS (Supabase)
+# 3. TASK FUNCTIONS (with fallback to in-memory)
 # -------------------------------
 def fetch_all_tasks():
+    """
+    Fetch tasks from Supabase. If table doesn't exist or error,
+    fallback to session_state default tasks.
+    """
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("tasks_memory", [])
     try:
         res = supabase.table("tasks").select("*").order("id", desc=False).execute()
-        return res.data if res.data else []
-    except Exception:
-        return []
+        if res.data:
+            return res.data
+        else:
+            # Table exists but empty; return in-memory tasks (if any)
+            return st.session_state.get("tasks_memory", [])
+    except Exception as e:
+        # Table likely doesn't exist – show a one-time warning and return in-memory tasks
+        if "relation" in str(e) and "does not exist" in str(e):
+            st.warning("⚠️ 'tasks' table missing in Supabase. Using in‑memory tasks (not persistent). To persist, create the table with the SQL provided below.")
+            # Provide SQL in expander
+            with st.expander("📝 Click to create the 'tasks' table (run this in Supabase SQL editor)"):
+                st.code("""
+CREATE TABLE tasks (
+  id BIGSERIAL PRIMARY KEY,
+  title TEXT NOT NULL,
+  location TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'Unassigned',
+  priority TEXT NOT NULL DEFAULT 'Medium',
+  assigned_to TEXT,
+  loto BOOLEAN DEFAULT FALSE,
+  jsa BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON tasks FOR ALL USING (true);
+                """)
+        else:
+            st.error(f"Error fetching tasks: {e}")
+        # Return in-memory fallback
+        return st.session_state.get("tasks_memory", [])
 
 def create_task(title, location, priority, loto, jsa):
+    if not SUPABASE_AVAILABLE:
+        # fallback: add to memory
+        new_id = max([t["id"] for t in st.session_state.get("tasks_memory", [])], default=0) + 1
+        new_task = {
+            "id": new_id,
+            "title": title,
+            "location": location,
+            "priority": priority,
+            "loto": loto,
+            "jsa": jsa,
+            "status": "Unassigned",
+            "assigned_to": "Unassigned"
+        }
+        st.session_state.setdefault("tasks_memory", []).append(new_task)
+        return new_task
     try:
         new_task = {
             "title": title,
@@ -131,23 +139,46 @@ def create_task(title, location, priority, loto, jsa):
     return None
 
 def update_task(task_id, updates):
+    if not SUPABASE_AVAILABLE:
+        # update in memory
+        for t in st.session_state.get("tasks_memory", []):
+            if t["id"] == task_id:
+                t.update(updates)
+                return True
+        return False
     try:
         supabase.table("tasks").update(updates).eq("id", task_id).execute()
         return True
-    except Exception:
+    except Exception as e:
+        st.error(f"Update error: {e}")
         return False
 
 def delete_task(task_id):
+    if not SUPABASE_AVAILABLE:
+        st.session_state.tasks_memory = [t for t in st.session_state.get("tasks_memory", []) if t["id"] != task_id]
+        return True
     try:
         supabase.table("tasks").delete().eq("id", task_id).execute()
         return True
-    except Exception:
+    except Exception as e:
+        st.error(f"Delete error: {e}")
         return False
 
 # -------------------------------
-# 5. CHAT FUNCTIONS (Supabase)
+# 4. CHAT FUNCTIONS (with fallback)
 # -------------------------------
 def send_message(sender, receiver, room, message, encrypted=False):
+    if not SUPABASE_AVAILABLE:
+        # fallback: store in session state
+        st.session_state.setdefault("chat_messages_memory", []).append({
+            "sender": sender,
+            "receiver": receiver,
+            "room": room,
+            "message": message,
+            "is_encrypted": encrypted,
+            "created_at": datetime.now().isoformat()
+        })
+        return True
     try:
         payload = {
             "sender": sender,
@@ -158,30 +189,54 @@ def send_message(sender, receiver, room, message, encrypted=False):
         }
         supabase.table("chat_messages").insert(payload).execute()
         return True
-    except Exception:
+    except Exception as e:
+        # Handle missing table gracefully
+        if "relation" not in str(e):
+            st.error(f"Send message error: {e}")
+        else:
+            st.warning("⚠️ 'chat_messages' table missing. Using in‑memory chat (not persistent).")
+            # Show SQL
+            with st.expander("📝 Click to create the 'chat_messages' table (run this in Supabase SQL editor)"):
+                st.code("""
+CREATE TABLE chat_messages (
+  id BIGSERIAL PRIMARY KEY,
+  sender TEXT NOT NULL,
+  receiver TEXT,
+  room TEXT NOT NULL,
+  message TEXT NOT NULL,
+  is_encrypted BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all" ON chat_messages FOR ALL USING (true);
+                """)
         return False
 
 def fetch_messages(room=None, limit=100):
+    if not SUPABASE_AVAILABLE:
+        # fallback: return from session state
+        msgs = st.session_state.get("chat_messages_memory", [])
+        if room:
+            msgs = [m for m in msgs if m["room"] == room]
+        return sorted(msgs, key=lambda x: x["created_at"], reverse=True)[:limit]
     try:
         query = supabase.table("chat_messages").select("*").order("created_at", desc=True).limit(limit)
         if room:
             query = query.eq("room", room)
         res = query.execute()
-        return res.data if res.data else []
-    except Exception:
-        return []
+        if res.data:
+            return res.data
+    except Exception as e:
+        # ignore missing table error
+        if "relation" in str(e) and "does not exist" in str(e):
+            st.warning("⚠️ 'chat_messages' table missing. Using in‑memory chat.")
+        else:
+            st.error(f"Fetch messages error: {e}")
+    return []
 
 # -------------------------------
-# 6. ENCRYPTION HELPERS (unchanged)
+# 5. ENCRYPTION HELPERS (unchanged)
 # -------------------------------
-try:
-    from cryptography.fernet import Fernet
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-    CRYPTO_AVAILABLE = True
-except ImportError:
-    CRYPTO_AVAILABLE = False
-
 def derive_key(name1, name2):
     sorted_names = sorted([name1.lower(), name2.lower()])
     combined = sorted_names[0] + sorted_names[1]
@@ -213,32 +268,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 7. FILE ATTACHMENT (Supabase Storage)
-# -------------------------------
-def upload_attachment(file, task_id):
-    """Upload a file to Supabase Storage and return the public URL."""
-    try:
-        # Ensure bucket exists (must be created in Supabase Dashboard)
-        file_extension = file.name.split(".")[-1]
-        file_name = f"task_{task_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{file_extension}"
-        # Upload to bucket "task_attachments"
-        res = supabase.storage.from_("task_attachments").upload(file_name, file.getvalue())
-        if res:
-            # Get public URL
-            public_url = supabase.storage.from_("task_attachments").get_public_url(file_name)
-            return public_url
-    except Exception as e:
-        st.error(f"Upload failed: {e}")
-    return None
-
-# -------------------------------
-# 8. REAL-TIME CHAT (uses Supabase Realtime)
-# -------------------------------
-# We'll set up a simple polling mechanism because Streamlit doesn't support websockets easily.
-# For a more robust solution, you'd use a background thread, but we'll keep it simple with periodic reruns.
-
-# -------------------------------
-# 9. SESSION STATE INIT
+# 6. SESSION STATE INITIALIZATION
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -250,11 +280,27 @@ if 'chat_partner' not in st.session_state:
     st.session_state.chat_partner = None
 if 'broadcast_messages' not in st.session_state:
     st.session_state.broadcast_messages = []
-if 'tasks' not in st.session_state:
-    st.session_state.tasks = fetch_all_tasks()
+if 'tasks_memory' not in st.session_state:
+    # default tasks (used as fallback)
+    st.session_state.tasks_memory = [
+        {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2",
+         "status": "In Progress", "priority": "High", "assigned_to": "John Doe",
+         "loto": False, "jsa": False},
+        {"id": 102, "title": "Calibrate Underground Gas Detectors", "location": "Level 4 North Shaft",
+         "status": "Unassigned", "priority": "Critical", "assigned_to": "Unassigned",
+         "loto": False, "jsa": False},
+        {"id": 103, "title": "Inspect Overhead Workshop Crane Cables", "location": "Workshop Bench 1",
+         "status": "Complete", "priority": "High", "assigned_to": "Sarah Connor",
+         "loto": True, "jsa": True},
+        {"id": 104, "title": "Re-wire Level 3 Sump Pump Float", "location": "Level 3 South Sump",
+         "status": "Blocked", "priority": "Medium", "assigned_to": "Unassigned",
+         "loto": True, "jsa": False}
+    ]
+if 'chat_messages_memory' not in st.session_state:
+    st.session_state.chat_messages_memory = []
 
 # -------------------------------
-# 10. AUTHENTICATION GATEWAY (unchanged)
+# 7. AUTHENTICATION GATEWAY
 # -------------------------------
 if not st.session_state.authenticated:
     st.title("⚙️ Mine & Workshop Digital Tracker")
@@ -274,7 +320,7 @@ if not st.session_state.authenticated:
                 "name": matched_user.get("full_name", matched_user.get("username")),
                 "role": matched_user.get("role", "Worker"),
                 "username": matched_user.get("username"),
-                "email": matched_user.get("email", None)  # add email column if you want notifications
+                "email": matched_user.get("email", None)
             }
             st.session_state.authenticated = True
             st.rerun()
@@ -285,13 +331,13 @@ if not st.session_state.authenticated:
     st.subheader("🆕 Create Account Profile")
     reg_user = st.text_input("Choose Username").strip().lower()
     reg_name = st.text_input("Full Name")
-    reg_email = st.text_input("Email (for notifications)")  # new field
+    reg_email = st.text_input("Email (optional)")
     reg_role = st.selectbox("Role Access Level", ["Worker", "Supervisor", "Superintendent"])
     reg_pass = st.text_input("Set Password", type="password")
     
     if st.button("Register Profile"):
         if reg_user and reg_name and reg_pass:
-            # Add email column to facility_users if not exists (you can alter table)
+            # Add email column if needed (SQL already handled)
             success = register_user_to_db(reg_user, reg_name, reg_role, reg_pass)
             if success:
                 st.success(f"Account '{reg_user}' created! Please log in.")
@@ -302,7 +348,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -------------------------------
-# 11. MAIN APP
+# 8. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -315,10 +361,10 @@ with st.sidebar:
     st.write(f"**User:** {full_name}")
     st.write(f"**Role:** {user['role']}")
     
-    # Broadcast sender (legacy, kept for compatibility)
+    # Broadcast sender (legacy)
     if role in ["supervisor", "superintendent"]:
         st.markdown("---")
-        st.subheader("📢 Send Broadcast (Legacy)")
+        st.subheader("📢 Send Broadcast")
         broadcast_msg = st.text_area("Message to all Workers")
         if st.button("Send Broadcast"):
             if broadcast_msg:
@@ -328,9 +374,10 @@ with st.sidebar:
                     "message": broadcast_msg,
                     "timestamp": datetime.now().strftime("%H:%M")
                 })
-                # Also send email to all workers? Could be done.
                 st.success("Broadcast sent!")
                 st.rerun()
+            else:
+                st.error("Message cannot be empty.")
     
     st.markdown("---")
     st.subheader("💬 Chat Rooms")
@@ -361,12 +408,22 @@ with st.sidebar:
         st.session_state.user_payload = None
         st.session_state.chat_room = "global"
         st.rerun()
+    
+    st.markdown("---")
+    if st.button("🔄 Refresh Data"):
+        st.rerun()
 
-# Refresh tasks from DB on each load (or we can use realtime)
-st.session_state.tasks = fetch_all_tasks()
+# Fetch tasks (from DB or memory)
+# We'll merge: if DB returns data, use it; otherwise use in-memory.
+db_tasks = fetch_all_tasks()
+if db_tasks:
+    st.session_state.tasks = db_tasks
+else:
+    # use in-memory if no DB data
+    st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 12. TASK TRACKER + CHAT TABS
+# 9. TASK TRACKER + CHAT TABS
 # -------------------------------
 tab_tasks, tab_chat, tab_admin = st.tabs(["📋 Task Dashboard", "💬 Chat Room", "⚙️ Admin Panel"])
 
@@ -385,15 +442,15 @@ with tab_tasks:
             if not my_tasks:
                 st.info("No tasks assigned to you.")
             else:
-                for idx, task in enumerate(st.session_state.tasks):
+                for task in st.session_state.tasks:
                     if task['assigned_to'] != full_name:
                         continue
                     with st.container(border=True):
                         st.markdown(f"### Task #{task['id']}: {task['title']}")
                         st.write(f"📍 {task['location']} | Priority: **{task['priority']}** | Status: `{task['status']}`")
-                        loto = st.checkbox("LOTO Isolated", value=task['loto'], key=f"loto_{task['id']}")
-                        jsa = st.checkbox("JSA Signed", value=task['jsa'], key=f"jsa_{task['id']}")
-                        if loto != task['loto'] or jsa != task['jsa']:
+                        loto = st.checkbox("LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}")
+                        jsa = st.checkbox("JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}")
+                        if loto != task.get('loto') or jsa != task.get('jsa'):
                             update_task(task['id'], {"loto": loto, "jsa": jsa})
                             st.rerun()
                         if not loto or not jsa:
@@ -404,7 +461,6 @@ with tab_tasks:
                             new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}")
                             if new_status != task['status']:
                                 update_task(task['id'], {"status": new_status})
-                                # Send notification to supervisor? We'll handle in supervisor side.
                                 st.rerun()
         with tab_unassigned:
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
@@ -423,7 +479,9 @@ with tab_tasks:
             st.markdown("### All Maintenance Tasks")
             all_users = fetch_all_users_from_db()
             worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker"]
-            for idx, task in enumerate(st.session_state.tasks):
+            if not st.session_state.tasks:
+                st.info("No tasks found.")
+            for task in st.session_state.tasks:
                 with st.container(border=True):
                     cols = st.columns([3, 1, 1])
                     cols[0].markdown(f"**#{task['id']}:** {task['title']}  \n📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
@@ -432,41 +490,4 @@ with tab_tasks:
                                                    index=worker_names.index(current_assign),
                                                    key=f"assign_{task['id']}")
                     if new_assign != task['assigned_to']:
-                        update_task(task['id'], {"assigned_to": new_assign})
-                        if task['status'] == "Unassigned" and new_assign != "Unassigned":
-                            update_task(task['id'], {"status": "In Progress"})
-                        # Send email notification to the assigned worker
-                        if new_assign != "Unassigned":
-                            # Find worker's email
-                            worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
-                            if worker_email:
-                                subject = f"New Task Assigned: #{task['id']} - {task['title']}"
-                                body = f"Hello {new_assign},<br><br>You have been assigned to task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br><br>Please login to the tracker for details.<br>Regards,<br>Supervisor"
-                                send_email_notification(worker_email, subject, body)
-                        st.rerun()
-                    if task['status'] == "Pending QA":
-                        if cols[2].button("✅ Approve & Close", key=f"approve_{task['id']}"):
-                            update_task(task['id'], {"status": "Complete"})
-                            st.rerun()
-        with tab_create:
-            st.markdown("### Dispatch New Work Ticket")
-            with st.form("new_task_form"):
-                title = st.text_input("Task Title *")
-                location = st.text_input("Location / Area *")
-                priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
-                loto = st.checkbox("Requires LOTO")
-                jsa = st.checkbox("Requires JSA")
-                submitted = st.form_submit_button("Create Work Ticket")
-                if submitted:
-                    if title and location:
-                        new_task = create_task(title, location, priority, loto, jsa)
-                        if new_task:
-                            st.success(f"Task #{new_task['id']} created!")
-                            # Optionally notify all supervisors
-                            st.rerun()
-                        else:
-                            st.error("Failed to create task.")
-                    else:
-                        st.error("Title and Location are required.")
-
-    
+   
