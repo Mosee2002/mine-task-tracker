@@ -423,4 +423,65 @@ with tab_chat:
     elif room.startswith("private:"):
         partner = st.session_state.chat_partner
         st.markdown(f"### 🔐 Private Chat with **{partner}** (end‑to‑end encrypted)")
-        st.caption("Messages are encrypted with a sha
+        # FIXED: this line is now complete
+        st.caption("Messages are encrypted with a shared key derived from both usernames.")
+    else:
+        st.warning("Unknown room. Switching to Global.")
+        st.session_state.chat_room = "global"
+        st.rerun()
+    
+    messages = fetch_messages(room=room, limit=200)
+    if messages:
+        for msg in reversed(messages):
+            sender = msg['sender']
+            is_encrypted = msg['is_encrypted']
+            content = msg['message']
+            timestamp = datetime.fromisoformat(msg['created_at'].replace('Z', '+00:00')).strftime("%H:%M")
+            
+            if room.startswith("private:") and is_encrypted:
+                parts = room.split(":")[1].split("_")
+                key = derive_key(parts[0], parts[1])
+                try:
+                    content = decrypt_message(content, key)
+                except Exception:
+                    content = "🔒 [Decryption failed]"
+            
+            if sender == full_name:
+                st.markdown(f"**You** ({timestamp}): {content}")
+            else:
+                st.markdown(f"**{sender}** ({timestamp}): {content}")
+    else:
+        st.info("No messages yet. Be the first to send!")
+    
+    with st.container():
+        st.markdown("---")
+        msg_input = st.text_area("Type your message", height=100, key="chat_input")
+        col_send, col_clear = st.columns([1, 5])
+        with col_send:
+            if st.button("Send", use_container_width=True):
+                if msg_input.strip():
+                    encrypted = False
+                    final_msg = msg_input
+                    if room.startswith("private:"):
+                        parts = room.split(":")[1].split("_")
+                        key = derive_key(parts[0], parts[1])
+                        final_msg = encrypt_message(msg_input, key)
+                        encrypted = True
+                    success = send_message(
+                        sender=full_name,
+                        receiver=st.session_state.chat_partner if room.startswith("private:") else None,
+                        room=room,
+                        message=final_msg,
+                        encrypted=encrypted
+                    )
+                    if success:
+                        st.success("Message sent!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to send message. Check database connection.")
+                else:
+                    st.warning("Message cannot be empty.")
+        with col_clear:
+            if st.button("Clear input", use_container_width=True):
+                st.session_state.chat_input = ""
+                st.rerun()
