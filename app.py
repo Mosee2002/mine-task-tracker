@@ -1,186 +1,166 @@
 import streamlit as st
-import pandas as pd
-import requests
-import base64
 
-# 1. FACILITY SYSTEM APPLICATION ARCHITECTURE INITIALIZATION (PURE LAYOUT MODE)
+# 1. CORE APPLICATION SURFACE INITIALIZATION
 st.title("⚙️ Mine & Workshop Digital Tracker")
 
-# 2. DYNAMIC REAL-TIME THEME COORDINATOR ENGINE
-if "app_theme" not in st.session_state:
-    st.session_state.app_theme = "Industrial Dark"
+# 2. FIXED SYSTEM MEMORY MEMORY REGISTRY 
+if "user_registry" not in st.session_state:
+    st.session_state.user_registry = {
+        "supervisor1": {"password": "super789", "name": "Sarah Connor", "role": "Supervisor"},
+        "superintendent1": {"password": "boss000", "name": "Anaba Moses", "role": "Superintendent"}
+    }
 
-if st.session_state.app_theme == "Industrial Dark":
-    st.markdown("<style>.stApp {background-color: #0E1117 !important; color: #FFFFFF !important;}</style>", unsafe_allow_html=True)
-elif st.session_state.app_theme == "High-Vis Safety Yellow":
-    st.markdown("<style>.stApp {background-color: #FBBF24 !important; color: #000000 !important;}</style>", unsafe_allow_html=True)
-else:
-    st.markdown("<style>.stApp {background-color: #FFFFFF !important; color: #000000 !important;}</style>", unsafe_allow_html=True)
+if 'tasks_memory' not in st.session_state:
+    st.session_state.tasks_memory = [
+        {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto": False, "jsa": False},
+        {"id": 102, "title": "Calibrate Underground Gas Detectors", "location": "Level 4 North Shaft", "status": "Unassigned", "priority": "Critical", "assigned_to": "Unassigned", "loto": False, "jsa": False},
+        {"id": 103, "title": "Inspect Overhead Workshop Crane Cables", "location": "Workshop Bench 1", "status": "Complete", "priority": "High", "assigned_to": "Sarah Connor", "loto": True, "jsa": True},
+        {"id": 104, "title": "Re-wire Level 3 Sump Pump Float", "location": "Level 3 South Sump", "status": "Blocked", "priority": "Medium", "assigned_to": "Unassigned", "loto": True, "jsa": False}
+    ]
 
-# 3. VERIFIED OPERATIONAL CLOUD DATABASE CONNECTIONS
-SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
-
-DB_HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "return=representation"
-}
+if 'broadcast_messages' not in st.session_state:
+    st.session_state.broadcast_messages = []
 
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
-if 'broadcast_messages' not in st.session_state:
-    st.session_state.broadcast_messages = []
-
-# HARDCODED RUNTIME BACKUP LAYER: Pre-loads rows immediately if cloud servers return blank logs
-if 'fallback_tasks' not in st.session_state:
-    st.session_state.fallback_tasks = [
-        {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
-        {"id": 102, "title": "Calibrate Underground Gas Detectors", "location": "Level 4 North Shaft", "status": "Unassigned", "priority": "Critical", "assigned_to": "Unassigned", "loto_verified": False, "jsa_completed": False, "photo_proof": None},
-        {"id": 103, "title": "Inspect Overhead Workshop Crane Cables", "location": "Workshop Bench 1", "status": "Complete", "priority": "High", "assigned_to": "Sarah Connor", "loto_verified": True, "jsa_completed": True, "photo_proof": None},
-        {"id": 104, "title": "Re-wire Level 3 Sump Pump Float", "location": "Level 3 South Sump", "status": "Blocked", "priority": "Medium", "assigned_to": "Unassigned", "loto_verified": True, "jsa_completed": False, "photo_proof": None}
-    ]
-
-# 4. DATABASE CONNECTIVITY TRANSACTIONS
-def fetch_all_users_from_db():
-    try:
-        res = requests.get(f"{SUPABASE_URL}/rest/v1/facility_users?select=*", headers=DB_HEADERS, timeout=5)
-        if res.status_code == 200 and len(res.json()) > 0:
-            return res.json()
-    except Exception:
-        pass
-    return [
-        {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": "crew123"},
-        {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": "super789"},
-        {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": "boss000"}
-    ]
-
-def register_user_to_db(username, name, role, password):
-    try:
-        payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
-        res = requests.post(f"{SUPABASE_URL}/rest/v1/facility_users", headers=DB_HEADERS, json=payload, timeout=5)
-        if res.status_code == 200 or res.status_code == 201:
-            return True
-    except Exception:
-        pass
-    return True
-
-def fetch_all_tasks_from_db():
-    try:
-        res = requests.get(f"{SUPABASE_URL}/rest/v1/facility_tasks?select=*", headers=DB_HEADERS, timeout=5)
-        if res.status_code == 200 and len(res.json()) > 0:
-            return res.json()
-    except Exception:
-        pass
-    return st.session_state.fallback_tasks
 
 # -------------------------------------------------------------
-# INTERFACE LAYER 1: SECURITY GATEWAY USER LOGINS
+# GATEWAY SCREEN 1: THE ACCREDITED ACCESS GATEWAY
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
-    st.markdown("### 🔒 Secure Login Gateway")
-    user_in = st.text_input("Username", key="lin_user").strip().lower()
-    pass_in = st.text_input("Password", type="password", key="lin_pass")
+    st.subheader("🔒 Secure Login Gateway")
+    user_in = st.text_input("Username").strip().lower()
+    pass_in = st.text_input("Password", type="password")
     
     if st.button("Authenticate Profile"):
-        all_users = fetch_all_users_from_db()
-        matched_user = None
-        for u in all_users:
-            if str(u["username"]).strip().lower() == user_in and str(u["password_hash"]).strip() == pass_in:
-                matched_user = u
-                break
-        
-        if matched_user:
-            st.session_state.user_payload = matched_user
+        if user_in in st.session_state.user_registry and st.session_state.user_registry[user_in]["password"] == pass_in:
+            st.session_state.user_payload = st.session_state.user_registry[user_in]
             st.session_state.authenticated = True
-            st.success("Access Profile Verified! Tap button below to load workspace dashboard panels.")
+            st.rerun()
         else:
             st.error("Invalid credentials entered.")
             
     st.markdown("---")
-    st.markdown("### 🆕 Create New Account")
-    reg_user = st.text_input("Choose Login Username", key="rg_u").strip().lower()
-    reg_name = st.text_input("Enter Full Name", key="rg_n")
-    reg_role = st.selectbox("Assign Access Level Role", ["Worker", "Supervisor", "Superintendent"], key="rg_r")
-    reg_pass = st.text_input("Set Security Password", type="password", key="rg_p")
-    if st.button("Register Account"):
-        if not reg_user or not reg_name or not reg_pass:
-            st.error("All input fields are mandatory.")
+    st.subheader("🆕 Create Account Profile")
+    reg_user = st.text_input("Choose Username").strip().lower()
+    reg_name = st.text_input("Full Name")
+    reg_role = st.selectbox("Role Access Level", ["Worker", "Supervisor", "Superintendent"])
+    reg_pass = st.text_input("Set Password", type="password")
+    
+    if st.button("Register Profile"):
+        if reg_user and reg_name and reg_pass:
+            st.session_state.user_registry[reg_user] = {"password": reg_pass, "name": reg_name, "role": reg_role}
+            st.success("Registered! Log in above.")
         else:
-            register_user_to_db(reg_user, reg_name, reg_role, reg_pass)
-            st.success("Account profile registered successfully! Log in above.")
+            st.error("All inputs are mandatory.")
     st.stop()
 
 # -------------------------------------------------------------
-# INTERFACE LAYER 2: LOGGED-IN SYSTEM TIERS (FLAT STRATIFICATION)
+# GATEWAY SCREEN 2: ACTIVE CONTROL INTERFACES (ROBUST CASCADE)
 # -------------------------------------------------------------
 user = st.session_state.user_payload
 role_check = str(user['role']).strip().lower()
 
-raw_tasks = fetch_all_tasks_from_db()
-raw_users = fetch_all_users_from_db()
-crew_list = ["Unassigned"] + [u["full_name"] for u in raw_users]
-
 with st.sidebar:
-    st.write(f"Logged in as: **{user['full_name']}**")
-    st.write(f"Access Role Tier: **{user['role']}**")
-    if st.button("🚪 Logout Application", use_container_width=True):
+    st.write(f"Active User: **{user['name']}**")
+    st.write(f"Authorization: **{user['role']}**")
+    if st.button("🚪 Logout Portal"):
         st.session_state.authenticated = False
         st.session_state.user_payload = None
+        st.rerun()
 
-# === SYSTEM SECTION A: FIELD WORKER COMPLIANCE HUB ===
-if "worker" in role_check:
-    st.subheader("👷 Active Technician Assignment Panel")
+# --- INTERFACE A: WORKER DISPATCH TRACKER ---
+if role_check == "worker":
+    st.subheader("👷 Field Technician Workspace")
+    
     if st.session_state.broadcast_messages:
+        st.info("📢 Supervisor Alert Board:")
         for msg in reversed(st.session_state.broadcast_messages):
-            st.warning(f"📣 Broadcast Notice: {msg}")
+            st.warning(msg)
             
-    has_tasks = False
-    for idx, item in enumerate(raw_tasks):
-        if item['assigned_to'] == user['full_name']:
-            has_tasks = True
+    for idx, task in enumerate(st.session_state.tasks_memory):
+        if task['assigned_to'] == user['name']:
             with st.container(border=True):
-                st.markdown(f"**Task #{item['id']}: {item['title']}**")
-                st.write(f"📍 Sector: {item['location']} | Status: `{item['status']}`")
+                st.markdown(f"### Task #{task['id']}: {task['title']}")
+                st.write(f"📍 Location: {task['location']} | Priority: **{task['priority']}**")
                 
-                photo_saved = item.get('photo_proof') is not None and str(item.get('photo_proof')).strip() != ""
-                loto = st.checkbox("LOTO Isolated", value=item['loto_verified'], key=f"wk_loto_{item['id']}")
-                jsa = st.checkbox("JSA Signed", value=item['jsa_completed'], key=f"wk_jsa_{item['id']}")
-                st.session_state.fallback_tasks[idx]['loto_verified'] = loto
-                st.session_state.fallback_tasks[idx]['jsa_completed'] = jsa
+                l_check = st.checkbox("LOTO Isolated", value=task['loto'], key=f"loto_{task['id']}")
+                j_check = st.checkbox("JSA Safety Signed", value=task['jsa'], key=f"jsa_{task['id']}")
+                st.session_state.tasks_memory[idx]['loto'] = l_check
+                st.session_state.tasks_memory[idx]['jsa'] = j_check
                 
-                if not loto or not jsa:
-                    st.warning("🔒 Safety requirements active. Check LOTO and JSA.")
+                if not l_check or not j_check:
+                    st.error("🔒 Safety Isolation Forms Required.")
                 else:
-                    if not photo_saved:
-                        st.info("📸 Snapshot completed equipment items to clear submit lock.")
-                        cam_image = st.camera_input("Capture Proof of Work", key=f"cam_{item['id']}")
-                        if cam_image is not None:
-                            st.session_state.fallback_tasks[idx]['photo_proof'] = base64.b64encode(cam_image.getvalue()).decode('utf-8')
-                    else:
-                        st.success("✅ Work proof photo saved securely!")
-                        if st.button(" Retake Photo", key=f"clear_cam_{item['id']}"):
-                            st.session_state.fallback_tasks[idx]['photo_proof'] = None
+                    opt = ["In Progress", "Pending QA", "Blocked"]
+                    curr_idx = opt.index(task['status']) if task['status'] in opt else 0
+                    new_stat = st.selectbox("Update Status:", opt, index=curr_idx, key=f"stat_{task['id']}")
+                    if new_stat != task['status']:
+                        st.session_state.tasks_memory[idx]['status'] = new_stat
+                        st.rerun()
 
-                    action_status = st.selectbox("Update Status:", ["In Progress", "Pending QA", "Blocked"], index=["In Progress", "Pending QA", "Blocked"].index(item['status']) if item['status'] in ["In Progress", "Pending QA", "Blocked"] else 0, key=f"wk_stat_{item['id']}", disabled=not photo_saved)
-                    if action_status != item['status']:
-                        st.session_state.fallback_tasks[idx]['status'] = action_status
-                        
-    if not has_tasks:
-        st.info("No active maintenance tasks currently assigned directly to your account name.")
-
-# === SYSTEM SECTION B: AREA SUPERVISOR CONTROL DECKS ===
-if "supervisor" in role_check:
+# --- INTERFACE B: SUPERVISOR TASK HUB ---
+elif role_check == "supervisor":
     st.subheader("📋 Supervisor Operations Control Desk")
     
-    st.markdown("#### Live Shift Statistics Breakdown")
-    u_c = sum(1 for t in raw_tasks if t['status'] == 'Unassigned')
-    p_c = sum(1 for t in raw_tasks if t['status'] == 'In Progress')
-    q_c = sum(1 for t in raw_tasks if t['status'] == 'Pending QA')
-    c_c = sum(1 for t in raw_tasks if t['status'] == 'Complete')
-    b_c = sum(1 for t in raw_tasks if t['status'] == 'Blocked')
+    st.markdown("### Master Operational Schedule Log")
+    for idx, task in enumerate(st.session_state.tasks_memory):
+        with st.container(border=True):
+            st.markdown(f"**Task #{task['id']}: {task['title']}**")
+            st.write(f"Sector: {task['location']} | Status: `{task['status']}` | Current Owner: **{task['assigned_to']}**")
+            
+            # Simple dropdown mechanics that won't freeze a phone browser
+            workers_list = ["Unassigned"] + [u["name"] for u in st.session_state.user_registry.values() if u["role"] == "Worker"]
+            worker_idx = workers_list.index(task['assigned_to']) if task['assigned_to'] in workers_list else 0
+            new_worker = st.selectbox("Reassign Worker:", workers_list, index=worker_idx, key=f"sup_assign_{task['id']}")
+            
+            if new_worker != task['assigned_to']:
+                st.session_state.tasks_memory[idx]['assigned_to'] = new_worker
+                st.rerun()
+                
+            if task['status'] == "Pending QA":
+                if st.button("✅ Approve & Close Work Card", key=f"app_{task['id']}"):
+                    st.session_state.tasks_memory[idx]['status'] = "Complete"
+                    st.rerun()
+                    
+    st.markdown("---")
+    st.markdown("### ➕ Dispatch New Maintenance Work Ticket")
+    n_title = st.text_input("Task Title Description")
+    n_loc = st.text_input("Mine Sector / Bench Area")
+    n_pri = st.selectbox("Urgency Grade", ["Low", "Medium", "High", "Critical"])
+    if st.button("Publish Work Ticket"):
+        if n_title and n_loc:
+            new_id = int(max(t['id'] for t in st.session_state.fallback_tasks) + 1 if st.session_state.tasks_memory else 101)
+            st.session_state.tasks_memory.append({"id": new_id, "title": n_title, "location": n_loc, "priority": n_pri, "assigned_to": "Unassigned", "status": "Unassigned", "loto": False, "jsa": False})
+            st.success("Ticket Dispatched!")
+            st.rerun()
+
+    st.markdown("---")
+    st.markdown("### 📣 Broadcast Notice to Team Notice Board")
+    msg_input = st.text_area("Type instructions for field technician dashboards...")
+    if st.button("Broadcast Message"):
+        if msg_input:
+            st.session_state.broadcast_messages.append(msg_input)
+            st.success("Broadcast broadcasted!")
+
+# --- INTERFACE C: SUPERINTENDENT EXECUTIVE DASHBOARD ---
+elif role_check == "superintendent":
+    st.subheader("📊 Executive Superintendent Control Room Hub")
     
-    # Replaced charting graphs with high-visibility plain text data lists to bypass browser blocks
+    # Standard math counts that process safely on mobile devices
+    total_cards = len(st.session_state.tasks_memory)
+    done_cards = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'Complete')
+    progress_cards = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'In Progress')
+    blocked_cards = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'Blocked')
+    
+    st.info(f"Total Shift Operational Logs: **{total_cards}**")
+    st.success(f"Safe Closed Tasks Archive: **{done_cards}**")
+    st.warning(f"Technicians actively processing in field: **{progress_cards}**")
+    st.error(f"🚨 Active Breakdown Delays Blocked: **{blocked_cards}**")
+    
+    st.markdown("---")
+    st.markdown("### Master Facility Shift Record Table")
+    for task in st.session_state.tasks_memory:
+        st.write(f"🗂️ **Task #{task['id']}**: {task['title']} | Sector: `{task['location']}` | Status: `{task['status']}` | Urgency: `{task['priority']}` | Assigned: `{task['assigned_to']}`")
