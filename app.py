@@ -3,7 +3,6 @@ import requests
 from datetime import datetime
 import hashlib
 import base64
-import json
 
 # Try to import cryptography for real encryption; fallback to simple obfuscation
 try:
@@ -28,7 +27,7 @@ DB_HEADERS = {
 }
 
 # -------------------------------
-# 2. USER FUNCTIONS (same as before)
+# 2. USER FUNCTIONS
 # -------------------------------
 def fetch_all_users_from_db():
     try:
@@ -57,7 +56,6 @@ def register_user_to_db(username, name, role, password):
 # 3. CHAT FUNCTIONS (Supabase)
 # -------------------------------
 def send_message(sender, receiver, room, message, encrypted=False):
-    """Store a chat message in Supabase."""
     try:
         payload = {
             "sender": sender,
@@ -72,7 +70,6 @@ def send_message(sender, receiver, room, message, encrypted=False):
         return False
 
 def fetch_messages(room=None, limit=100):
-    """Fetch messages for a given room, newest first."""
     try:
         query = f"{SUPABASE_URL}/rest/v1/chat_messages?select=*&order=created_at.desc&limit={limit}"
         if room:
@@ -87,13 +84,10 @@ def fetch_messages(room=None, limit=100):
 # -------------------------------
 # 4. ENCRYPTION HELPERS
 # -------------------------------
-def derive_key(username1, username2):
-    """Derive a shared symmetric key from two usernames."""
-    # Sort usernames to get same key regardless of order
-    sorted_names = sorted([username1.lower(), username2.lower()])
+def derive_key(name1, name2):
+    sorted_names = sorted([name1.lower(), name2.lower()])
     combined = sorted_names[0] + sorted_names[1]
-    # Use PBKDF2 with a fixed salt (for demo) – in production use a per‑user salt
-    salt = b"fixed_salt_for_demo"  # In production, store per‑user salt in DB
+    salt = b"fixed_salt_for_demo"
     if CRYPTO_AVAILABLE:
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
@@ -104,30 +98,24 @@ def derive_key(username1, username2):
         key = base64.urlsafe_b64encode(kdf.derive(combined.encode()))
         return key
     else:
-        # Fallback: simple hash and base64
         return base64.urlsafe_b64encode(hashlib.sha256(combined.encode()).digest())
 
 def encrypt_message(message, key):
-    """Encrypt a message using Fernet or fallback to simple obfuscation."""
     if CRYPTO_AVAILABLE:
         f = Fernet(key)
         return f.encrypt(message.encode()).decode()
     else:
-        # Simple Caesar-like obfuscation (not secure, just for demo)
-        encoded = base64.b64encode(message.encode()).decode()
-        return encoded
+        return base64.b64encode(message.encode()).decode()
 
 def decrypt_message(encrypted_msg, key):
-    """Decrypt a message."""
     if CRYPTO_AVAILABLE:
         f = Fernet(key)
         return f.decrypt(encrypted_msg.encode()).decode()
     else:
-        decoded = base64.b64decode(encrypted_msg.encode()).decode()
-        return decoded
+        return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 5. SESSION STATE INIT (tasks & chat)
+# 5. SESSION STATE INIT
 # -------------------------------
 if 'tasks_memory' not in st.session_state:
     st.session_state.tasks_memory = [
@@ -146,15 +134,19 @@ if 'tasks_memory' not in st.session_state:
     ]
 
 if 'broadcast_messages' not in st.session_state:
-    st.session_state.broadcast_messages = []   # kept for backward compatibility
+    st.session_state.broadcast_messages = []
 
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
+if 'chat_room' not in st.session_state:
+    st.session_state.chat_room = "global"
+if 'chat_partner' not in st.session_state:
+    st.session_state.chat_partner = None
 
 # -------------------------------
-# 6. AUTHENTICATION GATEWAY (unchanged)
+# 6. AUTHENTICATION GATEWAY
 # -------------------------------
 if not st.session_state.authenticated:
     st.title("⚙️ Mine & Workshop Digital Tracker")
@@ -199,19 +191,19 @@ if not st.session_state.authenticated:
     st.stop()
 
 # -------------------------------
-# 7. MAIN APP (with Chat)
+# 7. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
 username = user['username']
 role = user['role'].strip().lower()
 
-# Sidebar – user info, broadcast (old), and chat room selector
+# Sidebar
 with st.sidebar:
     st.write(f"**User:** {full_name}")
     st.write(f"**Role:** {user['role']}")
     
-    # Legacy broadcast sender (optional – keep for supervisors)
+    # Legacy broadcast sender
     if role in ["supervisor", "superintendent"]:
         st.markdown("---")
         st.subheader("📢 Send Broadcast (Legacy)")
@@ -231,25 +223,21 @@ with st.sidebar:
     
     st.markdown("---")
     st.subheader("💬 Chat Rooms")
-    # Global room
     if st.button("🌍 Global Chat"):
         st.session_state.chat_room = "global"
         st.rerun()
     
-    # Supervisor room (only for supervisors & superintendents)
     if role in ["supervisor", "superintendent"]:
         if st.button("🔒 Supervisor Room"):
             st.session_state.chat_room = "supervisor"
             st.rerun()
     
-    # Private chat with specific users
     st.markdown("#### 👤 Private Chat")
     all_users = fetch_all_users_from_db()
     other_users = [u["full_name"] for u in all_users if u["full_name"] != full_name]
     if other_users:
         selected_user = st.selectbox("Choose contact", other_users)
         if st.button("Open Private Chat"):
-            # Create a unique room name: "private:userA_userB" sorted
             sorted_names = sorted([full_name, selected_user])
             room_name = f"private:{sorted_names[0]}_{sorted_names[1]}"
             st.session_state.chat_room = room_name
@@ -261,28 +249,17 @@ with st.sidebar:
     if st.button("🚪 Logout"):
         st.session_state.authenticated = False
         st.session_state.user_payload = None
-        st.session_state.chat_room = None
+        st.session_state.chat_room = "global"
         st.rerun()
 
-# Initialize chat room if not set
-if 'chat_room' not in st.session_state:
-    st.session_state.chat_room = "global"
-if 'chat_partner' not in st.session_state:
-    st.session_state.chat_partner = None
-
 # -------------------------------
-# 8. TASK TRACKER + CHAT INTERFACE
+# 8. TASK TRACKER + CHAT TABS
 # -------------------------------
-# We'll show the task tracker in the main area and a chat panel below
-# or we can use tabs: "Tasks" and "Chat". Let's use tabs for better UX.
-
 tab_tasks, tab_chat = st.tabs(["📋 Task Dashboard", "💬 Chat Room"])
 
 with tab_tasks:
-    # ---- Task logic (same as before, but we'll re-use the role-based code) ----
     if role == "worker":
         st.subheader("👷 Field Worker Workspace")
-        # Show legacy broadcasts
         if st.session_state.broadcast_messages:
             st.info("📢 Latest Broadcasts:")
             for msg in reversed(st.session_state.broadcast_messages[-5:]):
@@ -419,4 +396,31 @@ with tab_tasks:
                         task['status'] = new_stat
                         st.rerun()
                     if cols[3].button("🗑️ Delete", key=f"del_{task['id']}"):
-     
+                        st.session_state.tasks_memory = [t for t in st.session_state.tasks_memory if t['id'] != task['id']]
+                        st.rerun()
+        with tab_broadcasts:
+            st.markdown("### All Broadcast Messages")
+            if st.session_state.broadcast_messages:
+                for msg in reversed(st.session_state.broadcast_messages):
+                    st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
+            else:
+                st.info("No messages sent yet.")
+
+# -------------------------------
+# 9. CHAT ROOM INTERFACE
+# -------------------------------
+with tab_chat:
+    st.subheader("💬 Real‑time Chat")
+    
+    room = st.session_state.chat_room
+    if room == "global":
+        st.markdown("### 🌍 Global Chat – all users")
+    elif room == "supervisor":
+        if role not in ["supervisor", "superintendent"]:
+            st.error("You don't have permission to view the Supervisor room.")
+            st.stop()
+        st.markdown("### 🔒 Supervisor Room – Supervisors & Superintendent only")
+    elif room.startswith("private:"):
+        partner = st.session_state.chat_partner
+        st.markdown(f"### 🔐 Private Chat with **{partner}** (end‑to‑end encrypted)")
+        st.caption("Messages are encrypted with a sha
