@@ -477,4 +477,134 @@ with tab_tasks:
                 for msg in reversed(st.session_state.broadcast_messages[-3:]):
                     st.info(f"**{msg['sender']}** at {msg['timestamp']}: {msg['message']}")
             else:
-              
+                st.info("No messages sent yet.")
+
+# ---- CHAT ROOM ----
+with tab_chat:
+    st.subheader("💬 Real‑time Chat")
+
+    room = st.session_state.chat_room
+    if room == "global":
+        st.markdown("### 🌍 Global Chat – all users")
+    elif room == "supervisor":
+        if role not in ["supervisor", "superintendent"]:
+            st.error("You don't have permission to view the Supervisor room.")
+            st.stop()
+        st.markdown("### 🔒 Supervisor Room – Supervisors & Superintendent only")
+    elif room.startswith("private:"):
+        partner = st.session_state.chat_partner
+        st.markdown(f"### 🔐 Private Chat with **{partner}** (end‑to‑end encrypted)")
+        st.caption("Messages are encrypted with a shared key derived from both usernames.")
+    else:
+        st.warning("Unknown room. Switching to Global.")
+        st.session_state.chat_room = "global"
+        st.rerun()
+
+    # Fetch messages
+    messages = fetch_messages(room=room, limit=200)
+    if messages:
+        for msg in reversed(messages):
+            sender = msg['sender']
+            is_encrypted = msg.get('is_encrypted', False)
+            content = msg['message']
+            # Handle timestamp
+            if 'created_at' in msg and isinstance(msg['created_at'], str):
+                try:
+                    timestamp = datetime.fromisoformat(msg['created_at'].replace('Z', '+00:00')).strftime("%H:%M")
+                except:
+                    timestamp = "??:??"
+            else:
+                timestamp = "??:??"
+
+            if room.startswith("private:") and is_encrypted:
+                parts = room.split(":")[1].split("_")
+                key = derive_key(parts[0], parts[1])
+                try:
+                    content = decrypt_message(content, key)
+                except Exception:
+                    content = "🔒 [Decryption failed]"
+
+            if sender == full_name:
+                st.markdown(f"**You** ({timestamp}): {content}")
+            else:
+                st.markdown(f"**{sender}** ({timestamp}): {content}")
+    else:
+        st.info("No messages yet. Be the first to send!")
+
+    with st.container():
+        st.markdown("---")
+        # Use a separate state variable for the input value
+        msg_input = st.text_area("Type your message", height=100, key="chat_input_text", value=st.session_state.chat_input_value)
+        col_send, col_clear = st.columns([1, 5])
+        with col_send:
+            if st.button("Send", use_container_width=True):
+                if msg_input.strip():
+                    encrypted = False
+                    final_msg = msg_input
+                    if room.startswith("private:"):
+                        parts = room.split(":")[1].split("_")
+                        key = derive_key(parts[0], parts[1])
+                        final_msg = encrypt_message(msg_input, key)
+                        encrypted = True
+                    success = send_message(
+                        sender=full_name,
+                        receiver=st.session_state.chat_partner if room.startswith("private:") else None,
+                        room=room,
+                        message=final_msg,
+                        encrypted=encrypted
+                    )
+                    if success:
+                        st.success("Message sent!")
+                        # Clear the input after sending
+                        st.session_state.chat_input_value = ""
+                        st.rerun()
+                    else:
+                        st.error("Failed to send message. Check database or ensure table exists.")
+                else:
+                    st.warning("Message cannot be empty.")
+        with col_clear:
+            if st.button("Clear input", use_container_width=True):
+                st.session_state.chat_input_value = ""
+                st.rerun()
+
+# ---- ADMIN PANEL ----
+with tab_admin:
+    if role != "superintendent":
+        st.warning("You do not have admin privileges.")
+    else:
+        st.subheader("⚙️ Admin Panel")
+        admin_tabs = st.tabs(["👥 User Management", "📊 System Logs"])
+
+        with admin_tabs[0]:
+            st.markdown("### Manage Users")
+            all_users = fetch_all_users_from_db()
+            if all_users:
+                user_data = []
+                for u in all_users:
+                    user_data.append({
+                        "Username": u.get("username"),
+                        "Full Name": u.get("full_name"),
+                        "Role": u.get("role"),
+                        "Email": u.get("email", "Not set")
+                    })
+                st.dataframe(user_data, use_container_width=True)
+            else:
+                st.info("No users found in database.")
+
+        with admin_tabs[1]:
+            st.markdown("### System Logs")
+            st.info("Chat messages are logged below (last 50).")
+            logs = fetch_messages(room=None, limit=50)
+            if logs:
+                for log in logs:
+                    st.write(f"**{log['sender']}** in `{log['room']}` at {log.get('created_at', 'unknown')}: {log['message'][:50]}...")
+            else:
+                st.info("No chat logs yet.")
+
+# -------------------------------
+# End of app
+# -------------------------------
+```
+
+---
+                
