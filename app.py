@@ -539,7 +539,7 @@ else:
 
 # -------------------------------
 # 11. TABS: TASKS, CHAT, ADMIN
------#--------------------------#
+#--------------------------
 tab_tasks, tab_chat, tab_admin = st.tabs(["📋 Task Dashboard", "💬 Chat Room", "⚙️ Admin Panel"])
 
 # ---- TASK DASHBOARD ----
