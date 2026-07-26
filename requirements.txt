@@ -9,3 +9,4 @@ cryptography
 supabase
 sendgrid
 python-dotenv
+bcrypt
