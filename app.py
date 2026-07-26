@@ -131,18 +131,26 @@ def delete_task(task_id):
         return False
 
 # -------------------------------
-# 4. CHAT FUNCTIONS (with fallback)
+# 4. CHAT FUNCTIONS (with fallback and delete support)
 # -------------------------------
+if 'next_memory_id' not in st.session_state:
+    st.session_state.next_memory_id = -1
+
 def send_message(sender, receiver, room, message, encrypted=False):
     if not SUPABASE_AVAILABLE:
-        st.session_state.setdefault("chat_messages_memory", []).append({
+        # in-memory: assign a unique negative id
+        msg_id = st.session_state.next_memory_id
+        st.session_state.next_memory_id -= 1
+        msg = {
+            "id": msg_id,
             "sender": sender,
             "receiver": receiver,
             "room": room,
             "message": message,
             "is_encrypted": encrypted,
             "created_at": datetime.now().isoformat()
-        })
+        }
+        st.session_state.setdefault("chat_messages_memory", []).append(msg)
         return True
     try:
         payload = {
@@ -152,7 +160,8 @@ def send_message(sender, receiver, room, message, encrypted=False):
             "message": message,
             "is_encrypted": encrypted
         }
-        supabase.table("chat_messages").insert(payload).execute()
+        res = supabase.table("chat_messages").insert(payload).execute()
+        # The inserted row returns with an 'id' from the database
         return True
     except Exception:
         return False
@@ -173,6 +182,23 @@ def fetch_messages(room=None, limit=100):
     except Exception:
         pass
     return []
+
+def delete_message(message_id):
+    """Delete a chat message by its ID. Handles both DB and memory."""
+    if message_id < 0:  # in-memory message
+        st.session_state.chat_messages_memory = [
+            m for m in st.session_state.get("chat_messages_memory", [])
+            if m["id"] != message_id
+        ]
+        return True
+    else:
+        if not SUPABASE_AVAILABLE:
+            return False
+        try:
+            supabase.table("chat_messages").delete().eq("id", message_id).execute()
+            return True
+        except Exception:
+            return False
 
 # -------------------------------
 # 5. ENCRYPTION HELPERS
@@ -237,7 +263,6 @@ if 'tasks_memory' not in st.session_state:
     ]
 if 'chat_messages_memory' not in st.session_state:
     st.session_state.chat_messages_memory = []
-# New: store the current input text in a separate state variable
 if 'chat_input_value' not in st.session_state:
     st.session_state.chat_input_value = ""
 
@@ -477,6 +502,41 @@ with tab_tasks:
                 for msg in reversed(st.session_state.broadcast_messages[-3:]):
                     st.info(f"**{msg['sender']}** at {msg['timestamp']}: {msg['message']}")
             else:
+                st.caption("No broadcasts yet.")
+        with tab_manage:
+            st.markdown("### Full Task Control")
+            all_users = fetch_all_users_from_db()
+            worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker"]
+            if not st.session_state.tasks:
+                st.info("No tasks to manage.")
+            for task in st.session_state.tasks:
+                with st.container(border=True):
+                    cols = st.columns([2, 1, 1, 1])
+                    cols[0].markdown(f"**#{task['id']}:** {task['title']}  \n📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
+                    current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
+                    new_assign = cols[1].selectbox("Assign", worker_names,
+                                                   index=worker_names.index(current_assign),
+                                                   key=f"sup_assign_{task['id']}")
+                    if new_assign != task['assigned_to']:
+                        update_task(task['id'], {"assigned_to": new_assign})
+                        if task['status'] == "Unassigned" and new_assign != "Unassigned":
+                            update_task(task['id'], {"status": "In Progress"})
+                        st.rerun()
+                    status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
+                    curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
+                    new_stat = cols[2].selectbox("Status", status_opts, index=curr_stat_idx, key=f"stat_ovr_{task['id']}")
+                    if new_stat != task['status']:
+                        update_task(task['id'], {"status": new_stat})
+                        st.rerun()
+                    if cols[3].button("🗑️ Delete", key=f"del_{task['id']}"):
+                        delete_task(task['id'])
+                        st.rerun()
+        with tab_broadcasts:
+            st.markdown("### All Broadcast Messages")
+            if st.session_state.broadcast_messages:
+                for msg in reversed(st.session_state.broadcast_messages):
+                    st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
+            else:
                 st.info("No messages sent yet.")
 
 # ---- CHAT ROOM ----
@@ -524,16 +584,28 @@ with tab_chat:
                 except Exception:
                     content = "🔒 [Decryption failed]"
 
-            if sender == full_name:
-                st.markdown(f"**You** ({timestamp}): {content}")
-            else:
-                st.markdown(f"**{sender}** ({timestamp}): {content}")
+            # Display message with delete button if sender is current user
+            col_text, col_delete = st.columns([5, 1])
+            with col_text:
+                if sender == full_name:
+                    st.markdown(f"**You** ({timestamp}): {content}")
+                else:
+                    st.markdown(f"**{sender}** ({timestamp}): {content}")
+            with col_delete:
+                # Only show delete button if the sender is the current user
+                if sender == full_name:
+                    # Use a unique key for each delete button
+                    if st.button("🗑️", key=f"del_msg_{msg['id']}"):
+                        if delete_message(msg['id']):
+                            st.success("Message deleted!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to delete message.")
     else:
         st.info("No messages yet. Be the first to send!")
 
     with st.container():
         st.markdown("---")
-        # Use a separate state variable for the input value
         msg_input = st.text_area("Type your message", height=100, key="chat_input_text", value=st.session_state.chat_input_value)
         col_send, col_clear = st.columns([1, 5])
         with col_send:
@@ -555,7 +627,6 @@ with tab_chat:
                     )
                     if success:
                         st.success("Message sent!")
-                        # Clear the input after sending
                         st.session_state.chat_input_value = ""
                         st.rerun()
                     else:
@@ -573,33 +644,20 @@ with tab_admin:
         st.warning("You do not have admin privileges.")
     else:
         st.subheader("⚙️ Admin Panel")
-        admin_tabs = st.tabs(["👥 User Management", "📊 System Logs"])
-
-        with admin_tabs[0]:
-            st.markdown("### Manage Users")
-            all_users = fetch_all_users_from_db()
-            if all_users:
-                user_data = []
-                for u in all_users:
-                    user_data.append({
-                        "Username": u.get("username"),
-                        "Full Name": u.get("full_name"),
-                        "Role": u.get("role"),
-                        "Email": u.get("email", "Not set")
-                    })
-                st.dataframe(user_data, use_container_width=True)
-            else:
-                st.info("No users found in database.")
-
-        with admin_tabs[1]:
-            st.markdown("### System Logs")
-            st.info("Chat messages are logged below (last 50).")
-            logs = fetch_messages(room=None, limit=50)
-            if logs:
-                for log in logs:
-                    st.write(f"**{log['sender']}** in `{log['room']}` at {log.get('created_at', 'unknown')}: {log['message'][:50]}...")
-            else:
-                st.info("No chat logs yet.")
+        st.markdown("### Manage Users")
+        all_users = fetch_all_users_from_db()
+        if all_users:
+            user_data = []
+            for u in all_users:
+                user_data.append({
+                    "Username": u.get("username"),
+                    "Full Name": u.get("full_name"),
+                    "Role": u.get("role"),
+                    "Email": u.get("email", "Not set")
+                })
+            st.dataframe(user_data, use_container_width=True)
+        else:
+            st.info("No users found in database.")
 
 # -------------------------------
 # End of app
