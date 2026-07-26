@@ -32,7 +32,7 @@ def register_user_to_db(username, name, role, password):
     try:
         payload = {"username": username, "full_name": name, "role": role, "password_hash": password}
         res = requests.post(f"{SUPABASE_URL}/rest/v1/facility_users", headers=DB_HEADERS, json=payload, timeout=5)
-        if res.status_code in:
+        if res.status_code in (200, 201):
             return True
     except Exception:
         pass
