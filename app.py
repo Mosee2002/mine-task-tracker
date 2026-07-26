@@ -4,7 +4,7 @@ import requests
 # 1. CORE APPLICATION SURFACE INITIALIZATION
 st.title("⚙️ Mine & Workshop Digital Tracker")
 
-# 2. YOUR VERIFIED SUPABASE CLOUD DATABASE CONNECTIONS
+# 2. YOUR SECURE CLOUD DATABASE CREDENTIALS
 SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
 
@@ -23,7 +23,7 @@ def fetch_all_users_from_db():
             return res.json()
     except Exception:
         pass
-    # Local fallback logins to ensure administrative accounts are never locked out
+    # Local fallback administrative profiles to prevent system lockouts
     return [
         {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": "super789"},
         {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": "boss000"}
@@ -39,7 +39,7 @@ def register_user_to_db(username, name, role, password):
         pass
     return False
 
-# initialize universal states
+# Initialize fallback shift schedule registry
 if 'tasks_memory' not in st.session_state:
     st.session_state.tasks_memory = [
         {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2", "status": "In Progress", "priority": "High", "assigned_to": "John Doe", "loto": False, "jsa": False},
@@ -57,7 +57,7 @@ if 'user_payload' not in st.session_state:
     st.session_state.user_payload = None
 
 # -------------------------------------------------------------
-# GATEWAY SCREEN 1: ACCESS ACCOUNT CHECK CONTROLS
+# GATEWAY SCREEN 1: ACCESS PROFILE ACCREDITATION WINDOW
 # -------------------------------------------------------------
 if not st.session_state.authenticated:
     st.subheader("🔒 Secure Login Gateway")
@@ -65,7 +65,6 @@ if not st.session_state.authenticated:
     pass_in = st.text_input("Password", type="password")
     
     if st.button("Authenticate Profile"):
-        # Query your Supabase user rows live [INDEX]
         all_users = fetch_all_users_from_db()
         matched_user = None
         for u in all_users:
@@ -74,7 +73,6 @@ if not st.session_state.authenticated:
                 break
                 
         if matched_user:
-            # Map parameters dynamically from your online table schema [INDEX]
             st.session_state.user_payload = {
                 "name": matched_user.get("full_name", matched_user.get("username")),
                 "role": matched_user.get("role", "Worker")
@@ -93,14 +91,14 @@ if not st.session_state.authenticated:
     
     if st.button("Register Profile"):
         if reg_user and reg_name and reg_pass:
-            # Save account payload values directly inside Supabase SQL columns permanently [INDEX]
+            # Save account details directly into Supabase SQL data columns permanently [INDEX]
             success = register_user_to_db(reg_user, reg_name, reg_role, reg_pass)
             if success:
-                st.success(f"Account '{reg_user}' successfully locked inside your Supabase Cloud Database! Log in above.")
+                st.success(f"Account profile successfully locked inside your Supabase Cloud Database! Log in above.")
             else:
-                st.error("Registration failed. Username may be taken or database table RLS is blocking the entry.")
+                st.error("Registration failed. Table Row Level Security (RLS) might be blocking the request.")
         else:
-            st.error("All inputs are mandatory.")
+            st.error("All input fields are mandatory.")
     st.stop()
 
 # -------------------------------------------------------------
@@ -109,7 +107,7 @@ if not st.session_state.authenticated:
 user = st.session_state.user_payload
 role_check = str(user['role']).strip().lower()
 
-# Dynamic worker retrieval directly from active database entries
+# Dynamic worker menu mapping directly from live cloud database profiles
 raw_users = fetch_all_users_from_db()
 all_workers_list = ["Unassigned"] + [u["full_name"] for u in raw_users if str(u["role"]).strip().lower() == "worker"]
 
@@ -189,11 +187,12 @@ elif role_check == "supervisor":
     if st.button("Broadcast Message"):
         if msg_input:
             st.session_state.broadcast_messages.append(msg_input)
-            st.success("Broadcast broadcasted!")
+            st.success("Broadcast posted successfully!")
 
 # --- INTERFACE C: SUPERINTENDENT EXECUTIVE DASHBOARD ---
 elif role_check == "superintendent":
     st.subheader("📊 Executive Superintendent Control Room Hub")
     
     total_cards = len(st.session_state.tasks_memory)
-        
+    done_cards = sum(1 for t in st.session_state.tasks_memory if t['status'] == 'Complete')
+         
