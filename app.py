@@ -637,7 +637,6 @@ user_email = user.get('email', None)
 
 # Sidebar
 with st.sidebar:
-    /* Enhanced task cards */
 .task-card {
     background: white;
     border-radius: 12px;
