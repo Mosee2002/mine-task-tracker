@@ -637,14 +637,67 @@ user_email = user.get('email', None)
 
 # Sidebar
 with st.sidebar:
-    st.markdown(f"""
-    <div style="padding: 0.5rem 0;">
-        <i class="fas fa-user-circle" style="font-size: 2rem; color: #3b82f6;"></i>
-        <div style="font-weight: 600; font-size: 1.1rem;">{full_name}</div>
-        <div style="font-size: 0.9rem; color: #94a3b8;"><i class="fas fa-id-badge"></i> {user['role']}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    /* Enhanced task cards */
+.task-card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.2rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    border: 1px solid #e8ecf0;
+    transition: all 0.2s;
+}
+.task-card:hover {
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+.task-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1e293b;
+}
+.task-meta {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+    margin: 0.3rem 0 0.8rem 0;
+    font-size: 0.9rem;
+    color: #475569;
+}
+.task-meta i {
+    margin-right: 0.3rem;
+}
+.priority-badge {
+    display: inline-block;
+    padding: 0.15rem 0.7rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: white;
+}
+.priority-Critical { background: #dc2626; }
+.priority-High { background: #f59e0b; }
+.priority-Medium { background: #3b82f6; }
+.priority-Low { background: #10b981; }
+.task-controls {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 0.5rem 0;
+}
+.upload-area {
+    border: 2px dashed #cbd5e1;
+    border-radius: 10px;
+    padding: 1.2rem;
+    background: #f8fafc;
+    text-align: center;
+    margin: 1rem 0;
+}
+.upload-area:hover {
+    border-color: #3b82f6;
+    background: #f1f5f9;
+}
     if USING_HARDCODED:
         st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
 
