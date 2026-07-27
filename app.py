@@ -1182,4 +1182,3 @@ st.markdown("""
     <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker v2.0 &nbsp;|&nbsp; Powered by Streamlit & Supabase
 </div>
 """, unsafe_allow_html=True)
-```
