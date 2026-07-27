@@ -925,7 +925,7 @@ if role == "worker":
                 st.markdown("---")
                 st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
                 with st.container():
-          if role == "worker":
+if role == "worker":
     st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
     if st.session_state.broadcast_messages:
         st.info("📢 Latest Broadcasts:")
