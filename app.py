@@ -14,8 +14,6 @@ try:
     BCRYPT_AVAILABLE = True
 except ImportError:
     BCRYPT_AVAILABLE = False
-    # We'll still use fallback, but we'll warn
-    st.warning("bcrypt not installed. Install with: pip install bcrypt")
 
 # Optional: for image validation
 try:
@@ -50,7 +48,7 @@ except ImportError:
     st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. CUSTOM CSS + FONT AWESOME (unchanged)
+# 1. CUSTOM CSS + FONT AWESOME
 # -------------------------------
 st.set_page_config(
     page_title="Mine & Workshop Tracker",
@@ -62,7 +60,6 @@ st.set_page_config(
 st.markdown("""
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
-    /* ... (same as before, keep your existing CSS) ... */
     .stApp { background-color: #f8fafc; }
     .main-header { font-size: 2.5rem; font-weight: 700; color: #1e293b; margin-bottom: 0.5rem; }
     .main-header i { color: #2563eb; margin-right: 10px; }
@@ -107,17 +104,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 2. FONT AWESOME BUTTON HELPER (unchanged)
+# 2. FONT AWESOME BUTTON HELPER (with query params)
 # -------------------------------
 def fa_button(label, icon, key, use_container_width=False, button_style="primary"):
     if st.query_params.get(key) == "clicked":
         st.query_params.pop(key)
         return True
+
     style_class = "fa-btn"
     if button_style == "secondary":
         style_class += " fa-btn-secondary"
     elif button_style == "danger":
         style_class += " fa-btn-danger"
+
     width_style = "width: 100%;" if use_container_width else "width: auto;"
     html = f"""
     <a href="?{key}=clicked" style="text-decoration: none; display: block; {width_style}">
@@ -130,7 +129,7 @@ def fa_button(label, icon, key, use_container_width=False, button_style="primary
     return False
 
 # -------------------------------
-# 3. PASSWORD HASHING (with fallback)
+# 3. PASSWORD HASHING (universal)
 # -------------------------------
 def hash_password(password):
     if BCRYPT_AVAILABLE:
@@ -143,16 +142,19 @@ def hash_password(password):
 
 def verify_password(password, hashed):
     if BCRYPT_AVAILABLE:
-        return bcrypt.checkpw(password.encode(), hashed.encode())
-    else:
         try:
-            data = base64.b64decode(hashed.encode())
-            salt = data[:32]
-            stored_hash = data[32:]
-            computed = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
-            return computed == stored_hash
-        except Exception:
-            return False
+            if bcrypt.checkpw(password.encode(), hashed.encode()):
+                return True
+        except ValueError:
+            pass
+    try:
+        data = base64.b64decode(hashed.encode())
+        salt = data[:32]
+        stored_hash = data[32:]
+        computed = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+        return computed == stored_hash
+    except Exception:
+        return False
 
 def log_audit(user_name, action, details=None):
     if not SUPABASE_AVAILABLE:
@@ -215,11 +217,10 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 # -------------------------------
-# 6. USER FUNCTIONS (with hashed passwords, and static fallback now hashed)
+# 6. USER FUNCTIONS (with universal verification)
 # -------------------------------
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
-        # Return fallback users with hashed passwords
         fallback = [
             {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789")},
             {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000")},
@@ -231,10 +232,8 @@ def fetch_all_users_from_db():
         if res.data:
             return res.data
         else:
-            # Supabase is connected but table empty; return empty list
             return []
     except Exception:
-        # On error, return hashed fallback
         fallback = [
             {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789")},
             {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000")},
@@ -256,20 +255,14 @@ def register_user_to_db(username, name, role, password):
 
 def authenticate_user(username, password):
     users = fetch_all_users_from_db()
-    # Debug: print users to console (optional)
-    # st.write("Users fetched:", users)  # uncomment to see on UI
     for u in users:
         if u["username"].lower() == username.lower():
-            stored_hash = u["password_hash"]
-            result = verify_password(password, stored_hash)
-            # Debug: show reason if fails
-            if not result:
-                # You can remove this in production
-                st.warning(f"Debug: Password verification failed for {username}. Hash type: {type(stored_hash)}")
-            return u if result else None
+            if verify_password(password, u["password_hash"]):
+                return u
     return None
+
 # -------------------------------
-# 7. TASK FUNCTIONS (with audit)
+# 7. TASK FUNCTIONS
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -354,7 +347,7 @@ def delete_task(task_id, deleted_by):
         return False
 
 # -------------------------------
-# 8. PHOTO FUNCTIONS (with audit)
+# 8. PHOTO FUNCTIONS
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
     if not SUPABASE_AVAILABLE:
@@ -398,7 +391,7 @@ def fetch_photos(task_id):
     return []
 
 # -------------------------------
-# 9. CHAT FUNCTIONS (with audit for delete)
+# 9. CHAT FUNCTIONS
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -572,7 +565,6 @@ if not st.session_state.authenticated:
     user_in = st.text_input("Username", placeholder="Enter your username").strip().lower()
     pass_in = st.text_input("Password", type="password", placeholder="Enter your password")
 
-    # Use Font Awesome button helper
     if fa_button("Authenticate Profile", "fa-sign-in-alt", "login_clicked", use_container_width=True):
         matched_user = authenticate_user(user_in, pass_in)
         if matched_user:
@@ -662,7 +654,6 @@ with st.sidebar:
                     "timestamp": datetime.now().strftime("%H:%M")
                 })
                 log_audit(full_name, "broadcast", {"message": broadcast_msg[:50]})
-                # Send email to all workers
                 all_users = fetch_all_users_from_db()
                 worker_emails = [u.get('email') for u in all_users if u['role'].strip().lower() == 'worker' and u.get('email')]
                 for email in worker_emails:
@@ -783,7 +774,6 @@ with tab_tasks:
                                 log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
                                 st.rerun()
 
-                        # Photo upload
                         st.markdown('#### <i class="fas fa-camera"></i> Upload Proof Photo', unsafe_allow_html=True)
                         uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}")
                         if uploaded_file is not None:
@@ -874,8 +864,7 @@ with tab_tasks:
                                 send_email_notification(worker_email, subject, body)
                         st.rerun()
                     if task['status'] == "Pending QA":
-                        # Use emoji for inline approve button (or we can use fa_button, but it's inside a column)
-                        if st.button("✅ Approve & Close", key=f"approve_{task['id']}"):
+                        if cols[1].button("✅ Approve & Close", key=f"approve_{task['id']}"):
                             update_task(task['id'], {"status": "Complete"}, full_name)
                             log_audit(full_name, "task_approve", {"task_id": task['id']})
                             st.rerun()
@@ -897,7 +886,6 @@ with tab_tasks:
                 priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
                 loto = st.checkbox("Requires LOTO")
                 jsa = st.checkbox("Requires JSA")
-                # For form submit, use emoji because form_submit_button doesn't support HTML
                 submitted = st.form_submit_button('➕ Create Work Ticket')
                 if submitted:
                     if title and location:
@@ -1008,7 +996,6 @@ with tab_tasks:
                         update_task(task['id'], {"status": new_stat}, full_name)
                         log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_stat})
                         st.rerun()
-                    # Delete button: use Font Awesome via fa_button inside column? We'll use emoji for simplicity.
                     if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
                         delete_task(task['id'], full_name)
                         st.rerun()
@@ -1051,11 +1038,9 @@ with tab_chat:
         st.session_state.chat_room = "global"
         st.rerun()
 
-    # Initialize cache if empty
     if not st.session_state.chat_messages_cache:
         st.session_state.chat_messages_cache = fetch_messages(room=room, limit=200)
 
-    # Real-time subscription
     if SUPABASE_AVAILABLE:
         channel_name = f"chat_{room.replace(':', '_').replace('@', '_')}"
         try:
@@ -1079,7 +1064,6 @@ with tab_chat:
         except Exception:
             pass
 
-    # Display messages
     messages = [m for m in st.session_state.chat_messages_cache if m['room'] == room]
     if messages:
         for msg in reversed(messages):
@@ -1110,7 +1094,6 @@ with tab_chat:
                     st.markdown(f"<div class='chat-message'><span class='sender'>{sender}</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
             with col_delete:
                 if sender == full_name:
-                    # Use emoji for delete button (small inline)
                     if st.button("🗑️", key=f"del_msg_{msg['id']}"):
                         if delete_message(msg['id'], full_name):
                             st.success("Message deleted!")
@@ -1121,7 +1104,6 @@ with tab_chat:
     else:
         st.info("No messages yet. Be the first to send!")
 
-    # Input area
     with st.container():
         st.markdown("---")
         msg_input = st.text_area("Type your message", height=100, key="chat_input_text", value=st.session_state.chat_input_value)
@@ -1200,7 +1182,4 @@ st.markdown("""
     <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker v2.0 &nbsp;|&nbsp; Powered by Streamlit & Supabase
 </div>
 """, unsafe_allow_html=True)
-
-# -------------------------------
-# End of app
-# -------------------------------
+```
