@@ -99,6 +99,46 @@ st.markdown("""
         background-color: #2563eb;
         transform: scale(1.02);
     }
+    /* Custom button via <a> tag */
+    .fa-btn {
+        display: inline-block;
+        width: 100%;
+        padding: 0.5rem 1rem;
+        border-radius: 0.5rem;
+        border: none;
+        background-color: #3b82f6;
+        color: white !important;
+        font-size: 1rem;
+        font-weight: 500;
+        text-align: center;
+        text-decoration: none;
+        transition: 0.2s;
+        cursor: pointer;
+    }
+    .fa-btn:hover {
+        background-color: #2563eb;
+        transform: scale(1.02);
+        color: white !important;
+    }
+    .fa-btn i {
+        margin-right: 0.5rem;
+    }
+    .fa-btn-secondary {
+        background-color: #f1f5f9;
+        color: #1e293b !important;
+    }
+    .fa-btn-secondary:hover {
+        background-color: #e2e8f0;
+        color: #0f172a !important;
+    }
+    .fa-btn-danger {
+        background-color: #ef4444;
+        color: white !important;
+    }
+    .fa-btn-danger:hover {
+        background-color: #dc2626;
+        color: white !important;
+    }
     /* Cards */
     .custom-card {
         background: white;
@@ -169,13 +209,6 @@ st.markdown("""
         font-size: 0.9rem;
         color: #64748b;
     }
-    /* Buttons with icons */
-    .stButton button {
-        font-weight: 500;
-    }
-    .stButton button i {
-        margin-right: 0.4rem;
-    }
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 0.5rem;
@@ -217,7 +250,40 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 2. PASSWORD HASHING (with fallback)
+# 2. FONT AWESOME BUTTON HELPER
+# -------------------------------
+def fa_button(label, icon, key, use_container_width=False, button_style="primary"):
+    """
+    Render a button with Font Awesome icon using a query parameter trick.
+    Returns True if clicked.
+    """
+    # Check if this button was clicked
+    if st.query_params.get(key) == "clicked":
+        # Clear the param so it doesn't trigger again
+        st.query_params.pop(key)
+        return True
+
+    # Choose button style class
+    style_class = "fa-btn"
+    if button_style == "secondary":
+        style_class += " fa-btn-secondary"
+    elif button_style == "danger":
+        style_class += " fa-btn-danger"
+
+    # Build button HTML as a link that sets a query param
+    width_style = "width: 100%;" if use_container_width else "width: auto;"
+    html = f"""
+    <a href="?{key}=clicked" style="text-decoration: none; display: block; {width_style}">
+        <button class="{style_class}" style="width: 100%;">
+            <i class="fas {icon}"></i> {label}
+        </button>
+    </a>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+    return False
+
+# -------------------------------
+# 3. PASSWORD HASHING (with fallback)
 # -------------------------------
 def hash_password(password):
     if BCRYPT_AVAILABLE:
@@ -254,7 +320,7 @@ def log_audit(user_name, action, details=None):
         pass
 
 # -------------------------------
-# 3. EMAIL NOTIFICATION (SMTP)
+# 4. EMAIL NOTIFICATION (SMTP)
 # -------------------------------
 def send_email_notification(recipient, subject, body):
     if not recipient:
@@ -284,7 +350,7 @@ def send_email_notification(recipient, subject, body):
         return False
 
 # -------------------------------
-# 4. IMAGE VALIDATION
+# 5. IMAGE VALIDATION
 # -------------------------------
 def validate_image(file_bytes, filename):
     ext = filename.split('.')[-1].lower()
@@ -302,7 +368,7 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 # -------------------------------
-# 5. USER FUNCTIONS (with hashed passwords)
+# 6. USER FUNCTIONS (with hashed passwords)
 # -------------------------------
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
@@ -334,7 +400,7 @@ def authenticate_user(username, password):
     return None
 
 # -------------------------------
-# 6. TASK FUNCTIONS (with audit)
+# 7. TASK FUNCTIONS (with audit)
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -419,7 +485,7 @@ def delete_task(task_id, deleted_by):
         return False
 
 # -------------------------------
-# 7. PHOTO FUNCTIONS (with audit)
+# 8. PHOTO FUNCTIONS (with audit)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
     if not SUPABASE_AVAILABLE:
@@ -463,7 +529,7 @@ def fetch_photos(task_id):
     return []
 
 # -------------------------------
-# 8. CHAT FUNCTIONS (with audit for delete)
+# 9. CHAT FUNCTIONS (with audit for delete)
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -534,7 +600,7 @@ def delete_message(message_id, deleted_by):
             return False
 
 # -------------------------------
-# 9. ENCRYPTION HELPERS
+# 10. ENCRYPTION HELPERS
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -575,7 +641,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 10. SESSION STATE INIT
+# 11. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -616,7 +682,7 @@ if 'chat_messages_cache' not in st.session_state:
     st.session_state.chat_messages_cache = []
 
 # -------------------------------
-# 11. SESSION TIMEOUT CHECK
+# 12. SESSION TIMEOUT CHECK
 # -------------------------------
 def check_timeout():
     if st.session_state.authenticated:
@@ -629,7 +695,7 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 12. AUTHENTICATION GATEWAY
+# 13. AUTHENTICATION GATEWAY
 # -------------------------------
 if not st.session_state.authenticated:
     st.markdown('<div class="main-header"><i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker</div>', unsafe_allow_html=True)
@@ -637,7 +703,8 @@ if not st.session_state.authenticated:
     user_in = st.text_input("Username", placeholder="Enter your username").strip().lower()
     pass_in = st.text_input("Password", type="password", placeholder="Enter your password")
 
-    if st.button('<i class="fas fa-sign-in-alt"></i> Authenticate Profile', use_container_width=True):
+    # Use Font Awesome button helper
+    if fa_button("Authenticate Profile", "fa-sign-in-alt", "login_clicked", use_container_width=True):
         matched_user = authenticate_user(user_in, pass_in)
         if matched_user:
             st.session_state.user_payload = {
@@ -661,7 +728,7 @@ if not st.session_state.authenticated:
     reg_role = st.selectbox("Role Access Level", ["Worker", "Supervisor", "Superintendent"])
     reg_pass = st.text_input("Set Password", type="password", placeholder="Choose a strong password")
 
-    if st.button('<i class="fas fa-user-check"></i> Register Profile', use_container_width=True):
+    if fa_button("Register Profile", "fa-user-check", "register_clicked", use_container_width=True):
         if reg_user and reg_name and reg_pass:
             users = fetch_all_users_from_db()
             if any(u["username"].lower() == reg_user for u in users):
@@ -677,8 +744,9 @@ if not st.session_state.authenticated:
     st.stop()
 else:
     check_timeout()
-    # -------------------------------
-# 13. PWA MANIFEST & SERVICE WORKER
+
+# -------------------------------
+# 14. PWA MANIFEST & SERVICE WORKER
 # -------------------------------
 st.markdown("""
 <link rel="manifest" href="/static/manifest.json">
@@ -690,7 +758,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 14. MAIN APP
+# 15. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -709,14 +777,14 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     if USING_HARDCODED:
-        st.caption('<i class="fas fa-exclamation-triangle"></i> Using hardcoded Supabase – set secrets.toml for production', unsafe_allow_html=True)
+        st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
 
     # Broadcast sender
     if role in ["supervisor", "superintendent"]:
         st.markdown("---")
         st.markdown('<i class="fas fa-bullhorn"></i> Send Broadcast', unsafe_allow_html=True)
         broadcast_msg = st.text_area("Message to all Workers", placeholder="Type your broadcast...")
-        if st.button('<i class="fas fa-paper-plane"></i> Send Broadcast', use_container_width=True):
+        if fa_button("Send Broadcast", "fa-paper-plane", "broadcast_clicked", use_container_width=True):
             if broadcast_msg:
                 st.session_state.broadcast_messages.append({
                     "sender": full_name,
@@ -737,19 +805,20 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown('<i class="fas fa-comments"></i> Chat Rooms', unsafe_allow_html=True)
-    if st.button('<i class="fas fa-globe"></i> Global Chat', use_container_width=True):
+    if fa_button("Global Chat", "fa-globe", "global_chat", use_container_width=True):
         st.session_state.chat_room = "global"
         st.rerun()
     if role in ["supervisor", "superintendent"]:
-        if st.button('<i class="fas fa-lock"></i> Supervisor Room', use_container_width=True):
+        if fa_button("Supervisor Room", "fa-lock", "supervisor_room", use_container_width=True):
             st.session_state.chat_room = "supervisor"
             st.rerun()
-    st.markdown('#### <i class="fas fa-user-friends"></i> Private Chat', unsafe_allow_html=True)
+
+    st.markdown('<i class="fas fa-user-friends"></i> Private Chat', unsafe_allow_html=True)
     all_users = fetch_all_users_from_db()
     other_users = [u["full_name"] for u in all_users if u["full_name"] != full_name]
     if other_users:
         selected_user = st.selectbox("Choose contact", other_users)
-        if st.button('<i class="fas fa-lock"></i> Open Private Chat', use_container_width=True):
+        if fa_button("Open Private Chat", "fa-lock", "private_chat_clicked", use_container_width=True):
             sorted_names = sorted([full_name, selected_user])
             room_name = f"private:{sorted_names[0]}_{sorted_names[1]}"
             st.session_state.chat_room = room_name
@@ -758,7 +827,7 @@ with st.sidebar:
     else:
         st.info("No other users available.")
 
-    if st.button('<i class="fas fa-sign-out-alt"></i> Logout', use_container_width=True):
+    if fa_button("Logout", "fa-sign-out-alt", "logout_clicked", use_container_width=True, button_style="danger"):
         log_audit(full_name, "logout")
         st.session_state.authenticated = False
         st.session_state.user_payload = None
@@ -772,7 +841,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    if st.button('<i class="fas fa-sync"></i> Refresh Data', use_container_width=True):
+    if fa_button("Refresh Data", "fa-sync", "refresh_data", use_container_width=True, button_style="secondary"):
         st.rerun()
 
 # Fetch tasks (merge DB + memory)
@@ -783,7 +852,7 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 15. TABS: TASKS, CHAT, ADMIN
+# 16. TABS: TASKS, CHAT, ADMIN
 # -------------------------------
 tab_tasks, tab_chat, tab_admin = st.tabs([
     '<i class="fas fa-tasks"></i> Task Dashboard',
@@ -844,7 +913,8 @@ with tab_tasks:
                                 update_task(task['id'], {"status": new_status}, full_name)
                                 log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
                                 st.rerun()
-                                 # Photo upload
+
+                        # Photo upload
                         st.markdown('#### <i class="fas fa-camera"></i> Upload Proof Photo', unsafe_allow_html=True)
                         uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}")
                         if uploaded_file is not None:
@@ -935,7 +1005,8 @@ with tab_tasks:
                                 send_email_notification(worker_email, subject, body)
                         st.rerun()
                     if task['status'] == "Pending QA":
-                        if cols[1].button("✅ Approve & Close", key=f"approve_{task['id']}"):
+                        # Use emoji for inline approve button (or we can use fa_button, but it's inside a column)
+                        if st.button("✅ Approve & Close", key=f"approve_{task['id']}"):
                             update_task(task['id'], {"status": "Complete"}, full_name)
                             log_audit(full_name, "task_approve", {"task_id": task['id']})
                             st.rerun()
@@ -957,7 +1028,8 @@ with tab_tasks:
                 priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
                 loto = st.checkbox("Requires LOTO")
                 jsa = st.checkbox("Requires JSA")
-                submitted = st.form_submit_button('<i class="fas fa-plus"></i> Create Work Ticket')
+                # For form submit, use emoji because form_submit_button doesn't support HTML
+                submitted = st.form_submit_button('➕ Create Work Ticket')
                 if submitted:
                     if title and location:
                         new_task = create_task(title, location, priority, loto, jsa, full_name)
@@ -1026,7 +1098,7 @@ with tab_tasks:
             if not st.session_state.tasks:
                 st.info("No tasks to manage.")
             for task in st.session_state.tasks:
-                priority_class =f"priority-{task['priority']}"
+                priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
                 with st.container():
                     st.markdown(f"""
@@ -1067,7 +1139,8 @@ with tab_tasks:
                         update_task(task['id'], {"status": new_stat}, full_name)
                         log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_stat})
                         st.rerun()
-                    if cols[2].button('<i class="fas fa-trash"></i> Delete', key=f"del_{task['id']}"):
+                    # Delete button: use Font Awesome via fa_button inside column? We'll use emoji for simplicity.
+                    if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
                         delete_task(task['id'], full_name)
                         st.rerun()
 
@@ -1159,6 +1232,7 @@ with tab_chat:
                     content = decrypt_message(content, key)
                 except Exception:
                     content = "🔒 [Decryption failed]"
+
             col_text, col_delete = st.columns([5, 1])
             with col_text:
                 if sender == full_name:
@@ -1167,6 +1241,7 @@ with tab_chat:
                     st.markdown(f"<div class='chat-message'><span class='sender'>{sender}</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
             with col_delete:
                 if sender == full_name:
+                    # Use emoji for delete button (small inline)
                     if st.button("🗑️", key=f"del_msg_{msg['id']}"):
                         if delete_message(msg['id'], full_name):
                             st.success("Message deleted!")
@@ -1183,7 +1258,7 @@ with tab_chat:
         msg_input = st.text_area("Type your message", height=100, key="chat_input_text", value=st.session_state.chat_input_value)
         col_send, col_clear = st.columns([1, 5])
         with col_send:
-            if st.button('<i class="fas fa-paper-plane"></i> Send', use_container_width=True):
+            if st.button('📤 Send', use_container_width=True):
                 if msg_input.strip():
                     encrypted = False
                     final_msg = msg_input
@@ -1209,7 +1284,7 @@ with tab_chat:
                 else:
                     st.warning("Message cannot be empty.")
         with col_clear:
-            if st.button('<i class="fas fa-eraser"></i> Clear input', use_container_width=True):
+            if st.button('🧹 Clear input', use_container_width=True):
                 st.session_state.chat_input_value = ""
                 st.rerun()
 
@@ -1260,5 +1335,3 @@ st.markdown("""
 # -------------------------------
 # End of app
 # -------------------------------
-    
-                
