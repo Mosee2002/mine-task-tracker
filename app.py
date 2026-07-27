@@ -85,7 +85,39 @@ def log_audit(user_name, action, details=None):
         pass
 
 # -------------------------------
-# 2. IMAGE VALIDATION
+# 2. EMAIL NOTIFICATION (SMTP)
+# -------------------------------
+def send_email_notification(recipient, subject, body):
+    """Send an email via SMTP (configured in secrets)."""
+    if not recipient:
+        return False
+    try:
+        smtp_server = st.secrets.get("SMTP_SERVER")
+        smtp_port = st.secrets.get("SMTP_PORT", 587)
+        smtp_user = st.secrets.get("SMTP_USER")
+        smtp_password = st.secrets.get("SMTP_PASSWORD")
+        smtp_from = st.secrets.get("SMTP_FROM", smtp_user)
+        if not all([smtp_server, smtp_user, smtp_password]):
+            # Silently fail; we'll just not send
+            return False
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        msg = MIMEMultipart()
+        msg['From'] = smtp_from
+        msg['To'] = recipient
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'html'))
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.send_message(msg)
+        return True
+    except Exception:
+        return False
+
+# -------------------------------
+# 3. IMAGE VALIDATION
 # -------------------------------
 def validate_image(file_bytes, filename):
     ext = filename.split('.')[-1].lower()
@@ -103,7 +135,7 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 # -------------------------------
-# 3. USER FUNCTIONS (with hashed passwords)
+# 4. USER FUNCTIONS (with hashed passwords)
 # -------------------------------
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
@@ -135,7 +167,7 @@ def authenticate_user(username, password):
     return None
 
 # -------------------------------
-# 4. TASK FUNCTIONS (with audit)
+# 5. TASK FUNCTIONS (with audit)
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -220,7 +252,7 @@ def delete_task(task_id, deleted_by):
         return False
 
 # -------------------------------
-# 5. PHOTO FUNCTIONS (with audit)
+# 6. PHOTO FUNCTIONS (with audit)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
     if not SUPABASE_AVAILABLE:
@@ -264,7 +296,7 @@ def fetch_photos(task_id):
     return []
 
 # -------------------------------
-# 6. CHAT FUNCTIONS (with audit for delete)
+# 7. CHAT FUNCTIONS (with audit for delete)
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -335,7 +367,7 @@ def delete_message(message_id, deleted_by):
             return False
 
 # -------------------------------
-# 7. ENCRYPTION HELPERS (unchanged)
+# 8. ENCRYPTION HELPERS
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -376,7 +408,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 8. SESSION STATE INIT
+# 9. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -411,9 +443,13 @@ if 'photos_memory' not in st.session_state:
     st.session_state.photos_memory = []
 if 'last_activity' not in st.session_state:
     st.session_state.last_activity = datetime.now()
+if 'chat_channel' not in st.session_state:
+    st.session_state.chat_channel = None
+if 'chat_messages_cache' not in st.session_state:
+    st.session_state.chat_messages_cache = []
 
 # -------------------------------
-# 9. SESSION TIMEOUT CHECK
+# 10. SESSION TIMEOUT CHECK
 # -------------------------------
 def check_timeout():
     if st.session_state.authenticated:
@@ -426,7 +462,7 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 10. AUTHENTICATION GATEWAY
+# 11. AUTHENTICATION GATEWAY
 # -------------------------------
 if not st.session_state.authenticated:
     st.title("⚙️ Mine & Workshop Digital Tracker")
@@ -476,7 +512,19 @@ else:
     check_timeout()
 
 # -------------------------------
-# 11. MAIN APP
+# 12. PWA MANIFEST & SERVICE WORKER
+# -------------------------------
+st.markdown("""
+<link rel="manifest" href="/static/manifest.json">
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/static/sw.js');
+  }
+</script>
+""", unsafe_allow_html=True)
+
+# -------------------------------
+# 13. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -507,6 +555,11 @@ with st.sidebar:
                     "timestamp": datetime.now().strftime("%H:%M")
                 })
                 log_audit(full_name, "broadcast", {"message": broadcast_msg[:50]})
+                # Send email to all workers
+                all_users = fetch_all_users_from_db()
+                worker_emails = [u.get('email') for u in all_users if u['role'].strip().lower() == 'worker' and u.get('email')]
+                for email in worker_emails:
+                    send_email_notification(email, f"Broadcast from {full_name}", broadcast_msg.replace('\n', '<br>'))
                 st.success("Broadcast sent!")
                 st.rerun()
             else:
@@ -530,6 +583,7 @@ with st.sidebar:
         if st.button("Open Private Chat"):
             sorted_names = sorted([full_name, selected_user])
             room_name = f"private:{sorted_names[0]}_{sorted_names[1]}"
+            st.session_state.chat_room = room_name
             st.session_state.chat_partner = selected_user
             st.rerun()
     else:
@@ -540,6 +594,13 @@ with st.sidebar:
         st.session_state.authenticated = False
         st.session_state.user_payload = None
         st.session_state.chat_room = "global"
+        # Clean up realtime channel
+        if st.session_state.chat_channel:
+            try:
+                supabase.remove_channel(st.session_state.chat_channel)
+            except:
+                pass
+            st.session_state.chat_channel = None
         st.rerun()
 
     st.markdown("---")
@@ -554,7 +615,7 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 12. TABS: TASKS, CHAT, ADMIN
+# 14. TABS: TASKS, CHAT, ADMIN
 # -------------------------------
 tab_tasks, tab_chat, tab_admin = st.tabs(["📋 Task Dashboard", "💬 Chat Room", "⚙️ Admin Panel"])
 
@@ -649,6 +710,13 @@ with tab_tasks:
                         if task['status'] == "Unassigned" and new_assign != "Unassigned":
                             update_task(task['id'], {"status": "In Progress"}, full_name)
                         log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
+                        # Send email notification to worker
+                        if new_assign != "Unassigned":
+                            worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
+                            if worker_email:
+                                subject = f"New Task Assigned: #{task['id']} - {task['title']}"
+                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br><br>Please log in to the tracker for details.<br>Regards,<br>Supervisor"
+                                send_email_notification(worker_email, subject, body)
                         st.rerun()
                     if task['status'] == "Pending QA":
                         if cols[2].button("✅ Approve & Close", key=f"approve_{task['id']}"):
@@ -726,6 +794,13 @@ with tab_tasks:
                         if task['status'] == "Unassigned" and new_assign != "Unassigned":
                             update_task(task['id'], {"status": "In Progress"}, full_name)
                         log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
+                        # Send email to worker
+                        if new_assign != "Unassigned":
+                            worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
+                            if worker_email:
+                                subject = f"New Task Assigned: #{task['id']} - {task['title']}"
+                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br><br>Please log in to the tracker for details.<br>Regards,<br>Superintendent"
+                                send_email_notification(worker_email, subject, body)
                         st.rerun()
                     status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
                     curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
@@ -756,7 +831,7 @@ with tab_tasks:
             else:
                 st.info("No messages sent yet.")
 
-# ---- CHAT ROOM ----
+# ---- CHAT ROOM (REAL-TIME) ----
 with tab_chat:
     st.subheader("💬 Real‑time Chat")
 
@@ -777,13 +852,51 @@ with tab_chat:
         st.session_state.chat_room = "global"
         st.rerun()
 
-    # Button to refresh messages manually
-    if st.button("🔄 Refresh Messages", use_container_width=True):
-        st.rerun()
+    # Initialize cache if empty
+    if not st.session_state.chat_messages_cache:
+        st.session_state.chat_messages_cache = fetch_messages(room=room, limit=200)
 
-    # Fetch and display messages
-    messages = fetch_messages(room=room, limit=200)
+    # Real-time subscription (using Supabase Realtime)
+    if SUPABASE_AVAILABLE:
+        # Define channel name
+        channel_name = f"chat_{room.replace(':', '_').replace('@', '_')}"
+        try:
+            # Remove old channel if exists
+            if st.session_state.chat_channel:
+                try:
+                    supabase.remove_channel(st.session_state.chat_channel)
+                except:
+                    pass
+                st.session_state.chat_channel = None
+
+            # Create new channel
+            channel = supabase.channel(channel_name)
+
+            def on_insert(payload):
+                # This callback is executed when a new message is inserted.
+                # We'll update the cache and rerun.
+                new_msg = payload['new']
+                # Avoid duplicates (check if already in cache)
+                if not any(m.get('id') == new_msg.get('id') for m in st.session_state.chat_messages_cache):
+                    st.session_state.chat_messages_cache.insert(0, new_msg)
+                    # Keep only last 200
+                    st.session_state.chat_messages_cache = st.session_state.chat_messages_cache[:200]
+                    st.rerun()
+
+            channel.on('postgres_changes', event='INSERT', schema='public', table='chat_messages', callback=on_insert)
+            channel.subscribe()
+            st.session_state.chat_channel = channel
+        except Exception as e:
+            # If realtime fails, we'll just fall back to manual refresh
+            st.warning("Realtime unavailable. Use refresh button.")
+
+    # Display messages from cache
+    messages = st.session_state.chat_messages_cache
+    # Filter by room (in case we have messages from other rooms)
+    messages = [m for m in messages if m['room'] == room]
+
     if messages:
+        # Display newest at bottom? We want oldest first for chronological order.
         for msg in reversed(messages):
             sender = msg['sender']
             is_encrypted = msg.get('is_encrypted', False)
@@ -815,6 +928,8 @@ with tab_chat:
                     if st.button("🗑️", key=f"del_msg_{msg['id']}"):
                         if delete_message(msg['id'], full_name):
                             st.success("Message deleted!")
+                            # Remove from cache
+                            st.session_state.chat_messages_cache = [m for m in st.session_state.chat_messages_cache if m['id'] != msg['id']]
                             st.rerun()
                         else:
                             st.error("Failed to delete message.")
@@ -846,6 +961,8 @@ with tab_chat:
                     if success:
                         st.success("Message sent!")
                         st.session_state.chat_input_value = ""
+                        # Fetch fresh messages to include the new one
+                        st.session_state.chat_messages_cache = fetch_messages(room=room, limit=200)
                         st.rerun()
                     else:
                         st.error("Failed to send message. Check database or ensure table exists.")
