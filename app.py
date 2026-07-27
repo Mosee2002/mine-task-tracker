@@ -867,41 +867,106 @@ with tab_tasks:
                                 else:
                                     st.error("Upload failed.")
                     # Show existing photos
-                    photos = fetch_photos(task['id'])
-                    if photos:
-                        st.markdown("**📸 Already uploaded:**")
-                        cols = st.columns(min(4, len(photos)))
-                        for idx, photo in enumerate(photos):
-                            with cols[idx % len(cols)]:
-                                st.image(photo['photo_url'], width=120, use_container_width=True)
-                    st.markdown("---")
+      if role == "worker":
+    st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
+    if st.session_state.broadcast_messages:
+        st.info("📢 Latest Broadcasts:")
+        for msg in reversed(st.session_state.broadcast_messages[-5:]):
+            st.warning(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
 
-        # ---------- IMPROVED UNASSIGNED BOARD ----------
-        with tab_unassigned:
-            unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
-            if not unassigned:
-                st.success("🎉 No unassigned tasks at the moment.")
-            else:
-                for task in unassigned:
-                    priority_class = f"priority-{task['priority']}"
-                    with st.container():
-                        st.markdown(f"""
-                        <div class="task-card">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <div class="task-title">#{task['id']} {task['title']}</div>
-                                    <div class="task-meta">
-                                        <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
-                                        <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
-                                    </div>
-                                </div>
-                                <div>
-                                    <span class="status-badge status-Unassigned">Unassigned</span>
-                                </div>
+    tab_my, tab_unassigned = st.tabs([
+        '<i class="fas fa-clipboard-list"></i> My Assigned Tasks',
+        '<i class="fas fa-inbox"></i> Unassigned Board'
+    ])
+
+    with tab_my:
+        my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
+        if not my_tasks:
+            st.info("No tasks assigned to you.")
+        else:
+            for task in my_tasks:
+                priority_class = f"priority-{task['priority']}"
+                status_class = f"status-{task['status'].replace(' ', '')}"
+                st.markdown(f"""
+                <div class="task-card">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                        <div>
+                            <div class="task-title">#{task['id']} {task['title']}</div>
+                            <div class="task-meta">
+                                <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
+                                <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
+                                <span><i class="fas fa-circle" style="color: #3b82f6;"></i> <span class="status-badge {status_class}">{task['status']}</span></span>
                             </div>
                         </div>
-                        """, unsafe_allow_html=True)
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
+                col1, col2 = st.columns([2, 3])
+                with col1:
+                    loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}")
+                    jsa = st.checkbox("📋 JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}")
+                with col2:
+                    status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
+                    current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
+                    new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}")
+                    if new_status != task['status']:
+                        update_task(task['id'], {"status": new_status}, full_name)
+                        log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
+                        st.rerun()
+                if loto != task.get('loto') or jsa != task.get('jsa'):
+                    update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
+                    st.rerun()
+                if not loto or not jsa:
+                    st.error("🔒 Safety isolation forms are required before proceeding.")
+                else:
+                    st.success("✅ Safety checks passed.")
+
+                st.markdown("---")
+                st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
+                with st.container():
+                    uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}")
+                    if uploaded_file is not None:
+                        if st.button(f"📤 Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}"):
+                            bytes_data = uploaded_file.getvalue()
+                            success = upload_photo(task['id'], bytes_data, uploaded_file.name, full_name)
+                            if success:
+                                st.success("Photo uploaded!")
+                                st.rerun()
+                            else:
+                                st.error("Upload failed.")
+                photos = fetch_photos(task['id'])
+                if photos:
+                    st.markdown("**📸 Already uploaded:**")
+                    cols = st.columns(min(4, len(photos)))
+                    for idx, photo in enumerate(photos):
+                        with cols[idx % len(cols)]:
+                            st.image(photo['photo_url'], width=120, use_container_width=True)
+                st.markdown("---")
+
+    with tab_unassigned:
+        unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
+        if not unassigned:
+            st.success("🎉 No unassigned tasks at the moment.")
+        else:
+            for task in unassigned:
+                priority_class = f"priority-{task['priority']}"
+                st.markdown(f"""
+                <div class="task-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div class="task-title">#{task['id']} {task['title']}</div>
+                            <div class="task-meta">
+                                <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
+                                <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
+                            </div>
+                        </div>
+                        <div>
+                            <span class="status-badge status-Unassigned">Unassigned</span>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
     elif role == "supervisor":
         st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
         tab_manage, tab_create = st.tabs([
