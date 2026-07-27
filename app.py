@@ -867,7 +867,7 @@ with tab_tasks:
                                 else:
                                     st.error("Upload failed.")
                     # Show existing photos
-      if role == "worker":
+if role == "worker":
     st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
     if st.session_state.broadcast_messages:
         st.info("📢 Latest Broadcasts:")
