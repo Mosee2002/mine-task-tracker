@@ -3,17 +3,11 @@ import requests
 from datetime import datetime, timedelta
 import hashlib
 import base64
+import bcrypt
 import os
 import json
 import time
 from io import BytesIO
-
-# Try to import bcrypt; fallback to built-in hashing
-try:
-    import bcrypt
-    BCRYPT_AVAILABLE = True
-except ImportError:
-    BCRYPT_AVAILABLE = False
 
 # Optional: for image validation
 try:
@@ -23,19 +17,15 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # -------------------------------
-# 0. SECRETS AND CONFIG (with fallback)
+# 0. SECRETS AND CONFIG
 # -------------------------------
-# Use hardcoded values if secrets not present (for easy deployment)
-if 'SUPABASE_URL' in st.secrets:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-else:
-    SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
-    st.info("Using hardcoded Supabase credentials. For production, set secrets.toml.")
-
-SESSION_TIMEOUT_MINUTES = st.secrets.get("SESSION_TIMEOUT_MINUTES", 60) if 'SESSION_TIMEOUT_MINUTES' in st.secrets else 60
-MAX_UPLOAD_SIZE_MB = st.secrets.get("MAX_UPLOAD_SIZE_MB", 5) if 'MAX_UPLOAD_SIZE_MB' in st.secrets else 5
+if 'SUPABASE_URL' not in st.secrets:
+    st.error("Please set SUPABASE_URL in secrets.toml")
+    st.stop()
+SUPABASE_URL = st.secrets["https://xvfbxogzefhmitrtykce.supabase.co"]
+SUPABASE_KEY = st.secrets["SeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"]
+SESSION_TIMEOUT_MINUTES = st.secrets.get("SESSION_TIMEOUT_MINUTES", 60)
+MAX_UPLOAD_SIZE_MB = st.secrets.get("MAX_UPLOAD_SIZE_MB", 5)
 MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
 # Use Supabase client
@@ -48,31 +38,16 @@ except ImportError:
     st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. PASSWORD HASHING (with fallback)
+# 1. UTILITY FUNCTIONS
 # -------------------------------
 def hash_password(password):
-    """Hash a password using bcrypt if available, else pbkdf2_hmac."""
-    if BCRYPT_AVAILABLE:
-        salt = bcrypt.gensalt()
-        return bcrypt.hashpw(password.encode(), salt).decode()
-    else:
-        salt = os.urandom(32)
-        hashed = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
-        return base64.b64encode(salt + hashed).decode()
+    """Hash a password using bcrypt."""
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode(), salt).decode()
 
 def verify_password(password, hashed):
     """Verify a password against its hash."""
-    if BCRYPT_AVAILABLE:
-        return bcrypt.checkpw(password.encode(), hashed.encode())
-    else:
-        try:
-            data = base64.b64decode(hashed.encode())
-            salt = data[:32]
-            stored_hash = data[32:]
-            computed = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
-            return computed == stored_hash
-        except Exception:
-            return False
+    return bcrypt.checkpw(password.encode(), hashed.encode())
 
 def log_audit(user_name, action, details=None):
     """Insert an audit log entry."""
@@ -87,19 +62,22 @@ def log_audit(user_name, action, details=None):
     except Exception:
         pass  # ignore audit log errors
 
-# -------------------------------
-# 2. IMAGE VALIDATION
-# -------------------------------
 def validate_image(file_bytes, filename):
     """Validate uploaded image: type, size, and (if PIL) dimensions."""
+    # Check file extension
     ext = filename.split('.')[-1].lower()
     if ext not in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp']:
         return False, "Only image files (jpg, png, gif, bmp, webp) are allowed."
+
+    # Check size
     if len(file_bytes) > MAX_UPLOAD_BYTES:
         return False, f"File size exceeds {MAX_UPLOAD_SIZE_MB} MB."
+
+    # Optional: check image integrity with PIL
     if PIL_AVAILABLE:
         try:
             img = Image.open(BytesIO(file_bytes))
+            # Ensure it's not corrupt (will raise exception)
             img.verify()
             return True, "Valid image."
         except Exception:
@@ -107,7 +85,7 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 # -------------------------------
-# 3. USER FUNCTIONS (with hashed passwords)
+# 2. USER FUNCTIONS (with hashed passwords)
 # -------------------------------
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
@@ -140,7 +118,7 @@ def authenticate_user(username, password):
     return None
 
 # -------------------------------
-# 4. TASK FUNCTIONS (with audit)
+# 3. TASK FUNCTIONS (with audit)
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -201,6 +179,7 @@ def update_task(task_id, updates, updated_by):
                 return True
         return False
     try:
+        # Fetch current to log diff
         current = supabase.table("tasks").select("*").eq("id", task_id).execute()
         if current.data:
             old = current.data[0]
@@ -225,7 +204,7 @@ def delete_task(task_id, deleted_by):
         return False
 
 # -------------------------------
-# 5. PHOTO FUNCTIONS (with audit)
+# 4. PHOTO FUNCTIONS (with audit)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
     if not SUPABASE_AVAILABLE:
@@ -238,6 +217,7 @@ def upload_photo(task_id, file_bytes, filename, uploaded_by):
         log_audit(uploaded_by, "photo_upload_memory", {"task_id": task_id, "filename": filename})
         return True
     try:
+        # Validate image
         valid, msg = validate_image(file_bytes, filename)
         if not valid:
             st.error(msg)
@@ -269,7 +249,7 @@ def fetch_photos(task_id):
     return []
 
 # -------------------------------
-# 6. CHAT FUNCTIONS (with audit for delete)
+# 5. CHAT FUNCTIONS (unchanged but added audit for delete)
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -331,6 +311,7 @@ def delete_message(message_id, deleted_by):
         if not SUPABASE_AVAILABLE:
             return False
         try:
+            # Get message details for audit
             msg = supabase.table("chat_messages").select("*").eq("id", message_id).execute()
             if msg.data:
                 log_audit(deleted_by, "message_delete", {"message_id": message_id, "content": msg.data[0]["message"][:50]})
@@ -340,7 +321,7 @@ def delete_message(message_id, deleted_by):
             return False
 
 # -------------------------------
-# 7. ENCRYPTION HELPERS (unchanged)
+# 6. ENCRYPTION HELPERS (unchanged)
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -381,7 +362,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 8. SESSION STATE INIT
+# 7. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -418,7 +399,7 @@ if 'last_activity' not in st.session_state:
     st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 9. SESSION TIMEOUT CHECK
+# 8. SESSION TIMEOUT CHECK
 # -------------------------------
 def check_timeout():
     if st.session_state.authenticated:
@@ -431,7 +412,7 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 10. AUTHENTICATION GATEWAY
+# 9. AUTHENTICATION GATEWAY (with hashed passwords)
 # -------------------------------
 if not st.session_state.authenticated:
     st.title("⚙️ Mine & Workshop Digital Tracker")
@@ -465,6 +446,7 @@ if not st.session_state.authenticated:
 
     if st.button("Register Profile"):
         if reg_user and reg_name and reg_pass:
+            # Check if username already exists
             users = fetch_all_users_from_db()
             if any(u["username"].lower() == reg_user for u in users):
                 st.error("Username already taken. Please choose another.")
@@ -478,10 +460,10 @@ if not st.session_state.authenticated:
             st.error("All fields are mandatory.")
     st.stop()
 else:
-    check_timeout()
+    check_timeout()  # enforce session expiry
 
 # -------------------------------
-# 11. MAIN APP
+# 10. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -556,7 +538,7 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 12. TABS: TASKS, CHAT, ADMIN
+# 11. TABS: TASKS, CHAT, ADMIN
 # -------------------------------
 tab_tasks, tab_chat, tab_admin = st.tabs(["📋 Task Dashboard", "💬 Chat Room", "⚙️ Admin Panel"])
 
@@ -658,7 +640,7 @@ with tab_tasks:
                             log_audit(full_name, "task_approve", {"task_id": task['id']})
                             st.rerun()
 
-                    # ---- Show photos ----
+                    # ---- Show photos for this task (Supervisor view) ----
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -740,7 +722,7 @@ with tab_tasks:
                         delete_task(task['id'], full_name)
                         st.rerun()
 
-                    # ---- Show photos ----
+                    # ---- Show photos for this task (Superintendent view) ----
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -758,7 +740,7 @@ with tab_tasks:
             else:
                 st.info("No messages sent yet.")
 
-# ---- CHAT ROOM ----
+# ---- CHAT ROOM (with auto‑refresh) ----
 with tab_chat:
     st.subheader("💬 Real‑time Chat")
 
@@ -859,6 +841,8 @@ with tab_chat:
                 st.rerun()
 
     # Auto-refresh every 5 seconds (simple poll)
+    # We use a sleep and rerun – but Streamlit's rerun will re‑execute the whole script.
+    # This is fine for a lightweight app; for production, use Supabase Realtime.
     time.sleep(5)
     st.rerun()
 
