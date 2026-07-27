@@ -967,6 +967,7 @@ if role == "worker":
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+                
     elif role == "supervisor":
         st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
         tab_manage, tab_create = st.tabs([
