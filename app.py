@@ -30,7 +30,6 @@ if 'SUPABASE_URL' in st.secrets:
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
     USING_HARDCODED = False
 else:
-    # Hardcoded fallback (your credentials)
     SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
     SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
     USING_HARDCODED = True
@@ -531,7 +530,6 @@ with st.sidebar:
         if st.button("Open Private Chat"):
             sorted_names = sorted([full_name, selected_user])
             room_name = f"private:{sorted_names[0]}_{sorted_names[1]}"
-            st.session_state.chat_room = room_name
             st.session_state.chat_partner = selected_user
             st.rerun()
     else:
@@ -779,49 +777,49 @@ with tab_chat:
         st.session_state.chat_room = "global"
         st.rerun()
 
-    # Placeholder for messages
-    message_placeholder = st.empty()
+    # Button to refresh messages manually
+    if st.button("🔄 Refresh Messages", use_container_width=True):
+        st.rerun()
 
     # Fetch and display messages
     messages = fetch_messages(room=room, limit=200)
-    with message_placeholder.container():
-        if messages:
-            for msg in reversed(messages):
-                sender = msg['sender']
-                is_encrypted = msg.get('is_encrypted', False)
-                content = msg['message']
-                if 'created_at' in msg and isinstance(msg['created_at'], str):
-                    try:
-                        timestamp = datetime.fromisoformat(msg['created_at'].replace('Z', '+00:00')).strftime("%H:%M")
-                    except:
-                        timestamp = "??:??"
-                else:
+    if messages:
+        for msg in reversed(messages):
+            sender = msg['sender']
+            is_encrypted = msg.get('is_encrypted', False)
+            content = msg['message']
+            if 'created_at' in msg and isinstance(msg['created_at'], str):
+                try:
+                    timestamp = datetime.fromisoformat(msg['created_at'].replace('Z', '+00:00')).strftime("%H:%M")
+                except:
                     timestamp = "??:??"
+            else:
+                timestamp = "??:??"
 
-                if room.startswith("private:") and is_encrypted:
-                    parts = room.split(":")[1].split("_")
-                    key = derive_key(parts[0], parts[1])
-                    try:
-                        content = decrypt_message(content, key)
-                    except Exception:
-                        content = "🔒 [Decryption failed]"
+            if room.startswith("private:") and is_encrypted:
+                parts = room.split(":")[1].split("_")
+                key = derive_key(parts[0], parts[1])
+                try:
+                    content = decrypt_message(content, key)
+                except Exception:
+                    content = "🔒 [Decryption failed]"
 
-                col_text, col_delete = st.columns([5, 1])
-                with col_text:
-                    if sender == full_name:
-                        st.markdown(f"**You** ({timestamp}): {content}")
-                    else:
-                        st.markdown(f"**{sender}** ({timestamp}): {content}")
-                with col_delete:
-                    if sender == full_name:
-                        if st.button("🗑️", key=f"del_msg_{msg['id']}"):
-                            if delete_message(msg['id'], full_name):
-                                st.success("Message deleted!")
-                                st.rerun()
-                            else:
-                                st.error("Failed to delete message.")
-        else:
-            st.info("No messages yet. Be the first to send!")
+            col_text, col_delete = st.columns([5, 1])
+            with col_text:
+                if sender == full_name:
+                    st.markdown(f"**You** ({timestamp}): {content}")
+                else:
+                    st.markdown(f"**{sender}** ({timestamp}): {content}")
+            with col_delete:
+                if sender == full_name:
+                    if st.button("🗑️", key=f"del_msg_{msg['id']}"):
+                        if delete_message(msg['id'], full_name):
+                            st.success("Message deleted!")
+                            st.rerun()
+                        else:
+                            st.error("Failed to delete message.")
+    else:
+        st.info("No messages yet. Be the first to send!")
 
     # Input area
     with st.container():
@@ -857,10 +855,6 @@ with tab_chat:
             if st.button("Clear input", use_container_width=True):
                 st.session_state.chat_input_value = ""
                 st.rerun()
-
-    # Auto-refresh every 5 seconds (simple poll)
-    time.sleep(5)
-    st.rerun()
 
 # ---- ADMIN PANEL ----
 with tab_admin:
