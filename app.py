@@ -1050,7 +1050,7 @@ elif role == "supervisor":
                     else:
                         st.error("Title and Location are required.")
 
-    elif role == "superintendent":
+elif role == "superintendent":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
         tab_overview, tab_manage, tab_broadcasts = st.tabs([
             '<i class="fas fa-chart-pie"></i> Overview',
