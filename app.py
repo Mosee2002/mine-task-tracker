@@ -744,7 +744,6 @@ with st.sidebar:
         if st.button('<i class="fas fa-lock"></i> Supervisor Room', use_container_width=True):
             st.session_state.chat_room = "supervisor"
             st.rerun()
-
     st.markdown("#### <i class="fas fa-user-friends"></i> Private Chat", unsafe_allow_html=True)
     all_users = fetch_all_users_from_db()
     other_users = [u["full_name"] for u in all_users if u["full_name"] != full_name]
