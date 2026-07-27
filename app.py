@@ -14,6 +14,8 @@ try:
     BCRYPT_AVAILABLE = True
 except ImportError:
     BCRYPT_AVAILABLE = False
+    # We'll still use fallback, but we'll warn
+    st.warning("bcrypt not installed. Install with: pip install bcrypt")
 
 # Optional: for image validation
 try:
@@ -48,7 +50,7 @@ except ImportError:
     st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. CUSTOM CSS + FONT AWESOME
+# 1. CUSTOM CSS + FONT AWESOME (unchanged)
 # -------------------------------
 st.set_page_config(
     page_title="Mine & Workshop Tracker",
@@ -57,220 +59,65 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Inject Font Awesome and custom CSS
 st.markdown("""
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
-    /* General styling */
-    .stApp {
-        background-color: #f8fafc;
-    }
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: 700;
-        color: #1e293b;
-        margin-bottom: 0.5rem;
-    }
-    .main-header i {
-        color: #2563eb;
-        margin-right: 10px;
-    }
-    .sub-header {
-        font-size: 1.2rem;
-        color: #475569;
-        margin-bottom: 1.5rem;
-    }
-    /* Sidebar */
-    .css-1d391kg {
-        background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
-    }
-    .css-1d391kg .stMarkdown {
-        color: #e2e8f0;
-    }
-    .css-1d391kg .stButton button {
-        background-color: #3b82f6;
-        color: white;
-        border-radius: 8px;
-        border: none;
-        padding: 0.5rem 1rem;
-        transition: 0.3s;
-    }
-    .css-1d391kg .stButton button:hover {
-        background-color: #2563eb;
-        transform: scale(1.02);
-    }
-    /* Custom button via <a> tag */
-    .fa-btn {
-        display: inline-block;
-        width: 100%;
-        padding: 0.5rem 1rem;
-        border-radius: 0.5rem;
-        border: none;
-        background-color: #3b82f6;
-        color: white !important;
-        font-size: 1rem;
-        font-weight: 500;
-        text-align: center;
-        text-decoration: none;
-        transition: 0.2s;
-        cursor: pointer;
-    }
-    .fa-btn:hover {
-        background-color: #2563eb;
-        transform: scale(1.02);
-        color: white !important;
-    }
-    .fa-btn i {
-        margin-right: 0.5rem;
-    }
-    .fa-btn-secondary {
-        background-color: #f1f5f9;
-        color: #1e293b !important;
-    }
-    .fa-btn-secondary:hover {
-        background-color: #e2e8f0;
-        color: #0f172a !important;
-    }
-    .fa-btn-danger {
-        background-color: #ef4444;
-        color: white !important;
-    }
-    .fa-btn-danger:hover {
-        background-color: #dc2626;
-        color: white !important;
-    }
-    /* Cards */
-    .custom-card {
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
-        padding: 1.2rem;
-        margin-bottom: 1rem;
-        border-left: 4px solid #2563eb;
-        transition: 0.2s;
-    }
-    .custom-card:hover {
-        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
-        transform: translateY(-2px);
-    }
+    /* ... (same as before, keep your existing CSS) ... */
+    .stApp { background-color: #f8fafc; }
+    .main-header { font-size: 2.5rem; font-weight: 700; color: #1e293b; margin-bottom: 0.5rem; }
+    .main-header i { color: #2563eb; margin-right: 10px; }
+    .sub-header { font-size: 1.2rem; color: #475569; margin-bottom: 1.5rem; }
+    .css-1d391kg { background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); }
+    .css-1d391kg .stMarkdown { color: #e2e8f0; }
+    .css-1d391kg .stButton button { background-color: #3b82f6; color: white; border-radius: 8px; border: none; padding: 0.5rem 1rem; transition: 0.3s; }
+    .css-1d391kg .stButton button:hover { background-color: #2563eb; transform: scale(1.02); }
+    .custom-card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); padding: 1.2rem; margin-bottom: 1rem; border-left: 4px solid #2563eb; transition: 0.2s; }
+    .custom-card:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); transform: translateY(-2px); }
     .priority-Critical { border-left-color: #dc2626; }
     .priority-High { border-left-color: #f59e0b; }
     .priority-Medium { border-left-color: #3b82f6; }
     .priority-Low { border-left-color: #10b981; }
-    .status-badge {
-        display: inline-block;
-        padding: 0.2rem 0.6rem;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: white;
-    }
+    .status-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; color: white; }
     .status-Unassigned { background: #94a3b8; }
     .status-InProgress { background: #3b82f6; }
     .status-PendingQA { background: #f59e0b; }
     .status-Blocked { background: #dc2626; }
     .status-Complete { background: #10b981; }
-    /* Chat messages */
-    .chat-message {
-        padding: 0.5rem 1rem;
-        border-radius: 8px;
-        margin: 0.2rem 0;
-        background: #f1f5f9;
-        border-left: 3px solid #3b82f6;
-    }
-    .chat-message.self {
-        background: #dbeafe;
-        border-left-color: #2563eb;
-    }
-    .chat-message .sender {
-        font-weight: 600;
-        color: #1e293b;
-    }
-    .chat-message .timestamp {
-        font-size: 0.7rem;
-        color: #64748b;
-        margin-left: 0.5rem;
-    }
-    /* Metric boxes */
-    .metric-box {
-        background: white;
-        border-radius: 10px;
-        padding: 1rem;
-        text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        border: 1px solid #e2e8f0;
-    }
-    .metric-box .value {
-        font-size: 2rem;
-        font-weight: 700;
-        color: #1e293b;
-    }
-    .metric-box .label {
-        font-size: 0.9rem;
-        color: #64748b;
-    }
-    /* Tabs */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0.5rem;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background: white;
-        border-radius: 8px 8px 0 0;
-        padding: 0.5rem 1rem;
-        border: 1px solid #e2e8f0;
-        border-bottom: none;
-    }
-    .stTabs [aria-selected="true"] {
-        background: #2563eb;
-        color: white;
-        border-color: #2563eb;
-    }
-    /* File uploader */
-    .stFileUploader {
-        border: 2px dashed #94a3b8;
-        border-radius: 8px;
-        padding: 0.5rem;
-        background: #f8fafc;
-    }
-    /* Expander */
-    .streamlit-expanderHeader {
-        background: #f1f5f9;
-        border-radius: 8px;
-    }
-    /* Footer */
-    .footer {
-        text-align: center;
-        margin-top: 2rem;
-        padding: 1rem;
-        color: #94a3b8;
-        font-size: 0.8rem;
-        border-top: 1px solid #e2e8f0;
-    }
+    .chat-message { padding: 0.5rem 1rem; border-radius: 8px; margin: 0.2rem 0; background: #f1f5f9; border-left: 3px solid #3b82f6; }
+    .chat-message.self { background: #dbeafe; border-left-color: #2563eb; }
+    .chat-message .sender { font-weight: 600; color: #1e293b; }
+    .chat-message .timestamp { font-size: 0.7rem; color: #64748b; margin-left: 0.5rem; }
+    .metric-box { background: white; border-radius: 10px; padding: 1rem; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+    .metric-box .value { font-size: 2rem; font-weight: 700; color: #1e293b; }
+    .metric-box .label { font-size: 0.9rem; color: #64748b; }
+    .stTabs [data-baseweb="tab-list"] { gap: 0.5rem; }
+    .stTabs [data-baseweb="tab"] { background: white; border-radius: 8px 8px 0 0; padding: 0.5rem 1rem; border: 1px solid #e2e8f0; border-bottom: none; }
+    .stTabs [aria-selected="true"] { background: #2563eb; color: white; border-color: #2563eb; }
+    .stFileUploader { border: 2px dashed #94a3b8; border-radius: 8px; padding: 0.5rem; background: #f8fafc; }
+    .streamlit-expanderHeader { background: #f1f5f9; border-radius: 8px; }
+    .footer { text-align: center; margin-top: 2rem; padding: 1rem; color: #94a3b8; font-size: 0.8rem; border-top: 1px solid #e2e8f0; }
+    .fa-btn { display: inline-block; width: 100%; padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; background-color: #3b82f6; color: white !important; font-size: 1rem; font-weight: 500; text-align: center; text-decoration: none; transition: 0.2s; cursor: pointer; }
+    .fa-btn:hover { background-color: #2563eb; transform: scale(1.02); color: white !important; }
+    .fa-btn i { margin-right: 0.5rem; }
+    .fa-btn-secondary { background-color: #f1f5f9; color: #1e293b !important; }
+    .fa-btn-secondary:hover { background-color: #e2e8f0; color: #0f172a !important; }
+    .fa-btn-danger { background-color: #ef4444; color: white !important; }
+    .fa-btn-danger:hover { background-color: #dc2626; color: white !important; }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 2. FONT AWESOME BUTTON HELPER
+# 2. FONT AWESOME BUTTON HELPER (unchanged)
 # -------------------------------
 def fa_button(label, icon, key, use_container_width=False, button_style="primary"):
-    """
-    Render a button with Font Awesome icon using a query parameter trick.
-    Returns True if clicked.
-    """
-    # Check if this button was clicked
     if st.query_params.get(key) == "clicked":
-        # Clear the param so it doesn't trigger again
         st.query_params.pop(key)
         return True
-
-    # Choose button style class
     style_class = "fa-btn"
     if button_style == "secondary":
         style_class += " fa-btn-secondary"
     elif button_style == "danger":
         style_class += " fa-btn-danger"
-
-    # Build button HTML as a link that sets a query param
     width_style = "width: 100%;" if use_container_width else "width: auto;"
     html = f"""
     <a href="?{key}=clicked" style="text-decoration: none; display: block; {width_style}">
@@ -368,16 +215,32 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 # -------------------------------
-# 6. USER FUNCTIONS (with hashed passwords)
+# 6. USER FUNCTIONS (with hashed passwords, and static fallback now hashed)
 # -------------------------------
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
-        return []
+        # Return fallback users with hashed passwords
+        fallback = [
+            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789")},
+            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000")},
+            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123")}
+        ]
+        return fallback
     try:
         res = supabase.table("facility_users").select("*").execute()
-        return res.data if res.data else []
+        if res.data:
+            return res.data
+        else:
+            # Supabase is connected but table empty; return empty list
+            return []
     except Exception:
-        return []
+        # On error, return hashed fallback
+        fallback = [
+            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789")},
+            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000")},
+            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123")}
+        ]
+        return fallback
 
 def register_user_to_db(username, name, role, password):
     if not SUPABASE_AVAILABLE:
@@ -393,12 +256,18 @@ def register_user_to_db(username, name, role, password):
 
 def authenticate_user(username, password):
     users = fetch_all_users_from_db()
+    # Debug: print users to console (optional)
+    # st.write("Users fetched:", users)  # uncomment to see on UI
     for u in users:
         if u["username"].lower() == username.lower():
-            if verify_password(password, u["password_hash"]):
-                return u
+            stored_hash = u["password_hash"]
+            result = verify_password(password, stored_hash)
+            # Debug: show reason if fails
+            if not result:
+                # You can remove this in production
+                st.warning(f"Debug: Password verification failed for {username}. Hash type: {type(stored_hash)}")
+            return u if result else None
     return None
-
 # -------------------------------
 # 7. TASK FUNCTIONS (with audit)
 # -------------------------------
