@@ -555,17 +555,20 @@ def check_timeout():
             st.rerun()
         else:
             st.session_state.last_activity = datetime.now()
-
 # -------------------------------
-# 13. AUTHENTICATION GATEWAY
+# 13. AUTHENTICATION GATEWAY (with forms – FIXED)
 # -------------------------------
 if not st.session_state.authenticated:
     st.markdown('<div class="main-header"><i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
-    user_in = st.text_input("Username", placeholder="Enter your username").strip().lower()
-    pass_in = st.text_input("Password", type="password", placeholder="Enter your password")
 
-    if fa_button("Authenticate Profile", "fa-sign-in-alt", "login_clicked", use_container_width=True):
+    # ---------- LOGIN FORM ----------
+    with st.form("login_form"):
+        user_in = st.text_input("Username", placeholder="Enter your username").strip().lower()
+        pass_in = st.text_input("Password", type="password", placeholder="Enter your password")
+        login_submitted = st.form_submit_button('🔐 Authenticate Profile', use_container_width=True)
+
+    if login_submitted:
         matched_user = authenticate_user(user_in, pass_in)
         if matched_user:
             st.session_state.user_payload = {
@@ -583,13 +586,17 @@ if not st.session_state.authenticated:
 
     st.markdown("---")
     st.markdown('<div class="sub-header"><i class="fas fa-user-plus"></i> Create Account Profile</div>', unsafe_allow_html=True)
-    reg_user = st.text_input("Choose Username", placeholder="Pick a unique username").strip().lower()
-    reg_name = st.text_input("Full Name", placeholder="Your full name")
-    reg_email = st.text_input("Email (optional)", placeholder="email@example.com")
-    reg_role = st.selectbox("Role Access Level", ["Worker", "Supervisor", "Superintendent"])
-    reg_pass = st.text_input("Set Password", type="password", placeholder="Choose a strong password")
 
-    if fa_button("Register Profile", "fa-user-check", "register_clicked", use_container_width=True):
+    # ---------- REGISTRATION FORM ----------
+    with st.form("register_form"):
+        reg_user = st.text_input("Choose Username", placeholder="Pick a unique username").strip().lower()
+        reg_name = st.text_input("Full Name", placeholder="Your full name")
+        reg_email = st.text_input("Email (optional)", placeholder="email@example.com")
+        reg_role = st.selectbox("Role Access Level", ["Worker", "Supervisor", "Superintendent"])
+        reg_pass = st.text_input("Set Password", type="password", placeholder="Choose a strong password")
+        register_submitted = st.form_submit_button('✅ Register Profile', use_container_width=True)
+
+    if register_submitted:
         if reg_user and reg_name and reg_pass:
             users = fetch_all_users_from_db()
             if any(u["username"].lower() == reg_user for u in users):
@@ -602,6 +609,7 @@ if not st.session_state.authenticated:
                     st.error("Registration failed. Database error.")
         else:
             st.error("All fields are mandatory.")
+
     st.stop()
 else:
     check_timeout()
