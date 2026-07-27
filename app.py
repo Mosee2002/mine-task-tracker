@@ -100,11 +100,73 @@ st.markdown("""
     .fa-btn-secondary:hover { background-color: #e2e8f0; color: #0f172a !important; }
     .fa-btn-danger { background-color: #ef4444; color: white !important; }
     .fa-btn-danger:hover { background-color: #dc2626; color: white !important; }
+
+    /* ---------- NEW ENHANCED TASK CARDS ---------- */
+    .task-card {
+        background: white;
+        border-radius: 12px;
+        padding: 1.2rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        border: 1px solid #e8ecf0;
+        transition: all 0.2s;
+    }
+    .task-card:hover {
+        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+    .task-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #1e293b;
+    }
+    .task-meta {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin: 0.3rem 0 0.8rem 0;
+        font-size: 0.9rem;
+        color: #475569;
+    }
+    .task-meta i {
+        margin-right: 0.3rem;
+    }
+    .priority-badge {
+        display: inline-block;
+        padding: 0.15rem 0.7rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: white;
+    }
+    .priority-Critical { background: #dc2626; }
+    .priority-High { background: #f59e0b; }
+    .priority-Medium { background: #3b82f6; }
+    .priority-Low { background: #10b981; }
+    .task-controls {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        align-items: center;
+        margin: 0.5rem 0;
+    }
+    .upload-area {
+        border: 2px dashed #cbd5e1;
+        border-radius: 10px;
+        padding: 1.2rem;
+        background: #f8fafc;
+        text-align: center;
+        margin: 1rem 0;
+    }
+    .upload-area:hover {
+        border-color: #3b82f6;
+        background: #f1f5f9;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 2. FONT AWESOME BUTTON HELPER (with query params)
+# 2. FONT AWESOME BUTTON HELPER (for non‑login actions)
 # -------------------------------
 def fa_button(label, icon, key, use_container_width=False, button_style="primary"):
     if st.query_params.get(key) == "clicked":
@@ -555,6 +617,7 @@ def check_timeout():
             st.rerun()
         else:
             st.session_state.last_activity = datetime.now()
+
 # -------------------------------
 # 13. AUTHENTICATION GATEWAY (with forms – FIXED)
 # -------------------------------
@@ -637,66 +700,14 @@ user_email = user.get('email', None)
 
 # Sidebar
 with st.sidebar:
-.task-card {
-    background: white;
-    border-radius: 12px;
-    padding: 1.2rem;
-    margin-bottom: 1rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-    border: 1px solid #e8ecf0;
-    transition: all 0.2s;
-}
-.task-card:hover {
-    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-    transform: translateY(-2px);
-}
-.task-title {
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: #1e293b;
-}
-.task-meta {
-    display: flex;
-    gap: 1rem;
-    flex-wrap: wrap;
-    margin: 0.3rem 0 0.8rem 0;
-    font-size: 0.9rem;
-    color: #475569;
-}
-.task-meta i {
-    margin-right: 0.3rem;
-}
-.priority-badge {
-    display: inline-block;
-    padding: 0.15rem 0.7rem;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: white;
-}
-.priority-Critical { background: #dc2626; }
-.priority-High { background: #f59e0b; }
-.priority-Medium { background: #3b82f6; }
-.priority-Low { background: #10b981; }
-.task-controls {
-    display: flex;
-    gap: 1.5rem;
-    flex-wrap: wrap;
-    align-items: center;
-    margin: 0.5rem 0;
-}
-.upload-area {
-    border: 2px dashed #cbd5e1;
-    border-radius: 10px;
-    padding: 1.2rem;
-    background: #f8fafc;
-    text-align: center;
-    margin: 1rem 0;
-}
-.upload-area:hover {
-    border-color: #3b82f6;
-    background: #f1f5f9;
-}
+    st.markdown(f"""
+    <div style="padding: 0.5rem 0;">
+        <i class="fas fa-user-circle" style="font-size: 2rem; color: #3b82f6;"></i>
+        <div style="font-weight: 600; font-size: 1.1rem;">{full_name}</div>
+        <div style="font-size: 0.9rem; color: #94a3b8;"><i class="fas fa-id-badge"></i> {user['role']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
     if USING_HARDCODED:
         st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
 
@@ -793,67 +804,79 @@ with tab_tasks:
             '<i class="fas fa-clipboard-list"></i> My Assigned Tasks',
             '<i class="fas fa-inbox"></i> Unassigned Board'
         ])
+
+        # ---------- IMPROVED MY TASKS ----------
         with tab_my:
             my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
             if not my_tasks:
                 st.info("No tasks assigned to you.")
             else:
-                for task in st.session_state.tasks:
-                    if task['assigned_to'] != full_name:
-                        continue
+                for task in my_tasks:
                     priority_class = f"priority-{task['priority']}"
                     status_class = f"status-{task['status'].replace(' ', '')}"
-                    with st.container():
-                        st.markdown(f"""
-                        <div class="custom-card {priority_class}">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <strong>#{task['id']}: {task['title']}</strong><br>
-                                    <i class="fas fa-map-marker-alt"></i> {task['location']}
-                                    <span class="status-badge {status_class}">{task['status']}</span>
-                                </div>
-                                <div>
-                                    <i class="fas fa-flag"></i> {task['priority']}
+                    # Card header (static part)
+                    st.markdown(f"""
+                    <div class="task-card">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <div class="task-title">#{task['id']} {task['title']}</div>
+                                <div class="task-meta">
+                                    <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
+                                    <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
+                                    <span><i class="fas fa-circle" style="color: #3b82f6;"></i> <span class="status-badge {status_class}">{task['status']}</span></span>
                                 </div>
                             </div>
                         </div>
-                        """, unsafe_allow_html=True)
-                        loto = st.checkbox("LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}")
-                        jsa = st.checkbox("JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}")
-                        if loto != task.get('loto') or jsa != task.get('jsa'):
-                            update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
-                            st.rerun()
-                        if not loto or not jsa:
-                            st.error("🔒 Safety isolation forms are required before proceeding.")
-                        else:
-                            status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
-                            current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
-                            new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}")
-                            if new_status != task['status']:
-                                update_task(task['id'], {"status": new_status}, full_name)
-                                log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
-                                st.rerun()
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                        st.markdown('#### <i class="fas fa-camera"></i> Upload Proof Photo', unsafe_allow_html=True)
+                    # Interactive controls (widgets)
+                    col1, col2 = st.columns([2, 3])
+                    with col1:
+                        loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}")
+                        jsa = st.checkbox("📋 JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}")
+                    with col2:
+                        status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
+                        current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
+                        new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}")
+                        if new_status != task['status']:
+                            update_task(task['id'], {"status": new_status}, full_name)
+                            log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
+                            st.rerun()
+                    # Update safety checkboxes
+                    if loto != task.get('loto') or jsa != task.get('jsa'):
+                        update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
+                        st.rerun()
+                    if not loto or not jsa:
+                        st.error("🔒 Safety isolation forms are required before proceeding.")
+                    else:
+                        st.success("✅ Safety checks passed.")
+
+                    # Photo upload
+                    st.markdown("---")
+                    st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
+                    with st.container():
                         uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}")
                         if uploaded_file is not None:
-                            if st.button(f"Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}"):
+                            if st.button(f"📤 Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}"):
                                 bytes_data = uploaded_file.getvalue()
                                 success = upload_photo(task['id'], bytes_data, uploaded_file.name, full_name)
                                 if success:
-                                    st.success("Photo uploaded successfully!")
+                                    st.success("Photo uploaded!")
                                     st.rerun()
                                 else:
-                                    st.error("Upload failed. Check bucket and table.")
+                                    st.error("Upload failed.")
+                    # Show existing photos
+                    photos = fetch_photos(task['id'])
+                    if photos:
+                        st.markdown("**📸 Already uploaded:**")
+                        cols = st.columns(min(4, len(photos)))
+                        for idx, photo in enumerate(photos):
+                            with cols[idx % len(cols)]:
+                                st.image(photo['photo_url'], width=120, use_container_width=True)
+                    st.markdown("---")
 
-                        photos = fetch_photos(task['id'])
-                        if photos:
-                            st.markdown("**Already uploaded:**")
-                            cols = st.columns(min(4, len(photos)))
-                            for idx, photo in enumerate(photos):
-                                with cols[idx % len(cols)]:
-                                    st.image(photo['photo_url'], width=100)
-
+        # ---------- IMPROVED UNASSIGNED BOARD ----------
         with tab_unassigned:
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
             if not unassigned:
@@ -863,14 +886,17 @@ with tab_tasks:
                     priority_class = f"priority-{task['priority']}"
                     with st.container():
                         st.markdown(f"""
-                        <div class="custom-card {priority_class}">
-                            <div style="display: flex; justify-content: space-between;">
+                        <div class="task-card">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <div>
-                                    <strong>#{task['id']}: {task['title']}</strong><br>
-                                    <i class="fas fa-map-marker-alt"></i> {task['location']}
+                                    <div class="task-title">#{task['id']} {task['title']}</div>
+                                    <div class="task-meta">
+                                        <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
+                                        <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
+                                    </div>
                                 </div>
                                 <div>
-                                    <i class="fas fa-flag"></i> {task['priority']}
+                                    <span class="status-badge status-Unassigned">Unassigned</span>
                                 </div>
                             </div>
                         </div>
