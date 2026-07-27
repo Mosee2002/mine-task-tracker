@@ -48,7 +48,176 @@ except ImportError:
     st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. PASSWORD HASHING (with fallback)
+# 1. CUSTOM CSS + FONT AWESOME
+# -------------------------------
+st.set_page_config(
+    page_title="Mine & Workshop Tracker",
+    page_icon="🛠️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Inject Font Awesome and custom CSS
+st.markdown("""
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+    /* General styling */
+    .stApp {
+        background-color: #f8fafc;
+    }
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 0.5rem;
+    }
+    .main-header i {
+        color: #2563eb;
+        margin-right: 10px;
+    }
+    .sub-header {
+        font-size: 1.2rem;
+        color: #475569;
+        margin-bottom: 1.5rem;
+    }
+    /* Sidebar */
+    .css-1d391kg {
+        background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+    }
+    .css-1d391kg .stMarkdown {
+        color: #e2e8f0;
+    }
+    .css-1d391kg .stButton button {
+        background-color: #3b82f6;
+        color: white;
+        border-radius: 8px;
+        border: none;
+        padding: 0.5rem 1rem;
+        transition: 0.3s;
+    }
+    .css-1d391kg .stButton button:hover {
+        background-color: #2563eb;
+        transform: scale(1.02);
+    }
+    /* Cards */
+    .custom-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+        padding: 1.2rem;
+        margin-bottom: 1rem;
+        border-left: 4px solid #2563eb;
+        transition: 0.2s;
+    }
+    .custom-card:hover {
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+    .priority-Critical { border-left-color: #dc2626; }
+    .priority-High { border-left-color: #f59e0b; }
+    .priority-Medium { border-left-color: #3b82f6; }
+    .priority-Low { border-left-color: #10b981; }
+    .status-badge {
+        display: inline-block;
+        padding: 0.2rem 0.6rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: white;
+    }
+    .status-Unassigned { background: #94a3b8; }
+    .status-InProgress { background: #3b82f6; }
+    .status-PendingQA { background: #f59e0b; }
+    .status-Blocked { background: #dc2626; }
+    .status-Complete { background: #10b981; }
+    /* Chat messages */
+    .chat-message {
+        padding: 0.5rem 1rem;
+        border-radius: 8px;
+        margin: 0.2rem 0;
+        background: #f1f5f9;
+        border-left: 3px solid #3b82f6;
+    }
+    .chat-message.self {
+        background: #dbeafe;
+        border-left-color: #2563eb;
+    }
+    .chat-message .sender {
+        font-weight: 600;
+        color: #1e293b;
+    }
+    .chat-message .timestamp {
+        font-size: 0.7rem;
+        color: #64748b;
+        margin-left: 0.5rem;
+    }
+    /* Metric boxes */
+    .metric-box {
+        background: white;
+        border-radius: 10px;
+        padding: 1rem;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border: 1px solid #e2e8f0;
+    }
+    .metric-box .value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #1e293b;
+    }
+    .metric-box .label {
+        font-size: 0.9rem;
+        color: #64748b;
+    }
+    /* Buttons with icons */
+    .stButton button {
+        font-weight: 500;
+    }
+    .stButton button i {
+        margin-right: 0.4rem;
+    }
+    /* Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background: white;
+        border-radius: 8px 8px 0 0;
+        padding: 0.5rem 1rem;
+        border: 1px solid #e2e8f0;
+        border-bottom: none;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #2563eb;
+        color: white;
+        border-color: #2563eb;
+    }
+    /* File uploader */
+    .stFileUploader {
+        border: 2px dashed #94a3b8;
+        border-radius: 8px;
+        padding: 0.5rem;
+        background: #f8fafc;
+    }
+    /* Expander */
+    .streamlit-expanderHeader {
+        background: #f1f5f9;
+        border-radius: 8px;
+    }
+    /* Footer */
+    .footer {
+        text-align: center;
+        margin-top: 2rem;
+        padding: 1rem;
+        color: #94a3b8;
+        font-size: 0.8rem;
+        border-top: 1px solid #e2e8f0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# -------------------------------
+# 2. PASSWORD HASHING (with fallback)
 # -------------------------------
 def hash_password(password):
     if BCRYPT_AVAILABLE:
@@ -85,10 +254,9 @@ def log_audit(user_name, action, details=None):
         pass
 
 # -------------------------------
-# 2. EMAIL NOTIFICATION (SMTP)
+# 3. EMAIL NOTIFICATION (SMTP)
 # -------------------------------
 def send_email_notification(recipient, subject, body):
-    """Send an email via SMTP (configured in secrets)."""
     if not recipient:
         return False
     try:
@@ -98,7 +266,6 @@ def send_email_notification(recipient, subject, body):
         smtp_password = st.secrets.get("SMTP_PASSWORD")
         smtp_from = st.secrets.get("SMTP_FROM", smtp_user)
         if not all([smtp_server, smtp_user, smtp_password]):
-            # Silently fail; we'll just not send
             return False
         import smtplib
         from email.mime.text import MIMEText
@@ -117,7 +284,7 @@ def send_email_notification(recipient, subject, body):
         return False
 
 # -------------------------------
-# 3. IMAGE VALIDATION
+# 4. IMAGE VALIDATION
 # -------------------------------
 def validate_image(file_bytes, filename):
     ext = filename.split('.')[-1].lower()
@@ -135,7 +302,7 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 # -------------------------------
-# 4. USER FUNCTIONS (with hashed passwords)
+# 5. USER FUNCTIONS (with hashed passwords)
 # -------------------------------
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
@@ -167,7 +334,7 @@ def authenticate_user(username, password):
     return None
 
 # -------------------------------
-# 5. TASK FUNCTIONS (with audit)
+# 6. TASK FUNCTIONS (with audit)
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -252,7 +419,7 @@ def delete_task(task_id, deleted_by):
         return False
 
 # -------------------------------
-# 6. PHOTO FUNCTIONS (with audit)
+# 7. PHOTO FUNCTIONS (with audit)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
     if not SUPABASE_AVAILABLE:
@@ -296,7 +463,7 @@ def fetch_photos(task_id):
     return []
 
 # -------------------------------
-# 7. CHAT FUNCTIONS (with audit for delete)
+# 8. CHAT FUNCTIONS (with audit for delete)
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -367,7 +534,7 @@ def delete_message(message_id, deleted_by):
             return False
 
 # -------------------------------
-# 8. ENCRYPTION HELPERS
+# 9. ENCRYPTION HELPERS
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -408,7 +575,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 9. SESSION STATE INIT
+# 10. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -449,7 +616,7 @@ if 'chat_messages_cache' not in st.session_state:
     st.session_state.chat_messages_cache = []
 
 # -------------------------------
-# 10. SESSION TIMEOUT CHECK
+# 11. SESSION TIMEOUT CHECK
 # -------------------------------
 def check_timeout():
     if st.session_state.authenticated:
@@ -462,15 +629,15 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 11. AUTHENTICATION GATEWAY
+# 12. AUTHENTICATION GATEWAY
 # -------------------------------
 if not st.session_state.authenticated:
-    st.title("⚙️ Mine & Workshop Digital Tracker")
-    st.subheader("🔒 Secure Login Gateway")
-    user_in = st.text_input("Username").strip().lower()
-    pass_in = st.text_input("Password", type="password")
+    st.markdown('<div class="main-header"><i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
+    user_in = st.text_input("Username", placeholder="Enter your username").strip().lower()
+    pass_in = st.text_input("Password", type="password", placeholder="Enter your password")
 
-    if st.button("Authenticate Profile"):
+    if st.button('<i class="fas fa-sign-in-alt"></i> Authenticate Profile', use_container_width=True):
         matched_user = authenticate_user(user_in, pass_in)
         if matched_user:
             st.session_state.user_payload = {
@@ -487,14 +654,14 @@ if not st.session_state.authenticated:
             st.error("Invalid credentials or database unreachable.")
 
     st.markdown("---")
-    st.subheader("🆕 Create Account Profile")
-    reg_user = st.text_input("Choose Username").strip().lower()
-    reg_name = st.text_input("Full Name")
-    reg_email = st.text_input("Email (optional)")
+    st.markdown('<div class="sub-header"><i class="fas fa-user-plus"></i> Create Account Profile</div>', unsafe_allow_html=True)
+    reg_user = st.text_input("Choose Username", placeholder="Pick a unique username").strip().lower()
+    reg_name = st.text_input("Full Name", placeholder="Your full name")
+    reg_email = st.text_input("Email (optional)", placeholder="email@example.com")
     reg_role = st.selectbox("Role Access Level", ["Worker", "Supervisor", "Superintendent"])
-    reg_pass = st.text_input("Set Password", type="password")
+    reg_pass = st.text_input("Set Password", type="password", placeholder="Choose a strong password")
 
-    if st.button("Register Profile"):
+    if st.button('<i class="fas fa-user-check"></i> Register Profile', use_container_width=True):
         if reg_user and reg_name and reg_pass:
             users = fetch_all_users_from_db()
             if any(u["username"].lower() == reg_user for u in users):
@@ -510,9 +677,8 @@ if not st.session_state.authenticated:
     st.stop()
 else:
     check_timeout()
-
-# -------------------------------
-# 12. PWA MANIFEST & SERVICE WORKER
+    # -------------------------------
+# 13. PWA MANIFEST & SERVICE WORKER
 # -------------------------------
 st.markdown("""
 <link rel="manifest" href="/static/manifest.json">
@@ -524,7 +690,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 13. MAIN APP
+# 14. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -534,19 +700,23 @@ user_email = user.get('email', None)
 
 # Sidebar
 with st.sidebar:
-    st.write(f"**User:** {full_name}")
-    st.write(f"**Role:** {user['role']}")
+    st.markdown(f"""
+    <div style="padding: 0.5rem 0;">
+        <i class="fas fa-user-circle" style="font-size: 2rem; color: #3b82f6;"></i>
+        <div style="font-weight: 600; font-size: 1.1rem;">{full_name}</div>
+        <div style="font-size: 0.9rem; color: #94a3b8;"><i class="fas fa-id-badge"></i> {user['role']}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # Show a tiny badge if using hardcoded credentials
     if USING_HARDCODED:
-        st.caption("⚠️ Using hardcoded Supabase – set secrets.toml for production")
+        st.caption('<i class="fas fa-exclamation-triangle"></i> Using hardcoded Supabase – set secrets.toml for production', unsafe_allow_html=True)
 
     # Broadcast sender
     if role in ["supervisor", "superintendent"]:
         st.markdown("---")
-        st.subheader("📢 Send Broadcast")
-        broadcast_msg = st.text_area("Message to all Workers")
-        if st.button("Send Broadcast"):
+        st.markdown('<i class="fas fa-bullhorn"></i> Send Broadcast', unsafe_allow_html=True)
+        broadcast_msg = st.text_area("Message to all Workers", placeholder="Type your broadcast...")
+        if st.button('<i class="fas fa-paper-plane"></i> Send Broadcast', use_container_width=True):
             if broadcast_msg:
                 st.session_state.broadcast_messages.append({
                     "sender": full_name,
@@ -566,21 +736,21 @@ with st.sidebar:
                 st.error("Message cannot be empty.")
 
     st.markdown("---")
-    st.subheader("💬 Chat Rooms")
-    if st.button("🌍 Global Chat"):
+    st.markdown('<i class="fas fa-comments"></i> Chat Rooms', unsafe_allow_html=True)
+    if st.button('<i class="fas fa-globe"></i> Global Chat', use_container_width=True):
         st.session_state.chat_room = "global"
         st.rerun()
     if role in ["supervisor", "superintendent"]:
-        if st.button("🔒 Supervisor Room"):
+        if st.button('<i class="fas fa-lock"></i> Supervisor Room', use_container_width=True):
             st.session_state.chat_room = "supervisor"
             st.rerun()
 
-    st.markdown("#### 👤 Private Chat")
+    st.markdown("#### <i class="fas fa-user-friends"></i> Private Chat", unsafe_allow_html=True)
     all_users = fetch_all_users_from_db()
     other_users = [u["full_name"] for u in all_users if u["full_name"] != full_name]
     if other_users:
         selected_user = st.selectbox("Choose contact", other_users)
-        if st.button("Open Private Chat"):
+        if st.button('<i class="fas fa-lock"></i> Open Private Chat', use_container_width=True):
             sorted_names = sorted([full_name, selected_user])
             room_name = f"private:{sorted_names[0]}_{sorted_names[1]}"
             st.session_state.chat_room = room_name
@@ -589,12 +759,11 @@ with st.sidebar:
     else:
         st.info("No other users available.")
 
-    if st.button("🚪 Logout"):
+    if st.button('<i class="fas fa-sign-out-alt"></i> Logout', use_container_width=True):
         log_audit(full_name, "logout")
         st.session_state.authenticated = False
         st.session_state.user_payload = None
         st.session_state.chat_room = "global"
-        # Clean up realtime channel
         if st.session_state.chat_channel:
             try:
                 supabase.remove_channel(st.session_state.chat_channel)
@@ -604,7 +773,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    if st.button("🔄 Refresh Data"):
+    if st.button('<i class="fas fa-sync"></i> Refresh Data', use_container_width=True):
         st.rerun()
 
 # Fetch tasks (merge DB + memory)
@@ -615,20 +784,27 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 14. TABS: TASKS, CHAT, ADMIN
+# 15. TABS: TASKS, CHAT, ADMIN
 # -------------------------------
-tab_tasks, tab_chat, tab_admin = st.tabs(["📋 Task Dashboard", "💬 Chat Room", "⚙️ Admin Panel"])
+tab_tasks, tab_chat, tab_admin = st.tabs([
+    '<i class="fas fa-tasks"></i> Task Dashboard',
+    '<i class="fas fa-comment-dots"></i> Chat Room',
+    '<i class="fas fa-cog"></i> Admin Panel'
+])
 
 # ---- TASK DASHBOARD ----
 with tab_tasks:
     if role == "worker":
-        st.subheader("👷 Field Worker Workspace")
+        st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
         if st.session_state.broadcast_messages:
             st.info("📢 Latest Broadcasts:")
             for msg in reversed(st.session_state.broadcast_messages[-5:]):
                 st.warning(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
 
-        tab_my, tab_unassigned = st.tabs(["📋 My Assigned Tasks", "🌐 Master Unassigned Board"])
+        tab_my, tab_unassigned = st.tabs([
+            '<i class="fas fa-clipboard-list"></i> My Assigned Tasks',
+            '<i class="fas fa-inbox"></i> Unassigned Board'
+        ])
         with tab_my:
             my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
             if not my_tasks:
@@ -637,9 +813,23 @@ with tab_tasks:
                 for task in st.session_state.tasks:
                     if task['assigned_to'] != full_name:
                         continue
-                    with st.container(border=True):
-                        st.markdown(f"### Task #{task['id']}: {task['title']}")
-                        st.write(f"📍 {task['location']} | Priority: **{task['priority']}** | Status: `{task['status']}`")
+                    priority_class = f"priority-{task['priority']}"
+                    status_class = f"status-{task['status'].replace(' ', '')}"
+                    with st.container():
+                        st.markdown(f"""
+                        <div class="custom-card {priority_class}">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>#{task['id']}: {task['title']}</strong><br>
+                                    <i class="fas fa-map-marker-alt"></i> {task['location']}
+                                    <span class="status-badge {status_class}">{task['status']}</span>
+                                </div>
+                                <div>
+                                    <i class="fas fa-flag"></i> {task['priority']}
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
                         loto = st.checkbox("LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}")
                         jsa = st.checkbox("JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}")
                         if loto != task.get('loto') or jsa != task.get('jsa'):
@@ -655,9 +845,8 @@ with tab_tasks:
                                 update_task(task['id'], {"status": new_status}, full_name)
                                 log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
                                 st.rerun()
-
-                        # ---- PHOTO UPLOAD SECTION ----
-                        st.markdown("#### 📸 Upload Proof Photo")
+                                 # Photo upload
+                        st.markdown("#### <i class="fas fa-camera"></i> Upload Proof Photo", unsafe_allow_html=True)
                         uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}")
                         if uploaded_file is not None:
                             if st.button(f"Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}"):
@@ -669,7 +858,6 @@ with tab_tasks:
                                 else:
                                     st.error("Upload failed. Check bucket and table.")
 
-                        # Show existing photos for this task
                         photos = fetch_photos(task['id'])
                         if photos:
                             st.markdown("**Already uploaded:**")
@@ -684,13 +872,28 @@ with tab_tasks:
                 st.success("🎉 No unassigned tasks at the moment.")
             else:
                 for task in unassigned:
-                    with st.container(border=True):
-                        st.markdown(f"#### ⚙️ #{task['id']}: {task['title']}")
-                        st.write(f"📍 {task['location']} | Priority: **{task['priority']}**")
+                    priority_class = f"priority-{task['priority']}"
+                    with st.container():
+                        st.markdown(f"""
+                        <div class="custom-card {priority_class}">
+                            <div style="display: flex; justify-content: space-between;">
+                                <div>
+                                    <strong>#{task['id']}: {task['title']}</strong><br>
+                                    <i class="fas fa-map-marker-alt"></i> {task['location']}
+                                </div>
+                                <div>
+                                    <i class="fas fa-flag"></i> {task['priority']}
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
 
     elif role == "supervisor":
-        st.subheader("📋 Supervisor Operations Desk")
-        tab_manage, tab_create = st.tabs(["📋 Manage All Tasks", "➕ Create New Task"])
+        st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
+        tab_manage, tab_create = st.tabs([
+            '<i class="fas fa-tasks"></i> Manage All Tasks',
+            '<i class="fas fa-plus-circle"></i> Create New Task'
+        ])
         with tab_manage:
             st.markdown("### All Maintenance Tasks")
             all_users = fetch_all_users_from_db()
@@ -698,11 +901,26 @@ with tab_tasks:
             if not st.session_state.tasks:
                 st.info("No tasks found.")
             for task in st.session_state.tasks:
-                with st.container(border=True):
+                priority_class = f"priority-{task['priority']}"
+                status_class = f"status-{task['status'].replace(' ', '')}"
+                with st.container():
+                    st.markdown(f"""
+                    <div class="custom-card {priority_class}">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong>#{task['id']}: {task['title']}</strong><br>
+                                <i class="fas fa-map-marker-alt"></i> {task['location']}
+                                <span class="status-badge {status_class}">{task['status']}</span>
+                            </div>
+                            <div>
+                                <i class="fas fa-flag"></i> {task['priority']}
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
                     cols = st.columns([3, 1, 1])
-                    cols[0].markdown(f"**#{task['id']}:** {task['title']}  \n📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
                     current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
-                    new_assign = cols[1].selectbox("Assign to:", worker_names,
+                    new_assign = cols[0].selectbox("Assign to:", worker_names,
                                                    index=worker_names.index(current_assign),
                                                    key=f"assign_{task['id']}")
                     if new_assign != task['assigned_to']:
@@ -710,7 +928,6 @@ with tab_tasks:
                         if task['status'] == "Unassigned" and new_assign != "Unassigned":
                             update_task(task['id'], {"status": "In Progress"}, full_name)
                         log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
-                        # Send email notification to worker
                         if new_assign != "Unassigned":
                             worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
                             if worker_email:
@@ -719,12 +936,11 @@ with tab_tasks:
                                 send_email_notification(worker_email, subject, body)
                         st.rerun()
                     if task['status'] == "Pending QA":
-                        if cols[2].button("✅ Approve & Close", key=f"approve_{task['id']}"):
+                        if cols[1].button("✅ Approve & Close", key=f"approve_{task['id']}"):
                             update_task(task['id'], {"status": "Complete"}, full_name)
                             log_audit(full_name, "task_approve", {"task_id": task['id']})
                             st.rerun()
 
-                    # ---- Show photos ----
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -742,7 +958,7 @@ with tab_tasks:
                 priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
                 loto = st.checkbox("Requires LOTO")
                 jsa = st.checkbox("Requires JSA")
-                submitted = st.form_submit_button("Create Work Ticket")
+                submitted = st.form_submit_button('<i class="fas fa-plus"></i> Create Work Ticket')
                 if submitted:
                     if title and location:
                         new_task = create_task(title, location, priority, loto, jsa, full_name)
@@ -755,8 +971,12 @@ with tab_tasks:
                         st.error("Title and Location are required.")
 
     elif role == "superintendent":
-        st.subheader("🏗️ Superintendent Control Centre")
-        tab_overview, tab_manage, tab_broadcasts = st.tabs(["📊 Overview", "📋 Manage Tasks", "📢 Broadcast Log"])
+        st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
+        tab_overview, tab_manage, tab_broadcasts = st.tabs([
+            '<i class="fas fa-chart-pie"></i> Overview',
+            '<i class="fas fa-tasks"></i> Manage Tasks',
+            '<i class="fas fa-bullhorn"></i> Broadcast Log'
+        ])
         with tab_overview:
             total = len(st.session_state.tasks)
             completed = sum(1 for t in st.session_state.tasks if t['status'] == "Complete")
@@ -764,11 +984,36 @@ with tab_tasks:
             unassigned = sum(1 for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned")
             blocked = sum(1 for t in st.session_state.tasks if t['status'] == "Blocked")
             col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("Total Tasks", total)
-            col2.metric("Completed", completed)
-            col3.metric("In Progress", in_progress)
-            col4.metric("Unassigned", unassigned)
-            col5.metric("Blocked", blocked)
+            col1.markdown(f"""
+            <div class="metric-box">
+                <div class="value">{total}</div>
+                <div class="label"><i class="fas fa-list"></i> Total Tasks</div>
+            </div>
+            """, unsafe_allow_html=True)
+            col2.markdown(f"""
+            <div class="metric-box">
+                <div class="value">{completed}</div>
+                <div class="label"><i class="fas fa-check-circle" style="color:#10b981;"></i> Completed</div>
+            </div>
+            """, unsafe_allow_html=True)
+            col3.markdown(f"""
+            <div class="metric-box">
+                <div class="value">{in_progress}</div>
+                <div class="label"><i class="fas fa-spinner" style="color:#3b82f6;"></i> In Progress</div>
+            </div>
+            """, unsafe_allow_html=True)
+            col4.markdown(f"""
+            <div class="metric-box">
+                <div class="value">{unassigned}</div>
+                <div class="label"><i class="fas fa-inbox" style="color:#94a3b8;"></i> Unassigned</div>
+            </div>
+            """, unsafe_allow_html=True)
+            col5.markdown(f"""
+            <div class="metric-box">
+                <div class="value">{blocked}</div>
+                <div class="label"><i class="fas fa-ban" style="color:#dc2626;"></i> Blocked</div>
+            </div>
+            """, unsafe_allow_html=True)
             st.markdown("### Recent Broadcasts")
             if st.session_state.broadcast_messages:
                 for msg in reversed(st.session_state.broadcast_messages[-3:]):
@@ -782,11 +1027,26 @@ with tab_tasks:
             if not st.session_state.tasks:
                 st.info("No tasks to manage.")
             for task in st.session_state.tasks:
-                with st.container(border=True):
+                priority_class =f"priority-{task['priority']}"
+                status_class = f"status-{task['status'].replace(' ', '')}"
+                with st.container():
+                    st.markdown(f"""
+                    <div class="custom-card {priority_class}">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <strong>#{task['id']}: {task['title']}</strong><br>
+                                <i class="fas fa-map-marker-alt"></i> {task['location']}
+                                <span class="status-badge {status_class}">{task['status']}</span>
+                            </div>
+                            <div>
+                                <i class="fas fa-flag"></i> {task['priority']}
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
                     cols = st.columns([2, 1, 1, 1])
-                    cols[0].markdown(f"**#{task['id']}:** {task['title']}  \n📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
                     current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
-                    new_assign = cols[1].selectbox("Assign", worker_names,
+                    new_assign = cols[0].selectbox("Assign", worker_names,
                                                    index=worker_names.index(current_assign),
                                                    key=f"sup_assign_{task['id']}")
                     if new_assign != task['assigned_to']:
@@ -794,7 +1054,6 @@ with tab_tasks:
                         if task['status'] == "Unassigned" and new_assign != "Unassigned":
                             update_task(task['id'], {"status": "In Progress"}, full_name)
                         log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
-                        # Send email to worker
                         if new_assign != "Unassigned":
                             worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
                             if worker_email:
@@ -804,16 +1063,15 @@ with tab_tasks:
                         st.rerun()
                     status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
                     curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
-                    new_stat = cols[2].selectbox("Status", status_opts, index=curr_stat_idx, key=f"stat_ovr_{task['id']}")
+                    new_stat = cols[1].selectbox("Status", status_opts, index=curr_stat_idx, key=f"stat_ovr_{task['id']}")
                     if new_stat != task['status']:
                         update_task(task['id'], {"status": new_stat}, full_name)
                         log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_stat})
                         st.rerun()
-                    if cols[3].button("🗑️ Delete", key=f"del_{task['id']}"):
+                    if cols[2].button('<i class="fas fa-trash"></i> Delete', key=f"del_{task['id']}"):
                         delete_task(task['id'], full_name)
                         st.rerun()
 
-                    # ---- Show photos ----
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -856,12 +1114,10 @@ with tab_chat:
     if not st.session_state.chat_messages_cache:
         st.session_state.chat_messages_cache = fetch_messages(room=room, limit=200)
 
-    # Real-time subscription (using Supabase Realtime)
+    # Real-time subscription
     if SUPABASE_AVAILABLE:
-        # Define channel name
         channel_name = f"chat_{room.replace(':', '_').replace('@', '_')}"
         try:
-            # Remove old channel if exists
             if st.session_state.chat_channel:
                 try:
                     supabase.remove_channel(st.session_state.chat_channel)
@@ -869,34 +1125,22 @@ with tab_chat:
                     pass
                 st.session_state.chat_channel = None
 
-            # Create new channel
             channel = supabase.channel(channel_name)
-
             def on_insert(payload):
-                # This callback is executed when a new message is inserted.
-                # We'll update the cache and rerun.
                 new_msg = payload['new']
-                # Avoid duplicates (check if already in cache)
                 if not any(m.get('id') == new_msg.get('id') for m in st.session_state.chat_messages_cache):
                     st.session_state.chat_messages_cache.insert(0, new_msg)
-                    # Keep only last 200
                     st.session_state.chat_messages_cache = st.session_state.chat_messages_cache[:200]
                     st.rerun()
-
             channel.on('postgres_changes', event='INSERT', schema='public', table='chat_messages', callback=on_insert)
             channel.subscribe()
             st.session_state.chat_channel = channel
-        except Exception as e:
-            # If realtime fails, we'll just fall back to manual refresh
-            st.warning("Realtime unavailable. Use refresh button.")
+        except Exception:
+            pass
 
-    # Display messages from cache
-    messages = st.session_state.chat_messages_cache
-    # Filter by room (in case we have messages from other rooms)
-    messages = [m for m in messages if m['room'] == room]
-
+    # Display messages
+    messages = [m for m in st.session_state.chat_messages_cache if m['room'] == room]
     if messages:
-        # Display newest at bottom? We want oldest first for chronological order.
         for msg in reversed(messages):
             sender = msg['sender']
             is_encrypted = msg.get('is_encrypted', False)
@@ -916,19 +1160,17 @@ with tab_chat:
                     content = decrypt_message(content, key)
                 except Exception:
                     content = "🔒 [Decryption failed]"
-
             col_text, col_delete = st.columns([5, 1])
             with col_text:
                 if sender == full_name:
-                    st.markdown(f"**You** ({timestamp}): {content}")
+                    st.markdown(f"<div class='chat-message self'><span class='sender'>You</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"**{sender}** ({timestamp}): {content}")
+                    st.markdown(f"<div class='chat-message'><span class='sender'>{sender}</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
             with col_delete:
                 if sender == full_name:
                     if st.button("🗑️", key=f"del_msg_{msg['id']}"):
                         if delete_message(msg['id'], full_name):
                             st.success("Message deleted!")
-                            # Remove from cache
                             st.session_state.chat_messages_cache = [m for m in st.session_state.chat_messages_cache if m['id'] != msg['id']]
                             st.rerun()
                         else:
@@ -942,7 +1184,7 @@ with tab_chat:
         msg_input = st.text_area("Type your message", height=100, key="chat_input_text", value=st.session_state.chat_input_value)
         col_send, col_clear = st.columns([1, 5])
         with col_send:
-            if st.button("Send", use_container_width=True):
+            if st.button('<i class="fas fa-paper-plane"></i> Send', use_container_width=True):
                 if msg_input.strip():
                     encrypted = False
                     final_msg = msg_input
@@ -961,7 +1203,6 @@ with tab_chat:
                     if success:
                         st.success("Message sent!")
                         st.session_state.chat_input_value = ""
-                        # Fetch fresh messages to include the new one
                         st.session_state.chat_messages_cache = fetch_messages(room=room, limit=200)
                         st.rerun()
                     else:
@@ -969,7 +1210,7 @@ with tab_chat:
                 else:
                     st.warning("Message cannot be empty.")
         with col_clear:
-            if st.button("Clear input", use_container_width=True):
+            if st.button('<i class="fas fa-eraser"></i> Clear input', use_container_width=True):
                 st.session_state.chat_input_value = ""
                 st.rerun()
 
@@ -994,7 +1235,6 @@ with tab_admin:
         else:
             st.info("No users found in database.")
 
-        # Show audit log (last 50 entries)
         if SUPABASE_AVAILABLE:
             st.markdown("### Audit Log (last 50)")
             try:
@@ -1011,6 +1251,15 @@ with tab_admin:
         else:
             st.info("Audit log not available (Supabase not connected).")
 
+# Footer
+st.markdown("""
+<div class="footer">
+    <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker v2.0 &nbsp;|&nbsp; Powered by Streamlit & Supabase
+</div>
+""", unsafe_allow_html=True)
+
 # -------------------------------
 # End of app
 # -------------------------------
+    
+                
