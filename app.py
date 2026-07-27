@@ -845,7 +845,7 @@ with tab_tasks:
                                 log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
                                 st.rerun()
                                  # Photo upload
-                        st.markdown("#### <i class="fas fa-camera"></i> Upload Proof Photo", unsafe_allow_html=True)
+                        st.markdown('#### <i class="fas fa-camera"></i> Upload Proof Photo', unsafe_allow_html=True)
                         uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}")
                         if uploaded_file is not None:
                             if st.button(f"Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}"):
