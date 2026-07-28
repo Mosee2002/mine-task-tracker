@@ -446,10 +446,11 @@ def upload_attachment(task_id, file_bytes, filename, uploaded_by):
             supabase.table("task_attachments").insert(data).execute()
             log_audit(uploaded_by, "attachment_upload", {"task_id": task_id, "filename": filename})
             return True
+        else:
+            return False
     except Exception as e:
         st.error(f"Upload failed: {e}")
         return False
-    return False
 
 def fetch_attachments(task_id):
     if not SUPABASE_AVAILABLE:
@@ -480,18 +481,17 @@ def add_comment(task_id, comment, posted_by):
     except Exception:
         return False
 
-def fetch_comments(task_id):
+def fetch_attachments(task_id):
     if not SUPABASE_AVAILABLE:
-        comments = st.session_state.get("comments_memory", [])
-        return [c for c in comments if c["task_id"] == task_id]
+        return st.session_state.get("attachments_memory", [])
     try:
-        res = supabase.table("task_comments").select("*").eq("task_id", task_id).order("posted_at", asc=True).execute()
+        res = supabase.table("task_attachments").select("*").eq("task_id", task_id).order("uploaded_at", desc=True).execute()
         if res.data:
             return res.data
+        else:
+            return []
     except Exception:
-        pass
-    return []
-
+        return []
 # -------------------------------
 # 10. CHAT FUNCTIONS (unchanged)
 # -------------------------------
