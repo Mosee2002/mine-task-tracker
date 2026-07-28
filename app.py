@@ -93,43 +93,12 @@ st.markdown("""
     .stFileUploader { border: 2px dashed #94a3b8; border-radius: 8px; padding: 0.5rem; background: #f8fafc; }
     .streamlit-expanderHeader { background: #f1f5f9; border-radius: 8px; }
     .footer { text-align: center; margin-top: 2rem; padding: 1rem; color: #94a3b8; font-size: 0.8rem; border-top: 1px solid #e2e8f0; }
-    .fa-btn { display: inline-block; width: 100%; padding: 0.5rem 1rem; border-radius: 0.5rem; border: none; background-color: #3b82f6; color: white !important; font-size: 1rem; font-weight: 500; text-align: center; text-decoration: none; transition: 0.2s; cursor: pointer; }
-    .fa-btn:hover { background-color: #2563eb; transform: scale(1.02); color: white !important; }
-    .fa-btn i { margin-right: 0.5rem; }
-    .fa-btn-secondary { background-color: #f1f5f9; color: #1e293b !important; }
-    .fa-btn-secondary:hover { background-color: #e2e8f0; color: #0f172a !important; }
-    .fa-btn-danger { background-color: #ef4444; color: white !important; }
-    .fa-btn-danger:hover { background-color: #dc2626; color: white !important; }
+    /* Remove old fa-btn styles – we'll use standard buttons */
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 2. FONT AWESOME BUTTON HELPER
-# -------------------------------
-def fa_button(label, icon, key, use_container_width=False, button_style="primary"):
-    if st.query_params.get(key) == "clicked":
-        st.query_params.pop(key)
-        return True
-
-    style_class = "fa-btn"
-    if button_style == "secondary":
-        style_class += " fa-btn-secondary"
-    elif button_style == "danger":
-        style_class += " fa-btn-danger"
-
-    width_style = "width: 100%;" if use_container_width else "width: auto;"
-    html = f"""
-    <a href="?{key}=clicked" style="text-decoration: none; display: block; {width_style}">
-        <button class="{style_class}" style="width: 100%;">
-            <i class="fas {icon}"></i> {label}
-        </button>
-    </a>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-    return False
-
-# -------------------------------
-# 3. PASSWORD HASHING (universal)
+# 2. PASSWORD HASHING (universal)
 # -------------------------------
 def hash_password(password):
     if BCRYPT_AVAILABLE:
@@ -169,7 +138,7 @@ def log_audit(user_name, action, details=None):
         pass
 
 # -------------------------------
-# 4. EMAIL NOTIFICATION (SMTP)
+# 3. EMAIL NOTIFICATION (SMTP)
 # -------------------------------
 def send_email_notification(recipient, subject, body):
     if not recipient:
@@ -199,7 +168,7 @@ def send_email_notification(recipient, subject, body):
         return False
 
 # -------------------------------
-# 5. IMAGE VALIDATION
+# 4. IMAGE VALIDATION
 # -------------------------------
 def validate_image(file_bytes, filename):
     ext = filename.split('.')[-1].lower()
@@ -217,7 +186,7 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 # -------------------------------
-# 6. USER FUNCTIONS (with universal verification)
+# 5. USER FUNCTIONS (with universal verification)
 # -------------------------------
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
@@ -262,7 +231,7 @@ def authenticate_user(username, password):
     return None
 
 # -------------------------------
-# 7. TASK FUNCTIONS
+# 6. TASK FUNCTIONS
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -347,7 +316,7 @@ def delete_task(task_id, deleted_by):
         return False
 
 # -------------------------------
-# 8. PHOTO FUNCTIONS (with fallback)
+# 7. PHOTO FUNCTIONS (with fallback)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
     # Always store in memory first (as backup)
@@ -371,24 +340,20 @@ def upload_photo(task_id, file_bytes, filename, uploaded_by):
             res = supabase.storage.from_("task_photos").upload(safe_name, file_bytes)
             if res:
                 public_url = supabase.storage.from_("task_photos").get_public_url(safe_name)
-                # Try to insert record; if RLS fails, we still have memory record
                 try:
                     data = {"task_id": task_id, "photo_url": public_url, "uploaded_by": uploaded_by}
                     supabase.table("task_photos").insert(data).execute()
                     log_audit(uploaded_by, "photo_upload", {"task_id": task_id, "url": public_url})
                 except Exception:
-                    # RLS or other DB error – we already have memory record
                     pass
         except Exception:
-            # Storage upload failed – memory record already exists
             pass
-    return True  # always return True because memory record exists
+    return True
 
 def fetch_photos(task_id):
     if not SUPABASE_AVAILABLE:
         photos = st.session_state.get("photos_memory", [])
         return [p for p in photos if p["task_id"] == task_id]
-    # Try Supabase first, then merge with memory
     db_photos = []
     try:
         res = supabase.table("task_photos").select("*").eq("task_id", task_id).order("uploaded_at", desc=True).execute()
@@ -396,19 +361,14 @@ def fetch_photos(task_id):
             db_photos = res.data
     except Exception:
         pass
-    # Merge with memory photos (avoid duplicates)
     memory_photos = st.session_state.get("photos_memory", [])
     memory_photos = [p for p in memory_photos if p["task_id"] == task_id]
-    # Combine, prefer DB records (they have real URLs)
-    # We'll show all; if a memory photo has no corresponding DB, it will still show.
-    # To avoid duplicates, we can use set of URLs but simple: show both.
     all_photos = db_photos + memory_photos
-    # Sort by uploaded_at if present
     all_photos.sort(key=lambda x: x.get('uploaded_at', ''), reverse=True)
     return all_photos
 
 # -------------------------------
-# 9. CHAT FUNCTIONS
+# 8. CHAT FUNCTIONS
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -479,7 +439,7 @@ def delete_message(message_id, deleted_by):
             return False
 
 # -------------------------------
-# 10. ENCRYPTION HELPERS
+# 9. ENCRYPTION HELPERS
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -520,7 +480,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 11. SESSION STATE INIT
+# 10. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -561,7 +521,7 @@ if 'chat_messages_cache' not in st.session_state:
     st.session_state.chat_messages_cache = []
 
 # -------------------------------
-# 12. SESSION TIMEOUT CHECK
+# 11. SESSION TIMEOUT CHECK
 # -------------------------------
 def check_timeout():
     if st.session_state.authenticated:
@@ -574,7 +534,7 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 13. AUTHENTICATION GATEWAY (with forms)
+# 12. AUTHENTICATION GATEWAY (with forms)
 # -------------------------------
 if not st.session_state.authenticated:
     st.markdown('<div class="main-header"><i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker</div>', unsafe_allow_html=True)
@@ -630,7 +590,7 @@ else:
     check_timeout()
 
 # -------------------------------
-# 14. PWA MANIFEST & SERVICE WORKER
+# 13. PWA MANIFEST & SERVICE WORKER
 # -------------------------------
 st.markdown("""
 <link rel="manifest" href="/static/manifest.json">
@@ -642,7 +602,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 15. MAIN APP
+# 14. MAIN APP (with stable sidebar using st.button)
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -650,7 +610,7 @@ username = user['username']
 role = user['role'].strip().lower()
 user_email = user.get('email', None)
 
-# Sidebar
+# Sidebar – now using only st.button with emojis for stability
 with st.sidebar:
     st.markdown(f"""
     <div style="padding: 0.5rem 0;">
@@ -663,11 +623,12 @@ with st.sidebar:
     if USING_HARDCODED:
         st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
 
+    # Broadcast sender
     if role in ["supervisor", "superintendent"]:
         st.markdown("---")
-        st.markdown('<i class="fas fa-bullhorn"></i> Send Broadcast', unsafe_allow_html=True)
+        st.markdown("📢 **Send Broadcast**")
         broadcast_msg = st.text_area("Message to all Workers", placeholder="Type your broadcast...")
-        if fa_button("Send Broadcast", "fa-paper-plane", "broadcast_clicked", use_container_width=True):
+        if st.button("📤 Send Broadcast", use_container_width=True):
             if broadcast_msg:
                 st.session_state.broadcast_messages.append({
                     "sender": full_name,
@@ -686,21 +647,21 @@ with st.sidebar:
                 st.error("Message cannot be empty.")
 
     st.markdown("---")
-    st.markdown('<i class="fas fa-comments"></i> Chat Rooms', unsafe_allow_html=True)
-    if fa_button("Global Chat", "fa-globe", "global_chat", use_container_width=True):
+    st.markdown("💬 **Chat Rooms**")
+    if st.button("🌍 Global Chat", use_container_width=True):
         st.session_state.chat_room = "global"
         st.rerun()
     if role in ["supervisor", "superintendent"]:
-        if fa_button("Supervisor Room", "fa-lock", "supervisor_room", use_container_width=True):
+        if st.button("🔒 Supervisor Room", use_container_width=True):
             st.session_state.chat_room = "supervisor"
             st.rerun()
 
-    st.markdown('<i class="fas fa-user-friends"></i> Private Chat', unsafe_allow_html=True)
+    st.markdown("👤 **Private Chat**")
     all_users = fetch_all_users_from_db()
     other_users = [u["full_name"] for u in all_users if u["full_name"] != full_name]
     if other_users:
         selected_user = st.selectbox("Choose contact", other_users)
-        if fa_button("Open Private Chat", "fa-lock", "private_chat_clicked", use_container_width=True):
+        if st.button("🔐 Open Private Chat", use_container_width=True):
             sorted_names = sorted([full_name, selected_user])
             room_name = f"private:{sorted_names[0]}_{sorted_names[1]}"
             st.session_state.chat_room = room_name
@@ -709,7 +670,7 @@ with st.sidebar:
     else:
         st.info("No other users available.")
 
-    if fa_button("Logout", "fa-sign-out-alt", "logout_clicked", use_container_width=True, button_style="danger"):
+    if st.button("🚪 Logout", use_container_width=True):
         log_audit(full_name, "logout")
         st.session_state.authenticated = False
         st.session_state.user_payload = None
@@ -723,7 +684,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    if fa_button("Refresh Data", "fa-sync", "refresh_data", use_container_width=True, button_style="secondary"):
+    if st.button("🔄 Refresh Data", use_container_width=True):
         st.rerun()
 
 # Fetch tasks (merge DB + memory)
@@ -734,7 +695,7 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 16. TABS: TASKS, CHAT, ADMIN
+# 15. TABS: TASKS, CHAT, ADMIN
 # -------------------------------
 tab_tasks, tab_chat, tab_admin = st.tabs([
     '📋 Task Dashboard',
@@ -751,13 +712,11 @@ with tab_tasks:
             for msg in reversed(st.session_state.broadcast_messages[-5:]):
                 st.warning(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
 
-        # Tabs with clean emojis
         tab_my, tab_unassigned = st.tabs([
             '📋 My Assigned Tasks',
             '📥 Unassigned Board'
         ])
 
-        # ---------- MY ASSIGNED TASKS ----------
         with tab_my:
             my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
             if not my_tasks:
@@ -765,11 +724,8 @@ with tab_tasks:
             else:
                 for idx, task in enumerate(my_tasks):
                     with st.container(border=True):
-                        # Task header
                         st.markdown(f"**Task #{task['id']}:** {task['title']}")
                         st.write(f"📍 {task['location']} | Priority: **{task['priority']}** | Status: `{task['status']}`")
-
-                        # Safety checkboxes
                         col1, col2 = st.columns([2, 3])
                         with col1:
                             loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
@@ -782,18 +738,13 @@ with tab_tasks:
                                 update_task(task['id'], {"status": new_status}, full_name)
                                 log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
                                 st.rerun()
-
-                        # Update safety
                         if loto != task.get('loto') or jsa != task.get('jsa'):
                             update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
                             st.rerun()
-
                         if not loto or not jsa:
                             st.error("🔒 Safety isolation forms are required before proceeding.")
                         else:
                             st.success("✅ Safety checks passed.")
-
-                        # Photo upload
                         st.markdown("---")
                         st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
                         uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
@@ -805,25 +756,21 @@ with tab_tasks:
                                     st.success("Photo uploaded!")
                                     st.rerun()
                                 else:
-                                    st.error("Upload failed.")  # Should not happen with new fallback
-
+                                    st.error("Upload failed.")
                         photos = fetch_photos(task['id'])
                         if photos:
                             st.markdown("**📸 Already uploaded:**")
                             cols = st.columns(min(4, len(photos)))
                             for pic_idx, photo in enumerate(photos):
                                 with cols[pic_idx % len(cols)]:
-                                    # Use photo_url if it exists, else fallback
                                     img_url = photo.get('photo_url', '')
                                     if img_url.startswith('memory://'):
-                                        # Memory photo – we can't display a real image, so show placeholder
                                         st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
                                     else:
                                         st.image(img_url, width=120, use_container_width=True)
                                     st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
                         st.markdown("---")
 
-        # ---------- UNASSIGNED BOARD ----------
         with tab_unassigned:
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
             if not unassigned:
@@ -872,7 +819,6 @@ with tab_tasks:
                             update_task(task['id'], {"status": "Complete"}, full_name)
                             log_audit(full_name, "task_approve", {"task_id": task['id']})
                             st.rerun()
-
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -968,7 +914,6 @@ with tab_tasks:
                     if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
                         delete_task(task['id'], full_name)
                         st.rerun()
-
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
