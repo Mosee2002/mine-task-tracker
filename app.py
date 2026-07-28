@@ -7,6 +7,9 @@ import os
 import json
 import time
 from io import BytesIO
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 
 # Try to import bcrypt; fallback to built-in hashing
 try:
@@ -48,7 +51,7 @@ except ImportError:
     st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. CUSTOM CSS + FONT AWESOME
+# 1. CUSTOM CSS + FONT AWESOME + THEME
 # -------------------------------
 st.set_page_config(
     page_title="Mine & Workshop Tracker",
@@ -57,18 +60,55 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.markdown("""
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+# Theme toggle
+if 'dark_mode' not in st.session_state:
+    st.session_state.dark_mode = False
+
+dark_css = """
+<style>
+    .stApp { background-color: #0f172a; color: #e2e8f0; }
+    .main-header { color: #f8fafc; }
+    .sub-header { color: #94a3b8; }
+    .css-1d391kg { background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%); }
+    .custom-card { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+    .task-card { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+    .metric-box { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+    .stTabs [data-baseweb="tab"] { background: #1e293b; color: #e2e8f0; border-color: #334155; }
+    .stTabs [aria-selected="true"] { background: #2563eb; color: white; }
+    .stFileUploader { background: #1e293b; border-color: #334155; }
+    .streamlit-expanderHeader { background: #1e293b; color: #e2e8f0; }
+    .footer { border-top-color: #334155; color: #94a3b8; }
+</style>
+"""
+light_css = """
 <style>
     .stApp { background-color: #f8fafc; }
-    .main-header { font-size: 2.5rem; font-weight: 700; color: #1e293b; margin-bottom: 0.5rem; }
-    .main-header i { color: #2563eb; margin-right: 10px; }
-    .sub-header { font-size: 1.2rem; color: #475569; margin-bottom: 1.5rem; }
+    .main-header { color: #1e293b; }
+    .sub-header { color: #475569; }
     .css-1d391kg { background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); }
-    .css-1d391kg .stMarkdown { color: #e2e8f0; }
+    .custom-card { background: white; border-color: #e8ecf0; color: #1e293b; }
+    .task-card { background: white; border-color: #e8ecf0; color: #1e293b; }
+    .metric-box { background: white; border-color: #e2e8f0; color: #1e293b; }
+    .stTabs [data-baseweb="tab"] { background: white; color: #1e293b; border-color: #e2e8f0; }
+    .stTabs [aria-selected="true"] { background: #2563eb; color: white; }
+    .stFileUploader { background: #f8fafc; border-color: #cbd5e1; }
+    .streamlit-expanderHeader { background: #f1f5f9; color: #1e293b; }
+    .footer { border-top-color: #e2e8f0; color: #94a3b8; }
+</style>
+"""
+
+theme_css = dark_css if st.session_state.dark_mode else light_css
+
+st.markdown("""
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+""" + theme_css + """
+<style>
+    .main-header { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .main-header i { color: #2563eb; margin-right: 10px; }
+    .sub-header { font-size: 1.2rem; margin-bottom: 1.5rem; }
     .css-1d391kg .stButton button { background-color: #3b82f6; color: white; border-radius: 8px; border: none; padding: 0.5rem 1rem; transition: 0.3s; }
     .css-1d391kg .stButton button:hover { background-color: #2563eb; transform: scale(1.02); }
-    .custom-card { background: white; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); padding: 1.2rem; margin-bottom: 1rem; border-left: 4px solid #2563eb; transition: 0.2s; }
+    .custom-card { border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); padding: 1.2rem; margin-bottom: 1rem; border-left: 4px solid #2563eb; transition: 0.2s; }
     .custom-card:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); transform: translateY(-2px); }
     .priority-Critical { border-left-color: #dc2626; }
     .priority-High { border-left-color: #f59e0b; }
@@ -82,18 +122,17 @@ st.markdown("""
     .status-Complete { background: #10b981; }
     .chat-message { padding: 0.5rem 1rem; border-radius: 8px; margin: 0.2rem 0; background: #f1f5f9; border-left: 3px solid #3b82f6; }
     .chat-message.self { background: #dbeafe; border-left-color: #2563eb; }
-    .chat-message .sender { font-weight: 600; color: #1e293b; }
+    .chat-message .sender { font-weight: 600; }
     .chat-message .timestamp { font-size: 0.7rem; color: #64748b; margin-left: 0.5rem; }
-    .metric-box { background: white; border-radius: 10px; padding: 1rem; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
-    .metric-box .value { font-size: 2rem; font-weight: 700; color: #1e293b; }
-    .metric-box .label { font-size: 0.9rem; color: #64748b; }
+    .metric-box { border-radius: 10px; padding: 1rem; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+    .metric-box .value { font-size: 2rem; font-weight: 700; }
+    .metric-box .label { font-size: 0.9rem; }
     .stTabs [data-baseweb="tab-list"] { gap: 0.5rem; }
-    .stTabs [data-baseweb="tab"] { background: white; border-radius: 8px 8px 0 0; padding: 0.5rem 1rem; border: 1px solid #e2e8f0; border-bottom: none; }
+    .stTabs [data-baseweb="tab"] { border-radius: 8px 8px 0 0; padding: 0.5rem 1rem; border: 1px solid #e2e8f0; border-bottom: none; }
     .stTabs [aria-selected="true"] { background: #2563eb; color: white; border-color: #2563eb; }
     .stFileUploader { border: 2px dashed #94a3b8; border-radius: 8px; padding: 0.5rem; background: #f8fafc; }
-    .streamlit-expanderHeader { background: #f1f5f9; border-radius: 8px; }
-    .footer { text-align: center; margin-top: 2rem; padding: 1rem; color: #94a3b8; font-size: 0.8rem; border-top: 1px solid #e2e8f0; }
-    /* Remove old fa-btn styles – we'll use standard buttons */
+    .streamlit-expanderHeader { border-radius: 8px; }
+    .footer { text-align: center; margin-top: 2rem; padding: 1rem; font-size: 0.8rem; border-top: 1px solid #e2e8f0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -191,9 +230,9 @@ def validate_image(file_bytes, filename):
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
         fallback = [
-            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789")},
-            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000")},
-            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123")}
+            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None},
+            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None},
+            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None}
         ]
         return fallback
     try:
@@ -204,18 +243,18 @@ def fetch_all_users_from_db():
             return []
     except Exception:
         fallback = [
-            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789")},
-            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000")},
-            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123")}
+            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None},
+            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None},
+            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None}
         ]
         return fallback
 
-def register_user_to_db(username, name, role, password):
+def register_user_to_db(username, name, role, password, email=None):
     if not SUPABASE_AVAILABLE:
         return False
     try:
         hashed = hash_password(password)
-        payload = {"username": username, "full_name": name, "role": role, "password_hash": hashed}
+        payload = {"username": username, "full_name": name, "role": role, "password_hash": hashed, "email": email}
         supabase.table("facility_users").insert(payload).execute()
         log_audit(name, "user_register", {"username": username, "role": role})
         return True
@@ -230,8 +269,18 @@ def authenticate_user(username, password):
                 return u
     return None
 
+def update_user_profile(username, updates):
+    if not SUPABASE_AVAILABLE:
+        # Update in memory fallback?
+        return False
+    try:
+        supabase.table("facility_users").update(updates).eq("username", username).execute()
+        return True
+    except Exception:
+        return False
+
 # -------------------------------
-# 6. TASK FUNCTIONS
+# 6. TASK FUNCTIONS (with due date)
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -245,7 +294,7 @@ def fetch_all_tasks():
     except Exception:
         return st.session_state.get("tasks_memory", [])
 
-def create_task(title, location, priority, loto, jsa, created_by):
+def create_task(title, location, priority, loto, jsa, created_by, due_date=None):
     if not SUPABASE_AVAILABLE:
         tasks = st.session_state.get("tasks_memory", [])
         new_id = max([t["id"] for t in tasks], default=0) + 1
@@ -257,7 +306,8 @@ def create_task(title, location, priority, loto, jsa, created_by):
             "loto": loto,
             "jsa": jsa,
             "status": "Unassigned",
-            "assigned_to": "Unassigned"
+            "assigned_to": "Unassigned",
+            "due_date": due_date.isoformat() if due_date else None
         }
         tasks.append(new_task)
         st.session_state.tasks_memory = tasks
@@ -271,7 +321,8 @@ def create_task(title, location, priority, loto, jsa, created_by):
             "loto": loto,
             "jsa": jsa,
             "status": "Unassigned",
-            "assigned_to": "Unassigned"
+            "assigned_to": "Unassigned",
+            "due_date": due_date.isoformat() if due_date else None
         }
         res = supabase.table("tasks").insert(new_task).execute()
         if res.data:
@@ -319,7 +370,6 @@ def delete_task(task_id, deleted_by):
 # 7. PHOTO FUNCTIONS (with fallback)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
-    # Always store in memory first (as backup)
     st.session_state.setdefault("photos_memory", []).append({
         "task_id": task_id,
         "photo_url": f"memory://{filename}",
@@ -327,14 +377,12 @@ def upload_photo(task_id, file_bytes, filename, uploaded_by):
         "uploaded_at": datetime.now().isoformat()
     })
     log_audit(uploaded_by, "photo_upload_memory", {"task_id": task_id, "filename": filename})
-
-    # If Supabase is available, try to upload there as well
     if SUPABASE_AVAILABLE:
         try:
             valid, msg = validate_image(file_bytes, filename)
             if not valid:
                 st.error(msg)
-                return True  # memory already saved
+                return True
             ext = filename.split(".")[-1]
             safe_name = f"task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
             res = supabase.storage.from_("task_photos").upload(safe_name, file_bytes)
@@ -368,7 +416,84 @@ def fetch_photos(task_id):
     return all_photos
 
 # -------------------------------
-# 8. CHAT FUNCTIONS
+# 8. FILE ATTACHMENTS (PDF/DOC)
+# -------------------------------
+def upload_attachment(task_id, file_bytes, filename, uploaded_by):
+    if not SUPABASE_AVAILABLE:
+        st.session_state.setdefault("attachments_memory", []).append({
+            "task_id": task_id,
+            "file_name": filename,
+            "file_url": f"memory://{filename}",
+            "file_type": filename.split('.')[-1].lower(),
+            "uploaded_by": uploaded_by,
+            "uploaded_at": datetime.now().isoformat()
+        })
+        log_audit(uploaded_by, "attachment_upload_memory", {"task_id": task_id, "filename": filename})
+        return True
+    try:
+        ext = filename.split('.')[-1].lower()
+        safe_name = f"attachments/task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
+        res = supabase.storage.from_("task_attachments").upload(safe_name, file_bytes)
+        if res:
+            public_url = supabase.storage.from_("task_attachments").get_public_url(safe_name)
+            data = {
+                "task_id": task_id,
+                "file_name": filename,
+                "file_url": public_url,
+                "file_type": ext,
+                "uploaded_by": uploaded_by
+            }
+            supabase.table("task_attachments").insert(data).execute()
+            log_audit(uploaded_by, "attachment_upload", {"task_id": task_id, "filename": filename})
+            return True
+    except Exception as e:
+        st.error(f"Upload failed: {e}")
+        return False
+    return False
+
+def fetch_attachments(task_id):
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("attachments_memory", [])
+    try:
+        res = supabase.table("task_attachments").select("*").eq("task_id", task_id).order("uploaded_at", desc=True).execute()
+        if res.data:
+            return res.data
+    except Exception:
+        pass
+    return []
+
+# -------------------------------
+# 9. TASK COMMENTS
+# -------------------------------
+def add_comment(task_id, comment, posted_by):
+    if not SUPABASE_AVAILABLE:
+        st.session_state.setdefault("comments_memory", []).append({
+            "task_id": task_id,
+            "comment": comment,
+            "posted_by": posted_by,
+            "posted_at": datetime.now().isoformat()
+        })
+        log_audit(posted_by, "comment_add_memory", {"task_id": task_id, "comment": comment, "posted_by": posted_by}
+        supabase.table("task_comments").insert(data).execute()
+        log_audit(posted_by, "comment_add", {"task_id": task_id, "comment": comment[:50]})
+        return True
+    except Exception:
+        return False
+
+def fetch_comments(task_id):
+    if not SUPABASE_AVAILABLE:
+        comments = st.session_state.get("comments_memory", [])
+        return [c for c in comments if c["task_id"] == task_id]
+    try:
+        res = supabase.table("task_comments").select("*").eq("task_id", task_id).order("posted_at", asc=True).execute()
+        if res.data:
+            return res.data
+    except Exception:
+        pass
+    return []
+
+# -------------------------------
+# 10. CHAT FUNCTIONS (unchanged)
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -439,7 +564,7 @@ def delete_message(message_id, deleted_by):
             return False
 
 # -------------------------------
-# 9. ENCRYPTION HELPERS
+# 11. ENCRYPTION HELPERS
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -480,7 +605,29 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 10. SESSION STATE INIT
+# 12. EXPORT REPORTS
+# -------------------------------
+def export_tasks_csv(tasks):
+    if not tasks:
+        return None
+    df = pd.DataFrame(tasks)
+    # Select columns to export
+    cols = ['id', 'title', 'location', 'status', 'priority', 'assigned_to', 'due_date', 'created_at']
+    df = df[[c for c in cols if c in df.columns]]
+    return df.to_csv(index=False)
+
+# -------------------------------
+# 13. PUSH NOTIFICATIONS
+# -------------------------------
+def send_push_notification(title, body):
+    try:
+        # Use Streamlit's built-in toast for now; for true push, need service worker + Web Push API.
+        st.toast(f"{title}: {body}")
+    except:
+        pass
+
+# -------------------------------
+# 14. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -493,20 +640,7 @@ if 'chat_partner' not in st.session_state:
 if 'broadcast_messages' not in st.session_state:
     st.session_state.broadcast_messages = []
 if 'tasks_memory' not in st.session_state:
-    st.session_state.tasks_memory = [
-        {"id": 101, "title": "Replace 45kW Pump Motor Starter", "location": "Workshop Bench 2",
-         "status": "In Progress", "priority": "High", "assigned_to": "John Doe",
-         "loto": False, "jsa": False},
-        {"id": 102, "title": "Calibrate Underground Gas Detectors", "location": "Level 4 North Shaft",
-         "status": "Unassigned", "priority": "Critical", "assigned_to": "Unassigned",
-         "loto": False, "jsa": False},
-        {"id": 103, "title": "Inspect Overhead Workshop Crane Cables", "location": "Workshop Bench 1",
-         "status": "Complete", "priority": "High", "assigned_to": "Sarah Connor",
-         "loto": True, "jsa": True},
-        {"id": 104, "title": "Re-wire Level 3 Sump Pump Float", "location": "Level 3 South Sump",
-         "status": "Blocked", "priority": "Medium", "assigned_to": "Unassigned",
-         "loto": True, "jsa": False}
-    ]
+    st.session_state.tasks_memory = []
 if 'chat_messages_memory' not in st.session_state:
     st.session_state.chat_messages_memory = []
 if 'chat_input_value' not in st.session_state:
@@ -519,9 +653,13 @@ if 'chat_channel' not in st.session_state:
     st.session_state.chat_channel = None
 if 'chat_messages_cache' not in st.session_state:
     st.session_state.chat_messages_cache = []
+if 'attachments_memory' not in st.session_state:
+    st.session_state.attachments_memory = []
+if 'comments_memory' not in st.session_state:
+    st.session_state.comments_memory = []
 
 # -------------------------------
-# 11. SESSION TIMEOUT CHECK
+# 15. SESSION TIMEOUT CHECK
 # -------------------------------
 def check_timeout():
     if st.session_state.authenticated:
@@ -534,7 +672,7 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 12. AUTHENTICATION GATEWAY (with forms)
+# 16. AUTHENTICATION GATEWAY (with forms)
 # -------------------------------
 if not st.session_state.authenticated:
     st.markdown('<div class="main-header"><i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker</div>', unsafe_allow_html=True)
@@ -552,7 +690,8 @@ if not st.session_state.authenticated:
                 "name": matched_user.get("full_name", matched_user.get("username")),
                 "role": matched_user.get("role", "Worker"),
                 "username": matched_user.get("username"),
-                "email": matched_user.get("email", None)
+                "email": matched_user.get("email", None),
+                "avatar_url": matched_user.get("avatar_url", None)
             }
             st.session_state.authenticated = True
             st.session_state.last_activity = datetime.now()
@@ -578,7 +717,7 @@ if not st.session_state.authenticated:
             if any(u["username"].lower() == reg_user for u in users):
                 st.error("Username already taken. Please choose another.")
             else:
-                success = register_user_to_db(reg_user, reg_name, reg_role, reg_pass)
+                success = register_user_to_db(reg_user, reg_name, reg_role, reg_pass, reg_email)
                 if success:
                     st.success(f"Account '{reg_user}' created! Please log in.")
                 else:
@@ -590,7 +729,7 @@ else:
     check_timeout()
 
 # -------------------------------
-# 13. PWA MANIFEST & SERVICE WORKER
+# 17. PWA MANIFEST & SERVICE WORKER
 # -------------------------------
 st.markdown("""
 <link rel="manifest" href="/static/manifest.json">
@@ -602,26 +741,35 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 14. MAIN APP (with stable sidebar using st.button)
+# 18. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
 username = user['username']
 role = user['role'].strip().lower()
 user_email = user.get('email', None)
+avatar_url = user.get('avatar_url', None)
 
-# Sidebar – now using only st.button with emojis for stability
+# Sidebar
 with st.sidebar:
-    st.markdown(f"""
-    <div style="padding: 0.5rem 0;">
-        <i class="fas fa-user-circle" style="font-size: 2rem; color: #3b82f6;"></i>
-        <div style="font-weight: 600; font-size: 1.1rem;">{full_name}</div>
-        <div style="font-size: 0.9rem; color: #94a3b8;"><i class="fas fa-id-badge"></i> {user['role']}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    # User profile mini
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        if avatar_url:
+            st.image(avatar_url, width=50)
+        else:
+            st.markdown('<i class="fas fa-user-circle" style="font-size: 2.5rem; color: #3b82f6;"></i>', unsafe_allow_html=True)
+    with col2:
+        st.markdown(f"**{full_name}**")
+        st.markdown(f"<small>{user['role']}</small>", unsafe_allow_html=True)
 
     if USING_HARDCODED:
         st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
+
+    # Theme toggle
+    if st.button("🌓 Toggle Theme", use_container_width=True):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
 
     # Broadcast sender
     if role in ["supervisor", "superintendent"]:
@@ -641,6 +789,8 @@ with st.sidebar:
                 worker_emails = [u.get('email') for u in all_users if u['role'].strip().lower() == 'worker' and u.get('email')]
                 for email in worker_emails:
                     send_email_notification(email, f"Broadcast from {full_name}", broadcast_msg.replace('\n', '<br>'))
+                # Push notification to all workers (in browser)
+                send_push_notification("New Broadcast", broadcast_msg[:100])
                 st.success("Broadcast sent!")
                 st.rerun()
             else:
@@ -670,6 +820,12 @@ with st.sidebar:
     else:
         st.info("No other users available.")
 
+    st.markdown("---")
+    st.markdown("👤 **Profile**")
+    if st.button("👤 My Profile", use_container_width=True):
+        st.session_state.profile_tab = True
+        st.rerun()
+
     if st.button("🚪 Logout", use_container_width=True):
         log_audit(full_name, "logout")
         st.session_state.authenticated = False
@@ -687,6 +843,10 @@ with st.sidebar:
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.rerun()
 
+# Profile tab logic
+if 'profile_tab' not in st.session_state:
+    st.session_state.profile_tab = False
+
 # Fetch tasks (merge DB + memory)
 db_tasks = fetch_all_tasks()
 if db_tasks:
@@ -695,13 +855,12 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 15. TABS: TASKS, CHAT, ADMIN
+# 19. TABS: TASKS, CHAT, ADMIN, PROFILE
 # -------------------------------
-tab_tasks, tab_chat, tab_admin = st.tabs([
-    '📋 Task Dashboard',
-    '💬 Chat Room',
-    '⚙️ Admin Panel'
-])
+tabs_list = ['📋 Task Dashboard', '💬 Chat Room', '⚙️ Admin Panel']
+if role in ["worker", "supervisor", "superintendent"]:
+    tabs_list.append('👤 Profile')
+tab_tasks, tab_chat, tab_admin, tab_profile = st.tabs(tabs_list)
 
 # ---- TASK DASHBOARD ----
 with tab_tasks:
@@ -726,6 +885,11 @@ with tab_tasks:
                     with st.container(border=True):
                         st.markdown(f"**Task #{task['id']}:** {task['title']}")
                         st.write(f"📍 {task['location']} | Priority: **{task['priority']}** | Status: `{task['status']}`")
+                        if task.get('due_date'):
+                            due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
+                            st.write(f"📅 Due: {due}")
+                            if datetime.now() > datetime.fromisoformat(task['due_date']):
+                                st.error("⚠️ Overdue!")
                         col1, col2 = st.columns([2, 3])
                         with col1:
                             loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
@@ -745,6 +909,38 @@ with tab_tasks:
                             st.error("🔒 Safety isolation forms are required before proceeding.")
                         else:
                             st.success("✅ Safety checks passed.")
+
+                        # Comments
+                        with st.expander("💬 Comments"):
+                            comments = fetch_comments(task['id'])
+                            if comments:
+                                for c in comments:
+                                    st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
+                            else:
+                                st.caption("No comments yet.")
+                            new_comment = st.text_area("Add comment", key=f"comment_{task['id']}_{idx}", placeholder="Write comment...")
+                            if st.button("Post Comment", key=f"post_comment_{task['id']}_{idx}"):
+                                if new_comment.strip():
+                                    add_comment(task['id'], new_comment, full_name)
+                                    st.rerun()
+
+                        # Attachments
+                        with st.expander("📎 Attachments"):
+                            attachments = fetch_attachments(task['id'])
+                            if attachments:
+                                for a in attachments:
+                                    st.markdown(f"[{a['file_name']}]({a['file_url']}) (uploaded by {a['uploaded_by']})")
+                            else:
+                                st.caption("No attachments.")
+                            uploaded_file = st.file_uploader("Upload attachment (PDF, DOC, etc.)", key=f"attach_{task['id']}_{idx}")
+                            if uploaded_file is not None:
+                                if st.button("Upload Attachment", key=f"attach_btn_{task['id']}_{idx}"):
+                                    bytes_data = uploaded_file.getvalue()
+                                    if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
+                                        st.success("Attachment uploaded!")
+                                        st.rerun()
+
+                        # Photo upload
                         st.markdown("---")
                         st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
                         uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
@@ -780,12 +976,16 @@ with tab_tasks:
                     with st.container(border=True):
                         st.markdown(f"**#{task['id']}:** {task['title']}")
                         st.write(f"📍 {task['location']} | Priority: **{task['priority']}**")
+                        if task.get('due_date'):
+                            due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
+                            st.write(f"📅 Due: {due}")
 
     elif role == "supervisor":
         st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
-        tab_manage, tab_create = st.tabs([
+        tab_manage, tab_create, tab_dashboard = st.tabs([
             '📋 Manage All Tasks',
-            '➕ Create New Task'
+            '➕ Create New Task',
+            '📊 Dashboard'
         ])
         with tab_manage:
             st.markdown("### All Maintenance Tasks")
@@ -797,6 +997,9 @@ with tab_tasks:
                 with st.container(border=True):
                     st.markdown(f"**#{task['id']}:** {task['title']}")
                     st.write(f"📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
+                    if task.get('due_date'):
+                        due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
+                        st.write(f"📅 Due: {due}")
                     cols = st.columns([3, 1, 1])
                     current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
                     new_assign = cols[0].selectbox("Assign to:", worker_names,
@@ -811,14 +1014,44 @@ with tab_tasks:
                             worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
                             if worker_email:
                                 subject = f"New Task Assigned: #{task['id']} - {task['title']}"
-                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br><br>Please log in to the tracker for details.<br>Regards,<br>Supervisor"
+                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Supervisor"
                                 send_email_notification(worker_email, subject, body)
+                            # Push notification
+                            send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
                         st.rerun()
                     if task['status'] == "Pending QA":
                         if cols[1].button("✅ Approve & Close", key=f"approve_{task['id']}"):
                             update_task(task['id'], {"status": "Complete"}, full_name)
                             log_audit(full_name, "task_approve", {"task_id": task['id']})
                             st.rerun()
+                    # Comments
+                    with st.expander("💬 Comments"):
+                        comments = fetch_comments(task['id'])
+                        if comments:
+                            for c in comments:
+                                st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
+                        else:
+                            st.caption("No comments yet.")
+                        new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
+                        if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
+                            if new_comment.strip():
+                                add_comment(task['id'], new_comment, full_name)
+                                st.rerun()
+                    # Attachments
+                    with st.expander("📎 Attachments"):
+                        attachments = fetch_attachments(task['id'])
+                        if attachments:
+                            for a in attachments:
+                                st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
+                        else:
+                            st.caption("No attachments.")
+                        uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
+                        if uploaded_file is not None:
+                            if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
+                                bytes_data = uploaded_file.getvalue()
+                                if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
+                                    st.success("Attachment uploaded!")
+                                    st.rerun()
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -838,12 +1071,13 @@ with tab_tasks:
                 title = st.text_input("Task Title *", max_chars=100)
                 location = st.text_input("Location / Area *", max_chars=100)
                 priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
+                due_date = st.date_input("Due Date", value=datetime.now() + timedelta(days=7))
                 loto = st.checkbox("Requires LOTO")
                 jsa = st.checkbox("Requires JSA")
                 submitted = st.form_submit_button('➕ Create Work Ticket')
                 if submitted:
                     if title and location:
-                        new_task = create_task(title, location, priority, loto, jsa, full_name)
+                        new_task = create_task(title, location, priority, loto, jsa, full_name, due_date)
                         if new_task:
                             st.success(f"Task #{new_task['id']} created!")
                             st.rerun()
@@ -852,12 +1086,35 @@ with tab_tasks:
                     else:
                         st.error("Title and Location are required.")
 
+        with tab_dashboard:
+            st.markdown("### 📊 Task Analytics")
+            if st.session_state.tasks:
+                df = pd.DataFrame(st.session_state.tasks)
+                fig1 = px.pie(df, names='status', title='Tasks by Status')
+                st.plotly_chart(fig1, use_container_width=True)
+                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
+                st.plotly_chart(fig2, use_container_width=True)
+                # Completion trend (if created_at exists)
+                if 'created_at' in df.columns:
+                    df['created_at'] = pd.to_datetime(df['created_at'])
+                    df['day'] = df['created_at'].dt.date
+                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
+                    st.plotly_chart(fig3, use_container_width=True)
+            else:
+                st.info("No data to display.")
+            # Export report
+            if st.button("📥 Export Tasks as CSV"):
+                csv = export_tasks_csv(st.session_state.tasks)
+                if csv:
+                    st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
+
     elif role == "superintendent":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
-        tab_overview, tab_manage, tab_broadcasts = st.tabs([
+        tab_overview, tab_manage, tab_broadcasts, tab_dashboard = st.tabs([
             '📊 Overview',
             '📋 Manage Tasks',
-            '📢 Broadcast Log'
+            '📢 Broadcast Log',
+            '📊 Dashboard'
         ])
         with tab_overview:
             total = len(st.session_state.tasks)
@@ -887,6 +1144,9 @@ with tab_tasks:
                 with st.container(border=True):
                     st.markdown(f"**#{task['id']}:** {task['title']}")
                     st.write(f"📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
+                    if task.get('due_date'):
+                        due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
+                        st.write(f"📅 Due: {due}")
                     cols = st.columns([2, 1, 1, 1])
                     current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
                     new_assign = cols[0].selectbox("Assign", worker_names,
@@ -901,8 +1161,9 @@ with tab_tasks:
                             worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
                             if worker_email:
                                 subject = f"New Task Assigned: #{task['id']} - {task['title']}"
-                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br><br>Please log in to the tracker for details.<br>Regards,<br>Superintendent"
+                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Superintendent"
                                 send_email_notification(worker_email, subject, body)
+                            send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
                         st.rerun()
                     status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
                     curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
@@ -914,6 +1175,33 @@ with tab_tasks:
                     if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
                         delete_task(task['id'], full_name)
                         st.rerun()
+                    # Comments, attachments, photos (same as supervisor)
+                    with st.expander("💬 Comments"):
+                        comments = fetch_comments(task['id'])
+                        if comments:
+                            for c in comments:
+                                st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
+                        else:
+                            st.caption("No comments yet.")
+                        new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
+                        if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
+                            if new_comment.strip():
+                                add_comment(task['id'], new_comment, full_name)
+                                st.rerun()
+                    with st.expander("📎 Attachments"):
+                        attachments = fetch_attachments(task['id'])
+                        if attachments:
+                            for a in attachments:
+                                st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
+                        else:
+                            st.caption("No attachments.")
+                        uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
+                        if uploaded_file is not None:
+                            if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
+                                bytes_data = uploaded_file.getvalue()
+                                if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
+                                    st.success("Attachment uploaded!")
+                                    st.rerun()
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -926,7 +1214,6 @@ with tab_tasks:
                                     else:
                                         st.image(img_url, width=120)
                                     st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
-
         with tab_broadcasts:
             st.markdown("### All Broadcast Messages")
             if st.session_state.broadcast_messages:
@@ -934,6 +1221,25 @@ with tab_tasks:
                     st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
             else:
                 st.info("No messages sent yet.")
+        with tab_dashboard:
+            st.markdown("### 📊 Task Analytics")
+            if st.session_state.tasks:
+                df = pd.DataFrame(st.session_state.tasks)
+                fig1 = px.pie(df, names='status', title='Tasks by Status')
+                st.plotly_chart(fig1, use_container_width=True)
+                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
+                st.plotly_chart(fig2, use_container_width=True)
+                if 'created_at' in df.columns:
+                    df['created_at'] = pd.to_datetime(df['created_at'])
+                    df['day'] = df['created_at'].dt.date
+                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
+                    st.plotly_chart(fig3, use_container_width=True)
+            else:
+                st.info("No data to display.")
+            if st.button("📥 Export Tasks as CSV"):
+                csv = export_tasks_csv(st.session_state.tasks)
+                if csv:
+                    st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
 
 # ---- CHAT ROOM (REAL-TIME) ----
 with tab_chat:
@@ -1093,6 +1399,61 @@ with tab_admin:
                 st.info("Audit log unavailable.")
         else:
             st.info("Audit log not available (Supabase not connected).")
+
+# ---- PROFILE TAB ----
+with tab_profile:
+    st.subheader("👤 User Profile")
+    st.markdown(f"**Username:** {username}")
+    st.markdown(f"**Full Name:** {full_name}")
+    st.markdown(f"**Role:** {user['role']}")
+    st.markdown(f"**Email:** {user_email if user_email else 'Not set'}")
+    # Avatar upload
+    uploaded_avatar = st.file_uploader("Upload Avatar", type=["jpg", "jpeg", "png", "gif", "webp"], key="avatar_upload")
+    if uploaded_avatar is not None:
+        if st.button("Update Avatar"):
+            # For now, just store in memory; in production, upload to Supabase Storage
+            st.success("Avatar updated! (feature in development - will store to Supabase Storage)")
+            # We'll implement actual storage later; for now just keep in session
+            st.session_state.user_payload['avatar_url'] = "https://via.placeholder.com/150"
+            st.rerun()
+    # Change password
+    st.markdown("### Change Password")
+    old_pass = st.text_input("Current Password", type="password")
+    new_pass1 = st.text_input("New Password", type="password")
+    new_pass2 = st.text_input("Confirm New Password", type="password")
+    if st.button("Update Password"):
+        if old_pass and new_pass1 and new_pass2:
+            if new_pass1 == new_pass2:
+                # Verify old password
+                users = fetch_all_users_from_db()
+                for u in users:
+                    if u["username"] == username:
+                        if verify_password(old_pass, u["password_hash"]):
+                            # Update password
+                            new_hash = hash_password(new_pass1)
+                            if update_user_profile(username, {"password_hash": new_hash}):
+                                st.success("Password updated!")
+                                st.rerun()
+                            else:
+                                st.error("Failed to update password.")
+                        else:
+                            st.error("Current password is incorrect.")
+                        break
+            else:
+                st.error("New passwords do not match.")
+        else:
+            st.error("All fields are required.")
+    # Update email
+    st.markdown("### Update Email")
+    new_email = st.text_input("New Email", value=user_email if user_email else "")
+    if st.button("Update Email"):
+        if new_email:
+            if update_user_profile(username, {"email": new_email}):
+                st.session_state.user_payload['email'] = new_email
+                st.success("Email updated!")
+                st.rerun()
+            else:
+                st.error("Failed to update email.")
 
 # Footer
 st.markdown("""
