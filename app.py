@@ -100,49 +100,6 @@ st.markdown("""
     .fa-btn-secondary:hover { background-color: #e2e8f0; color: #0f172a !important; }
     .fa-btn-danger { background-color: #ef4444; color: white !important; }
     .fa-btn-danger:hover { background-color: #dc2626; color: white !important; }
-
-    /* ---------- ENHANCED TASK CARDS ---------- */
-    .task-card {
-        background: white;
-        border-radius: 12px;
-        padding: 1.2rem;
-        margin-bottom: 1rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        border: 1px solid #e8ecf0;
-        transition: all 0.2s;
-    }
-    .task-card:hover {
-        box-shadow: 0 4px 16px rgba(0,0,0,0.1);
-        transform: translateY(-2px);
-    }
-    .task-title {
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: #1e293b;
-    }
-    .task-meta {
-        display: flex;
-        gap: 1rem;
-        flex-wrap: wrap;
-        margin: 0.3rem 0 0.8rem 0;
-        font-size: 0.9rem;
-        color: #475569;
-    }
-    .task-meta i {
-        margin-right: 0.3rem;
-    }
-    .priority-badge {
-        display: inline-block;
-        padding: 0.15rem 0.7rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: white;
-    }
-    .priority-Critical { background: #dc2626; }
-    .priority-High { background: #f59e0b; }
-    .priority-Medium { background: #3b82f6; }
-    .priority-Low { background: #10b981; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -606,7 +563,6 @@ if not st.session_state.authenticated:
     st.markdown('<div class="main-header"><i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
 
-    # ---------- LOGIN FORM ----------
     with st.form("login_form"):
         user_in = st.text_input("Username", placeholder="Enter your username").strip().lower()
         pass_in = st.text_input("Password", type="password", placeholder="Enter your password")
@@ -631,7 +587,6 @@ if not st.session_state.authenticated:
     st.markdown("---")
     st.markdown('<div class="sub-header"><i class="fas fa-user-plus"></i> Create Account Profile</div>', unsafe_allow_html=True)
 
-    # ---------- REGISTRATION FORM ----------
     with st.form("register_form"):
         reg_user = st.text_input("Choose Username", placeholder="Pick a unique username").strip().lower()
         reg_name = st.text_input("Full Name", placeholder="Your full name")
@@ -653,7 +608,6 @@ if not st.session_state.authenticated:
                     st.error("Registration failed. Database error.")
         else:
             st.error("All fields are mandatory.")
-
     st.stop()
 else:
     check_timeout()
@@ -692,7 +646,6 @@ with st.sidebar:
     if USING_HARDCODED:
         st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
 
-    # Broadcast sender
     if role in ["supervisor", "superintendent"]:
         st.markdown("---")
         st.markdown('<i class="fas fa-bullhorn"></i> Send Broadcast', unsafe_allow_html=True)
@@ -786,57 +739,45 @@ with tab_tasks:
             '<i class="fas fa-inbox"></i> Unassigned Board'
         ])
 
-        # ---------- MY ASSIGNED TASKS ----------
+        # ---------- MY ASSIGNED TASKS (PLAIN, RELIABLE DISPLAY) ----------
         with tab_my:
             my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
             if not my_tasks:
                 st.info("No tasks assigned to you.")
             else:
                 for idx, task in enumerate(my_tasks):
-                    priority_class = f"priority-{task['priority']}"
-                    status_class = f"status-{task['status'].replace(' ', '')}"
-                    # Card header
-                    st.markdown(f"""
-                    <div class="task-card">
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                            <div>
-                                <div class="task-title">#{task['id']} {task['title']}</div>
-                                <div class="task-meta">
-                                    <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
-                                    <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
-                                    <span><i class="fas fa-circle" style="color: #3b82f6;"></i> <span class="status-badge {status_class}">{task['status']}</span></span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    with st.container(border=True):
+                        # Task header
+                        st.markdown(f"**Task #{task['id']}:** {task['title']}")
+                        st.write(f"📍 {task['location']} | Priority: **{task['priority']}** | Status: `{task['status']}`")
 
-                    # Interactive controls
-                    col1, col2 = st.columns([2, 3])
-                    with col1:
-                        loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
-                        jsa = st.checkbox("📋 JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}_{idx}")
-                    with col2:
-                        status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
-                        current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
-                        new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}_{idx}")
-                        if new_status != task['status']:
-                            update_task(task['id'], {"status": new_status}, full_name)
-                            log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
+                        # Safety checkboxes
+                        col1, col2 = st.columns([2, 3])
+                        with col1:
+                            loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
+                            jsa = st.checkbox("📋 JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}_{idx}")
+                        with col2:
+                            status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
+                            current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
+                            new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}_{idx}")
+                            if new_status != task['status']:
+                                update_task(task['id'], {"status": new_status}, full_name)
+                                log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
+                                st.rerun()
+
+                        # Update safety
+                        if loto != task.get('loto') or jsa != task.get('jsa'):
+                            update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
                             st.rerun()
-                    # Update safety checkboxes
-                    if loto != task.get('loto') or jsa != task.get('jsa'):
-                        update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
-                        st.rerun()
-                    if not loto or not jsa:
-                        st.error("🔒 Safety isolation forms are required before proceeding.")
-                    else:
-                        st.success("✅ Safety checks passed.")
 
-                    # Photo upload
-                    st.markdown("---")
-                    st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
-                    with st.container():
+                        if not loto or not jsa:
+                            st.error("🔒 Safety isolation forms are required before proceeding.")
+                        else:
+                            st.success("✅ Safety checks passed.")
+
+                        # Photo upload
+                        st.markdown("---")
+                        st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
                         uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
                         if uploaded_file is not None:
                             if st.button(f"📤 Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}_{idx}"):
@@ -847,40 +788,26 @@ with tab_tasks:
                                     st.rerun()
                                 else:
                                     st.error("Upload failed.")
-                    # Show existing photos
-                    photos = fetch_photos(task['id'])
-                    if photos:
-                        st.markdown("**📸 Already uploaded:**")
-                        cols = st.columns(min(4, len(photos)))
-                        for pic_idx, photo in enumerate(photos):
-                            with cols[pic_idx % len(cols)]:
-                                st.image(photo['photo_url'], width=120, use_container_width=True)
-                    st.markdown("---")
 
-        # ---------- UNASSIGNED ----------
+                        photos = fetch_photos(task['id'])
+                        if photos:
+                            st.markdown("**📸 Already uploaded:**")
+                            cols = st.columns(min(4, len(photos)))
+                            for pic_idx, photo in enumerate(photos):
+                                with cols[pic_idx % len(cols)]:
+                                    st.image(photo['photo_url'], width=120, use_container_width=True)
+                        st.markdown("---")
+
+        # ---------- UNASSIGNED BOARD (PLAIN) ----------
         with tab_unassigned:
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
             if not unassigned:
                 st.success("🎉 No unassigned tasks at the moment.")
             else:
                 for task in unassigned:
-                    priority_class = f"priority-{task['priority']}"
-                    st.markdown(f"""
-                    <div class="task-card">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <div class="task-title">#{task['id']} {task['title']}</div>
-                                <div class="task-meta">
-                                    <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
-                                    <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
-                                </div>
-                            </div>
-                            <div>
-                                <span class="status-badge status-Unassigned">Unassigned</span>
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    with st.container(border=True):
+                        st.markdown(f"**#{task['id']}:** {task['title']}")
+                        st.write(f"📍 {task['location']} | Priority: **{task['priority']}**")
 
     elif role == "supervisor":
         st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
@@ -895,23 +822,9 @@ with tab_tasks:
             if not st.session_state.tasks:
                 st.info("No tasks found.")
             for task in st.session_state.tasks:
-                priority_class = f"priority-{task['priority']}"
-                status_class = f"status-{task['status'].replace(' ', '')}"
-                with st.container():
-                    st.markdown(f"""
-                    <div class="custom-card {priority_class}">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <strong>#{task['id']}: {task['title']}</strong><br>
-                                <i class="fas fa-map-marker-alt"></i> {task['location']}
-                                <span class="status-badge {status_class}">{task['status']}</span>
-                            </div>
-                            <div>
-                                <i class="fas fa-flag"></i> {task['priority']}
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.markdown(f"**#{task['id']}:** {task['title']}")
+                    st.write(f"📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
                     cols = st.columns([3, 1, 1])
                     current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
                     new_assign = cols[0].selectbox("Assign to:", worker_names,
@@ -978,36 +891,11 @@ with tab_tasks:
             unassigned = sum(1 for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned")
             blocked = sum(1 for t in st.session_state.tasks if t['status'] == "Blocked")
             col1, col2, col3, col4, col5 = st.columns(5)
-            col1.markdown(f"""
-            <div class="metric-box">
-                <div class="value">{total}</div>
-                <div class="label"><i class="fas fa-list"></i> Total Tasks</div>
-            </div>
-            """, unsafe_allow_html=True)
-            col2.markdown(f"""
-            <div class="metric-box">
-                <div class="value">{completed}</div>
-                <div class="label"><i class="fas fa-check-circle" style="color:#10b981;"></i> Completed</div>
-            </div>
-            """, unsafe_allow_html=True)
-            col3.markdown(f"""
-            <div class="metric-box">
-                <div class="value">{in_progress}</div>
-                <div class="label"><i class="fas fa-spinner" style="color:#3b82f6;"></i> In Progress</div>
-            </div>
-            """, unsafe_allow_html=True)
-            col4.markdown(f"""
-            <div class="metric-box">
-                <div class="value">{unassigned}</div>
-                <div class="label"><i class="fas fa-inbox" style="color:#94a3b8;"></i> Unassigned</div>
-            </div>
-            """, unsafe_allow_html=True)
-            col5.markdown(f"""
-            <div class="metric-box">
-                <div class="value">{blocked}</div>
-                <div class="label"><i class="fas fa-ban" style="color:#dc2626;"></i> Blocked</div>
-            </div>
-            """, unsafe_allow_html=True)
+            col1.metric("Total Tasks", total)
+            col2.metric("Completed", completed)
+            col3.metric("In Progress", in_progress)
+            col4.metric("Unassigned", unassigned)
+            col5.metric("Blocked", blocked)
             st.markdown("### Recent Broadcasts")
             if st.session_state.broadcast_messages:
                 for msg in reversed(st.session_state.broadcast_messages[-3:]):
@@ -1021,23 +909,9 @@ with tab_tasks:
             if not st.session_state.tasks:
                 st.info("No tasks to manage.")
             for task in st.session_state.tasks:
-                priority_class = f"priority-{task['priority']}"
-                status_class = f"status-{task['status'].replace(' ', '')}"
-                with st.container():
-                    st.markdown(f"""
-                    <div class="custom-card {priority_class}">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <strong>#{task['id']}: {task['title']}</strong><br>
-                                <i class="fas fa-map-marker-alt"></i> {task['location']}
-                                <span class="status-badge {status_class}">{task['status']}</span>
-                            </div>
-                            <div>
-                                <i class="fas fa-flag"></i> {task['priority']}
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.markdown(f"**#{task['id']}:** {task['title']}")
+                    st.write(f"📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
                     cols = st.columns([2, 1, 1, 1])
                     current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
                     new_assign = cols[0].selectbox("Assign", worker_names,
@@ -1155,9 +1029,9 @@ with tab_chat:
             col_text, col_delete = st.columns([5, 1])
             with col_text:
                 if sender == full_name:
-                    st.markdown(f"<div class='chat-message self'><span class='sender'>You</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
+                    st.markdown(f"**You** ({timestamp}): {content}")
                 else:
-                    st.markdown(f"<div class='chat-message'><span class='sender'>{sender}</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
+                    st.markdown(f"**{sender}** ({timestamp}): {content}")
             with col_delete:
                 if sender == full_name:
                     if st.button("🗑️", key=f"del_msg_{msg['id']}"):
