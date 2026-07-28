@@ -459,10 +459,10 @@ def fetch_attachments(task_id):
         res = supabase.table("task_attachments").select("*").eq("task_id", task_id).order("uploaded_at", desc=True).execute()
         if res.data:
             return res.data
+        else:
+            return []
     except Exception:
-        pass
-    return []
-
+        return []
 # -------------------------------
 # 9. TASK COMMENTS
 # -------------------------------
