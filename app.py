@@ -455,7 +455,6 @@ def upload_attachment(task_id, file_bytes, filename, uploaded_by):
     except Exception as e:
         st.error(f"Upload failed: {e}")
         return False
-
 def fetch_attachments(task_id):
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("attachments_memory", [])
@@ -467,7 +466,6 @@ def fetch_attachments(task_id):
             return []
     except Exception:
         return []
-
 # -------------------------------
 # 9. TASK COMMENTS
 # -------------------------------
