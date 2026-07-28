@@ -271,7 +271,6 @@ def authenticate_user(username, password):
 
 def update_user_profile(username, updates):
     if not SUPABASE_AVAILABLE:
-        # Update in memory fallback?
         return False
     try:
         supabase.table("facility_users").update(updates).eq("username", username).execute()
@@ -370,6 +369,7 @@ def delete_task(task_id, deleted_by):
 # 7. PHOTO FUNCTIONS (with fallback)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
+    # Always store in memory first (as backup)
     st.session_state.setdefault("photos_memory", []).append({
         "task_id": task_id,
         "photo_url": f"memory://{filename}",
@@ -377,12 +377,14 @@ def upload_photo(task_id, file_bytes, filename, uploaded_by):
         "uploaded_at": datetime.now().isoformat()
     })
     log_audit(uploaded_by, "photo_upload_memory", {"task_id": task_id, "filename": filename})
+
+    # If Supabase is available, try to upload there as well
     if SUPABASE_AVAILABLE:
         try:
             valid, msg = validate_image(file_bytes, filename)
             if not valid:
                 st.error(msg)
-                return True
+                return True  # memory already saved
             ext = filename.split(".")[-1]
             safe_name = f"task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
             res = supabase.storage.from_("task_photos").upload(safe_name, file_bytes)
@@ -393,10 +395,12 @@ def upload_photo(task_id, file_bytes, filename, uploaded_by):
                     supabase.table("task_photos").insert(data).execute()
                     log_audit(uploaded_by, "photo_upload", {"task_id": task_id, "url": public_url})
                 except Exception:
+                    # RLS or other DB error – we already have memory record
                     pass
         except Exception:
+            # Storage upload failed – memory record already exists
             pass
-    return True
+    return True  # always return True because memory record exists
 
 def fetch_photos(task_id):
     if not SUPABASE_AVAILABLE:
@@ -416,7 +420,7 @@ def fetch_photos(task_id):
     return all_photos
 
 # -------------------------------
-# 8. FILE ATTACHMENTS (PDF/DOC)
+# 8. FILE ATTACHMENTS (PDF/DOC) - FIXED
 # -------------------------------
 def upload_attachment(task_id, file_bytes, filename, uploaded_by):
     if not SUPABASE_AVAILABLE:
@@ -463,35 +467,40 @@ def fetch_attachments(task_id):
             return []
     except Exception:
         return []
+
 # -------------------------------
 # 9. TASK COMMENTS
 # -------------------------------
 def add_comment(task_id, comment, posted_by):
-    if not SUPABASE_AVAILABLE:
+ if not SUPABASE_AVAILABLE:
         st.session_state.setdefault("comments_memory", []).append({
             "task_id": task_id,
             "comment": comment,
             "posted_by": posted_by,
             "posted_at": datetime.now().isoformat()
         })
-        log_audit(posted_by, "comment_add_memory", {"task_id": task_id, "comment": comment, "posted_by": posted_by})
+        log_audit(posted_by, "comment_add_memory", {"task_id": task_id, "comment": comment[:50]})
+        return True
+    try:
+        data = {"task_id": task_id, "comment": comment, "posted_by": posted_by}
         supabase.table("task_comments").insert(data).execute()
         log_audit(posted_by, "comment_add", {"task_id": task_id, "comment": comment[:50]})
         return True
     except Exception:
         return False
 
-def fetch_attachments(task_id):
+def fetch_comments(task_id):
     if not SUPABASE_AVAILABLE:
-        return st.session_state.get("attachments_memory", [])
+        comments = st.session_state.get("comments_memory", [])
+        return [c for c in comments if c["task_id"] == task_id]
     try:
-        res = supabase.table("task_attachments").select("*").eq("task_id", task_id).order("uploaded_at", desc=True).execute()
+        res = supabase.table("task_comments").select("*").eq("task_id", task_id).order("posted_at", asc=True).execute()
         if res.data:
             return res.data
-        else:
-            return []
     except Exception:
-        return []
+        pass
+    return []
+
 # -------------------------------
 # 10. CHAT FUNCTIONS (unchanged)
 # -------------------------------
@@ -611,7 +620,6 @@ def export_tasks_csv(tasks):
     if not tasks:
         return None
     df = pd.DataFrame(tasks)
-    # Select columns to export
     cols = ['id', 'title', 'location', 'status', 'priority', 'assigned_to', 'due_date', 'created_at']
     df = df[[c for c in cols if c in df.columns]]
     return df.to_csv(index=False)
@@ -621,7 +629,6 @@ def export_tasks_csv(tasks):
 # -------------------------------
 def send_push_notification(title, body):
     try:
-        # Use Streamlit's built-in toast for now; for true push, need service worker + Web Push API.
         st.toast(f"{title}: {body}")
     except:
         pass
@@ -752,7 +759,6 @@ avatar_url = user.get('avatar_url', None)
 
 # Sidebar
 with st.sidebar:
-    # User profile mini
     col1, col2 = st.columns([1, 3])
     with col1:
         if avatar_url:
@@ -766,12 +772,10 @@ with st.sidebar:
     if USING_HARDCODED:
         st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
 
-    # Theme toggle
     if st.button("🌓 Toggle Theme", use_container_width=True):
         st.session_state.dark_mode = not st.session_state.dark_mode
         st.rerun()
 
-    # Broadcast sender
     if role in ["supervisor", "superintendent"]:
         st.markdown("---")
         st.markdown("📢 **Send Broadcast**")
@@ -789,7 +793,6 @@ with st.sidebar:
                 worker_emails = [u.get('email') for u in all_users if u['role'].strip().lower() == 'worker' and u.get('email')]
                 for email in worker_emails:
                     send_email_notification(email, f"Broadcast from {full_name}", broadcast_msg.replace('\n', '<br>'))
-                # Push notification to all workers (in browser)
                 send_push_notification("New Broadcast", broadcast_msg[:100])
                 st.success("Broadcast sent!")
                 st.rerun()
@@ -843,11 +846,9 @@ with st.sidebar:
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.rerun()
 
-# Profile tab logic
 if 'profile_tab' not in st.session_state:
     st.session_state.profile_tab = False
 
-# Fetch tasks (merge DB + memory)
 db_tasks = fetch_all_tasks()
 if db_tasks:
     st.session_state.tasks = db_tasks
@@ -857,9 +858,7 @@ else:
 # -------------------------------
 # 19. TABS: TASKS, CHAT, ADMIN, PROFILE
 # -------------------------------
-tabs_list = ['📋 Task Dashboard', '💬 Chat Room', '⚙️ Admin Panel']
-if role in ["worker", "supervisor", "superintendent"]:
-    tabs_list.append('👤 Profile')
+tabs_list = ['📋 Task Dashboard', '💬 Chat Room', '⚙️ Admin Panel', '👤 Profile']
 tab_tasks, tab_chat, tab_admin, tab_profile = st.tabs(tabs_list)
 
 # ---- TASK DASHBOARD ----
@@ -910,7 +909,6 @@ with tab_tasks:
                         else:
                             st.success("✅ Safety checks passed.")
 
-                        # Comments
                         with st.expander("💬 Comments"):
                             comments = fetch_comments(task['id'])
                             if comments:
@@ -924,7 +922,6 @@ with tab_tasks:
                                     add_comment(task['id'], new_comment, full_name)
                                     st.rerun()
 
-                        # Attachments
                         with st.expander("📎 Attachments"):
                             attachments = fetch_attachments(task['id'])
                             if attachments:
@@ -940,7 +937,6 @@ with tab_tasks:
                                         st.success("Attachment uploaded!")
                                         st.rerun()
 
-                        # Photo upload
                         st.markdown("---")
                         st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
                         uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
@@ -1016,7 +1012,6 @@ with tab_tasks:
                                 subject = f"New Task Assigned: #{task['id']} - {task['title']}"
                                 body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Supervisor"
                                 send_email_notification(worker_email, subject, body)
-                            # Push notification
                             send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
                         st.rerun()
                     if task['status'] == "Pending QA":
@@ -1024,7 +1019,7 @@ with tab_tasks:
                             update_task(task['id'], {"status": "Complete"}, full_name)
                             log_audit(full_name, "task_approve", {"task_id": task['id']})
                             st.rerun()
-                    # Comments
+
                     with st.expander("💬 Comments"):
                         comments = fetch_comments(task['id'])
                         if comments:
@@ -1037,7 +1032,7 @@ with tab_tasks:
                             if new_comment.strip():
                                 add_comment(task['id'], new_comment, full_name)
                                 st.rerun()
-                    # Attachments
+
                     with st.expander("📎 Attachments"):
                         attachments = fetch_attachments(task['id'])
                         if attachments:
@@ -1052,6 +1047,7 @@ with tab_tasks:
                                 if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
                                     st.success("Attachment uploaded!")
                                     st.rerun()
+
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -1094,7 +1090,6 @@ with tab_tasks:
                 st.plotly_chart(fig1, use_container_width=True)
                 fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
                 st.plotly_chart(fig2, use_container_width=True)
-                # Completion trend (if created_at exists)
                 if 'created_at' in df.columns:
                     df['created_at'] = pd.to_datetime(df['created_at'])
                     df['day'] = df['created_at'].dt.date
@@ -1102,7 +1097,6 @@ with tab_tasks:
                     st.plotly_chart(fig3, use_container_width=True)
             else:
                 st.info("No data to display.")
-            # Export report
             if st.button("📥 Export Tasks as CSV"):
                 csv = export_tasks_csv(st.session_state.tasks)
                 if csv:
@@ -1175,7 +1169,7 @@ with tab_tasks:
                     if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
                         delete_task(task['id'], full_name)
                         st.rerun()
-                    # Comments, attachments, photos (same as supervisor)
+
                     with st.expander("💬 Comments"):
                         comments = fetch_comments(task['id'])
                         if comments:
@@ -1188,6 +1182,7 @@ with tab_tasks:
                             if new_comment.strip():
                                 add_comment(task['id'], new_comment, full_name)
                                 st.rerun()
+
                     with st.expander("📎 Attachments"):
                         attachments = fetch_attachments(task['id'])
                         if attachments:
@@ -1202,6 +1197,7 @@ with tab_tasks:
                                 if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
                                     st.success("Attachment uploaded!")
                                     st.rerun()
+
                     photos = fetch_photos(task['id'])
                     if photos:
                         with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -1214,6 +1210,7 @@ with tab_tasks:
                                     else:
                                         st.image(img_url, width=120)
                                     st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
+
         with tab_broadcasts:
             st.markdown("### All Broadcast Messages")
             if st.session_state.broadcast_messages:
@@ -1221,6 +1218,7 @@ with tab_tasks:
                     st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
             else:
                 st.info("No messages sent yet.")
+
         with tab_dashboard:
             st.markdown("### 📊 Task Analytics")
             if st.session_state.tasks:
@@ -1407,16 +1405,13 @@ with tab_profile:
     st.markdown(f"**Full Name:** {full_name}")
     st.markdown(f"**Role:** {user['role']}")
     st.markdown(f"**Email:** {user_email if user_email else 'Not set'}")
-    # Avatar upload
     uploaded_avatar = st.file_uploader("Upload Avatar", type=["jpg", "jpeg", "png", "gif", "webp"], key="avatar_upload")
     if uploaded_avatar is not None:
         if st.button("Update Avatar"):
-            # For now, just store in memory; in production, upload to Supabase Storage
             st.success("Avatar updated! (feature in development - will store to Supabase Storage)")
-            # We'll implement actual storage later; for now just keep in session
             st.session_state.user_payload['avatar_url'] = "https://via.placeholder.com/150"
             st.rerun()
-    # Change password
+
     st.markdown("### Change Password")
     old_pass = st.text_input("Current Password", type="password")
     new_pass1 = st.text_input("New Password", type="password")
@@ -1424,12 +1419,10 @@ with tab_profile:
     if st.button("Update Password"):
         if old_pass and new_pass1 and new_pass2:
             if new_pass1 == new_pass2:
-                # Verify old password
                 users = fetch_all_users_from_db()
                 for u in users:
                     if u["username"] == username:
                         if verify_password(old_pass, u["password_hash"]):
-                            # Update password
                             new_hash = hash_password(new_pass1)
                             if update_user_profile(username, {"password_hash": new_hash}):
                                 st.success("Password updated!")
@@ -1443,7 +1436,7 @@ with tab_profile:
                 st.error("New passwords do not match.")
         else:
             st.error("All fields are required.")
-    # Update email
+
     st.markdown("### Update Email")
     new_email = st.text_input("New Email", value=user_email if user_email else "")
     if st.button("Update Email"):
