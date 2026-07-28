@@ -495,13 +495,6 @@ def encrypt_message(message, key):
     else:
         return base64.b64encode(message.encode()).decode()
 
-def decrypt_message(encrypted_msg, key):
-    if CRYPTO_AVAILABLE:
-        f = Fernet(key)
-        return f.decrypt(encrypted_msg.encode()).decode()
-    else:
-        return base64.b64decode(encrypted_msg.encode()).decode()
-
 # -------------------------------
 # 11. SESSION STATE INIT
 # -------------------------------
@@ -734,14 +727,20 @@ with tab_tasks:
             for msg in reversed(st.session_state.broadcast_messages[-5:]):
                 st.warning(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
 
+        # ---------- DEBUG: Show tasks count ----------
+        st.write(f"🔍 Debug: Total tasks in session = {len(st.session_state.tasks)}")
+        st.write(f"🔍 Debug: Full name = '{full_name}'")
+        st.write(f"🔍 Debug: All tasks = {st.session_state.tasks}")
+
         tab_my, tab_unassigned = st.tabs([
             '<i class="fas fa-clipboard-list"></i> My Assigned Tasks',
             '<i class="fas fa-inbox"></i> Unassigned Board'
         ])
 
-        # ---------- MY ASSIGNED TASKS (PLAIN, RELIABLE DISPLAY) ----------
+        # ---------- MY ASSIGNED TASKS ----------
         with tab_my:
             my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
+            st.write(f"🔍 Debug: my_tasks count = {len(my_tasks)}")
             if not my_tasks:
                 st.info("No tasks assigned to you.")
             else:
@@ -798,9 +797,10 @@ with tab_tasks:
                                     st.image(photo['photo_url'], width=120, use_container_width=True)
                         st.markdown("---")
 
-        # ---------- UNASSIGNED BOARD (PLAIN) ----------
+        # ---------- UNASSIGNED BOARD ----------
         with tab_unassigned:
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
+            st.write(f"🔍 Debug: unassigned count = {len(unassigned)}")
             if not unassigned:
                 st.success("🎉 No unassigned tasks at the moment.")
             else:
