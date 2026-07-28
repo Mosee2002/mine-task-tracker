@@ -473,7 +473,7 @@ def add_comment(task_id, comment, posted_by):
             "posted_by": posted_by,
             "posted_at": datetime.now().isoformat()
         })
-        log_audit(posted_by, "comment_add_memory", {"task_id": task_id, "comment": comment, "posted_by": posted_by}
+        log_audit(posted_by, "comment_add_memory", {"task_id": task_id, "comment": comment, "posted_by": posted_by})
         supabase.table("task_comments").insert(data).execute()
         log_audit(posted_by, "comment_add", {"task_id": task_id, "comment": comment[:50]})
         return True
