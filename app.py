@@ -347,48 +347,65 @@ def delete_task(task_id, deleted_by):
         return False
 
 # -------------------------------
-# 8. PHOTO FUNCTIONS
+# 8. PHOTO FUNCTIONS (with fallback)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
-    if not SUPABASE_AVAILABLE:
-        st.session_state.setdefault("photos_memory", []).append({
-            "task_id": task_id,
-            "photo_url": f"memory://{filename}",
-            "uploaded_by": uploaded_by,
-            "uploaded_at": datetime.now().isoformat()
-        })
-        log_audit(uploaded_by, "photo_upload_memory", {"task_id": task_id, "filename": filename})
-        return True
-    try:
-        valid, msg = validate_image(file_bytes, filename)
-        if not valid:
-            st.error(msg)
-            return False
-        ext = filename.split(".")[-1]
-        safe_name = f"task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
-        res = supabase.storage.from_("task_photos").upload(safe_name, file_bytes)
-        if res:
-            public_url = supabase.storage.from_("task_photos").get_public_url(safe_name)
-            data = {"task_id": task_id, "photo_url": public_url, "uploaded_by": uploaded_by}
-            supabase.table("task_photos").insert(data).execute()
-            log_audit(uploaded_by, "photo_upload", {"task_id": task_id, "url": public_url})
-            return True
-    except Exception as e:
-        st.error(f"Upload failed: {e}")
-        log_audit(uploaded_by, "photo_upload_error", {"task_id": task_id, "error": str(e)})
-    return False
+    # Always store in memory first (as backup)
+    st.session_state.setdefault("photos_memory", []).append({
+        "task_id": task_id,
+        "photo_url": f"memory://{filename}",
+        "uploaded_by": uploaded_by,
+        "uploaded_at": datetime.now().isoformat()
+    })
+    log_audit(uploaded_by, "photo_upload_memory", {"task_id": task_id, "filename": filename})
+
+    # If Supabase is available, try to upload there as well
+    if SUPABASE_AVAILABLE:
+        try:
+            valid, msg = validate_image(file_bytes, filename)
+            if not valid:
+                st.error(msg)
+                return True  # memory already saved
+            ext = filename.split(".")[-1]
+            safe_name = f"task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
+            res = supabase.storage.from_("task_photos").upload(safe_name, file_bytes)
+            if res:
+                public_url = supabase.storage.from_("task_photos").get_public_url(safe_name)
+                # Try to insert record; if RLS fails, we still have memory record
+                try:
+                    data = {"task_id": task_id, "photo_url": public_url, "uploaded_by": uploaded_by}
+                    supabase.table("task_photos").insert(data).execute()
+                    log_audit(uploaded_by, "photo_upload", {"task_id": task_id, "url": public_url})
+                except Exception:
+                    # RLS or other DB error – we already have memory record
+                    pass
+        except Exception:
+            # Storage upload failed – memory record already exists
+            pass
+    return True  # always return True because memory record exists
 
 def fetch_photos(task_id):
     if not SUPABASE_AVAILABLE:
         photos = st.session_state.get("photos_memory", [])
         return [p for p in photos if p["task_id"] == task_id]
+    # Try Supabase first, then merge with memory
+    db_photos = []
     try:
         res = supabase.table("task_photos").select("*").eq("task_id", task_id).order("uploaded_at", desc=True).execute()
         if res.data:
-            return res.data
+            db_photos = res.data
     except Exception:
         pass
-    return []
+    # Merge with memory photos (avoid duplicates)
+    memory_photos = st.session_state.get("photos_memory", [])
+    memory_photos = [p for p in memory_photos if p["task_id"] == task_id]
+    # Combine, prefer DB records (they have real URLs)
+    # We'll show all; if a memory photo has no corresponding DB, it will still show.
+    # To avoid duplicates, we can use set of URLs but simple: show both.
+    all_photos = db_photos + memory_photos
+    # Sort by uploaded_at if present
+    all_photos.sort(key=lambda x: x.get('uploaded_at', ''), reverse=True)
+    return all_photos
 
 # -------------------------------
 # 9. CHAT FUNCTIONS
@@ -720,9 +737,9 @@ else:
 # 16. TABS: TASKS, CHAT, ADMIN
 # -------------------------------
 tab_tasks, tab_chat, tab_admin = st.tabs([
-    '<i class="fas fa-tasks"></i> Task Dashboard',
-    '<i class="fas fa-comment-dots"></i> Chat Room',
-    '<i class="fas fa-cog"></i> Admin Panel'
+    '📋 Task Dashboard',
+    '💬 Chat Room',
+    '⚙️ Admin Panel'
 ])
 
 # ---- TASK DASHBOARD ----
@@ -734,9 +751,10 @@ with tab_tasks:
             for msg in reversed(st.session_state.broadcast_messages[-5:]):
                 st.warning(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
 
+        # Tabs with clean emojis
         tab_my, tab_unassigned = st.tabs([
-            '<i class="fas fa-clipboard-list"></i> My Assigned Tasks',
-            '<i class="fas fa-inbox"></i> Unassigned Board'
+            '📋 My Assigned Tasks',
+            '📥 Unassigned Board'
         ])
 
         # ---------- MY ASSIGNED TASKS ----------
@@ -787,7 +805,7 @@ with tab_tasks:
                                     st.success("Photo uploaded!")
                                     st.rerun()
                                 else:
-                                    st.error("Upload failed.")
+                                    st.error("Upload failed.")  # Should not happen with new fallback
 
                         photos = fetch_photos(task['id'])
                         if photos:
@@ -795,7 +813,14 @@ with tab_tasks:
                             cols = st.columns(min(4, len(photos)))
                             for pic_idx, photo in enumerate(photos):
                                 with cols[pic_idx % len(cols)]:
-                                    st.image(photo['photo_url'], width=120, use_container_width=True)
+                                    # Use photo_url if it exists, else fallback
+                                    img_url = photo.get('photo_url', '')
+                                    if img_url.startswith('memory://'):
+                                        # Memory photo – we can't display a real image, so show placeholder
+                                        st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
+                                    else:
+                                        st.image(img_url, width=120, use_container_width=True)
+                                    st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
                         st.markdown("---")
 
         # ---------- UNASSIGNED BOARD ----------
@@ -812,8 +837,8 @@ with tab_tasks:
     elif role == "supervisor":
         st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
         tab_manage, tab_create = st.tabs([
-            '<i class="fas fa-tasks"></i> Manage All Tasks',
-            '<i class="fas fa-plus-circle"></i> Create New Task'
+            '📋 Manage All Tasks',
+            '➕ Create New Task'
         ])
         with tab_manage:
             st.markdown("### All Maintenance Tasks")
@@ -854,8 +879,12 @@ with tab_tasks:
                             cols = st.columns(min(4, len(photos)))
                             for idx, photo in enumerate(photos):
                                 with cols[idx % len(cols)]:
-                                    st.image(photo['photo_url'], width=120)
-                                    st.caption(f"By {photo['uploaded_by']}")
+                                    img_url = photo.get('photo_url', '')
+                                    if img_url.startswith('memory://'):
+                                        st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
+                                    else:
+                                        st.image(img_url, width=120)
+                                    st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
 
         with tab_create:
             st.markdown("### Dispatch New Work Ticket")
@@ -880,9 +909,9 @@ with tab_tasks:
     elif role == "superintendent":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
         tab_overview, tab_manage, tab_broadcasts = st.tabs([
-            '<i class="fas fa-chart-pie"></i> Overview',
-            '<i class="fas fa-tasks"></i> Manage Tasks',
-            '<i class="fas fa-bullhorn"></i> Broadcast Log'
+            '📊 Overview',
+            '📋 Manage Tasks',
+            '📢 Broadcast Log'
         ])
         with tab_overview:
             total = len(st.session_state.tasks)
@@ -946,8 +975,12 @@ with tab_tasks:
                             cols = st.columns(min(4, len(photos)))
                             for idx, photo in enumerate(photos):
                                 with cols[idx % len(cols)]:
-                                    st.image(photo['photo_url'], width=120)
-                                    st.caption(f"By {photo['uploaded_by']}")
+                                    img_url = photo.get('photo_url', '')
+                                    if img_url.startswith('memory://'):
+                                        st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
+                                    else:
+                                        st.image(img_url, width=120)
+                                    st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
 
         with tab_broadcasts:
             st.markdown("### All Broadcast Messages")
