@@ -101,7 +101,7 @@ st.markdown("""
     .fa-btn-danger { background-color: #ef4444; color: white !important; }
     .fa-btn-danger:hover { background-color: #dc2626; color: white !important; }
 
-    /* ---------- NEW ENHANCED TASK CARDS ---------- */
+    /* ---------- ENHANCED TASK CARDS ---------- */
     .task-card {
         background: white;
         border-radius: 12px;
@@ -143,30 +143,11 @@ st.markdown("""
     .priority-High { background: #f59e0b; }
     .priority-Medium { background: #3b82f6; }
     .priority-Low { background: #10b981; }
-    .task-controls {
-        display: flex;
-        gap: 1.5rem;
-        flex-wrap: wrap;
-        align-items: center;
-        margin: 0.5rem 0;
-    }
-    .upload-area {
-        border: 2px dashed #cbd5e1;
-        border-radius: 10px;
-        padding: 1.2rem;
-        background: #f8fafc;
-        text-align: center;
-        margin: 1rem 0;
-    }
-    .upload-area:hover {
-        border-color: #3b82f6;
-        background: #f1f5f9;
-    }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 2. FONT AWESOME BUTTON HELPER (for non‑login actions)
+# 2. FONT AWESOME BUTTON HELPER
 # -------------------------------
 def fa_button(label, icon, key, use_container_width=False, button_style="primary"):
     if st.query_params.get(key) == "clicked":
@@ -619,7 +600,7 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 13. AUTHENTICATION GATEWAY (with forms – FIXED)
+# 13. AUTHENTICATION GATEWAY (with forms)
 # -------------------------------
 if not st.session_state.authenticated:
     st.markdown('<div class="main-header"><i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker</div>', unsafe_allow_html=True)
@@ -805,13 +786,13 @@ with tab_tasks:
             '<i class="fas fa-inbox"></i> Unassigned Board'
         ])
 
-        # ---------- MY ASSIGNED TASKS (FIXED DUPLICATE KEYS) ----------
+        # ---------- MY ASSIGNED TASKS ----------
         with tab_my:
             my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
             if not my_tasks:
                 st.info("No tasks assigned to you.")
             else:
-                for idx, task in enumerate(my_tasks):  # idx for unique keys
+                for idx, task in enumerate(my_tasks):
                     priority_class = f"priority-{task['priority']}"
                     status_class = f"status-{task['status'].replace(' ', '')}"
                     # Card header
@@ -876,7 +857,7 @@ with tab_tasks:
                                 st.image(photo['photo_url'], width=120, use_container_width=True)
                     st.markdown("---")
 
-        # ---------- UNASSIGNED BOARD ----------
+        # ---------- UNASSIGNED ----------
         with tab_unassigned:
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
             if not unassigned:
