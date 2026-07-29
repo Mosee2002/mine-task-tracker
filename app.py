@@ -7,9 +7,20 @@ import os
 import json
 import time
 from io import BytesIO
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+
+# Optional: try to import pandas and plotly for dashboard charts
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
 
 # OAuth support
 try:
@@ -67,7 +78,7 @@ except ImportError:
     st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. CUSTOM CSS + FONT AWESOME + THEME
+# 1. CUSTOM CSS + FONT AWESOME (MODERN DESIGN)
 # -------------------------------
 st.set_page_config(
     page_title="Mine & Workshop Tracker",
@@ -76,15 +87,16 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Theme toggle
+# Theme toggle (dark/light) – we keep it, but modern design looks good in both.
 if 'dark_mode' not in st.session_state:
     st.session_state.dark_mode = False
 
 dark_css = """
 <style>
     .stApp { background-color: #0f172a; color: #e2e8f0; }
+    .main-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); }
     .main-header { color: #f8fafc; }
-    .sub-header { color: #94a3b8; }
+    .sub-header { color: #94a3b8; border-bottom-color: #334155; }
     .css-1d391kg { background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%); }
     .custom-card { background: #1e293b; border-color: #334155; color: #e2e8f0; }
     .task-card { background: #1e293b; border-color: #334155; color: #e2e8f0; }
@@ -98,15 +110,16 @@ dark_css = """
 """
 light_css = """
 <style>
-    .stApp { background-color: #f8fafc; }
-    .main-header { color: #1e293b; }
-    .sub-header { color: #475569; }
-    .css-1d391kg { background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); }
+    .stApp { background-color: #f0f2f5; }
+    .main-header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); }
+    .main-header { color: white; }
+    .sub-header { color: #1a1a2e; border-bottom-color: #0f3460; }
+    .css-1d391kg { background: linear-gradient(180deg, #1a1a2e 0%, #0f3460 100%); }
     .custom-card { background: white; border-color: #e8ecf0; color: #1e293b; }
     .task-card { background: white; border-color: #e8ecf0; color: #1e293b; }
     .metric-box { background: white; border-color: #e2e8f0; color: #1e293b; }
     .stTabs [data-baseweb="tab"] { background: white; color: #1e293b; border-color: #e2e8f0; }
-    .stTabs [aria-selected="true"] { background: #2563eb; color: white; }
+    .stTabs [aria-selected="true"] { background: #0f3460; color: white; border-color: #0f3460; }
     .stFileUploader { background: #f8fafc; border-color: #cbd5e1; }
     .streamlit-expanderHeader { background: #f1f5f9; color: #1e293b; }
     .footer { border-top-color: #e2e8f0; color: #94a3b8; }
@@ -119,36 +132,224 @@ st.markdown("""
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 """ + theme_css + """
 <style>
-    .main-header { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; }
-    .main-header i { color: #2563eb; margin-right: 10px; }
-    .sub-header { font-size: 1.2rem; margin-bottom: 1.5rem; }
-    .css-1d391kg .stButton button { background-color: #3b82f6; color: white; border-radius: 8px; border: none; padding: 0.5rem 1rem; transition: 0.3s; }
-    .css-1d391kg .stButton button:hover { background-color: #2563eb; transform: scale(1.02); }
-    .custom-card { border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); padding: 1.2rem; margin-bottom: 1rem; border-left: 4px solid #2563eb; transition: 0.2s; }
-    .custom-card:hover { box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); transform: translateY(-2px); }
-    .priority-Critical { border-left-color: #dc2626; }
-    .priority-High { border-left-color: #f59e0b; }
-    .priority-Medium { border-left-color: #3b82f6; }
-    .priority-Low { border-left-color: #10b981; }
-    .status-badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600; color: white; }
+    /* ----- GENERAL ----- */
+    .stApp { background-color: #f0f2f5; }
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+        padding: 1.5rem 2rem;
+        border-radius: 16px;
+        color: white;
+        margin-bottom: 1rem;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+    .main-header i {
+        color: #4fc3f7;
+        margin-right: 12px;
+    }
+    .main-header small {
+        font-size: 0.9rem;
+        font-weight: 300;
+        opacity: 0.8;
+        display: block;
+        margin-top: 4px;
+    }
+    .sub-header {
+        font-size: 1.3rem;
+        color: #1a1a2e;
+        font-weight: 600;
+        margin-bottom: 1.5rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 3px solid #0f3460;
+    }
+    /* ----- SIDEBAR MODERN ----- */
+    .css-1d391kg {
+        background: linear-gradient(180deg, #1a1a2e 0%, #0f3460 100%);
+    }
+    .css-1d391kg .stMarkdown {
+        color: #e2e8f0;
+    }
+    .css-1d391kg .stButton button {
+        background-color: #4fc3f7;
+        color: #1a1a2e;
+        border-radius: 10px;
+        border: none;
+        padding: 0.6rem 1rem;
+        transition: 0.3s;
+        font-weight: 600;
+    }
+    .css-1d391kg .stButton button:hover {
+        background-color: #29b6f6;
+        transform: scale(1.03);
+    }
+    /* ----- MODERN CARDS ----- */
+    .custom-card {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        padding: 1.2rem;
+        margin-bottom: 1rem;
+        border-left: 5px solid #0f3460;
+        transition: 0.3s;
+    }
+    .custom-card:hover {
+        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+    .task-card {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        padding: 1.2rem;
+        margin-bottom: 1rem;
+        border: 1px solid #e8ecf0;
+        transition: 0.3s;
+    }
+    .task-card:hover {
+        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+    .task-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+        color: #1a1a2e;
+    }
+    .task-meta {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin: 0.3rem 0 0.8rem 0;
+        font-size: 0.9rem;
+        color: #475569;
+    }
+    .task-meta i {
+        margin-right: 0.3rem;
+    }
+    /* ----- PRIORITY BADGES ----- */
+    .priority-badge {
+        display: inline-block;
+        padding: 0.2rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: white;
+    }
+    .priority-Critical { background: #dc2626; }
+    .priority-High { background: #f59e0b; }
+    .priority-Medium { background: #0f3460; }
+    .priority-Low { background: #10b981; }
+    /* ----- STATUS BADGES ----- */
+    .status-badge {
+        display: inline-block;
+        padding: 0.2rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        color: white;
+    }
     .status-Unassigned { background: #94a3b8; }
     .status-InProgress { background: #3b82f6; }
     .status-PendingQA { background: #f59e0b; }
     .status-Blocked { background: #dc2626; }
     .status-Complete { background: #10b981; }
-    .chat-message { padding: 0.5rem 1rem; border-radius: 8px; margin: 0.2rem 0; background: #f1f5f9; border-left: 3px solid #3b82f6; }
-    .chat-message.self { background: #dbeafe; border-left-color: #2563eb; }
-    .chat-message .sender { font-weight: 600; }
-    .chat-message .timestamp { font-size: 0.7rem; color: #64748b; margin-left: 0.5rem; }
-    .metric-box { border-radius: 10px; padding: 1rem; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
-    .metric-box .value { font-size: 2rem; font-weight: 700; }
-    .metric-box .label { font-size: 0.9rem; }
-    .stTabs [data-baseweb="tab-list"] { gap: 0.5rem; }
-    .stTabs [data-baseweb="tab"] { border-radius: 8px 8px 0 0; padding: 0.5rem 1rem; border: 1px solid #e2e8f0; border-bottom: none; }
-    .stTabs [aria-selected="true"] { background: #2563eb; color: white; border-color: #2563eb; }
-    .stFileUploader { border: 2px dashed #94a3b8; border-radius: 8px; padding: 0.5rem; background: #f8fafc; }
-    .streamlit-expanderHeader { border-radius: 8px; }
-    .footer { text-align: center; margin-top: 2rem; padding: 1rem; font-size: 0.8rem; border-top: 1px solid #e2e8f0; }
+    /* ----- METRIC BOXES ----- */
+    .metric-box {
+        background: white;
+        border-radius: 16px;
+        padding: 1.2rem;
+        text-align: center;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+        border: 1px solid #e8ecf0;
+    }
+    .metric-box .value {
+        font-size: 2.2rem;
+        font-weight: 700;
+        color: #1a1a2e;
+    }
+    .metric-box .label {
+        font-size: 0.9rem;
+        color: #64748b;
+    }
+    /* ----- CHAT MESSAGES ----- */
+    .chat-message {
+        padding: 0.5rem 1rem;
+        border-radius: 12px;
+        margin: 0.2rem 0;
+        background: #f1f5f9;
+        border-left: 4px solid #0f3460;
+    }
+    .chat-message.self {
+        background: #e3f2fd;
+        border-left-color: #0f3460;
+    }
+    .chat-message .sender {
+        font-weight: 700;
+        color: #1a1a2e;
+    }
+    .chat-message .timestamp {
+        font-size: 0.7rem;
+        color: #64748b;
+        margin-left: 0.5rem;
+    }
+    /* ----- TABS ----- */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background: white;
+        border-radius: 12px 12px 0 0;
+        padding: 0.6rem 1.2rem;
+        border: 1px solid #e2e8f0;
+        border-bottom: none;
+        font-weight: 600;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #0f3460;
+        color: white;
+        border-color: #0f3460;
+    }
+    /* ----- FILE UPLOADER ----- */
+    .stFileUploader {
+        border: 2px dashed #94a3b8;
+        border-radius: 12px;
+        padding: 0.5rem;
+        background: #f8fafc;
+    }
+    /* ----- EXPANDER ----- */
+    .streamlit-expanderHeader {
+        background: #f1f5f9;
+        border-radius: 12px;
+        font-weight: 600;
+    }
+    /* ----- FOOTER ----- */
+    .footer {
+        text-align: center;
+        margin-top: 2rem;
+        padding: 1rem;
+        color: #94a3b8;
+        font-size: 0.8rem;
+        border-top: 1px solid #e2e8f0;
+    }
+    /* ----- BUTTONS WITH ICONS ----- */
+    .stButton button {
+        font-weight: 600;
+        border-radius: 10px;
+    }
+    .stButton button i {
+        margin-right: 0.5rem;
+    }
+    /* ----- MODERN VERIFIED BADGE (like in screenshot) ----- */
+    .verified-badge {
+        display: inline-block;
+        background: #10b981;
+        color: white;
+        padding: 0.15rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        margin-left: 0.5rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -376,7 +577,6 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
         if res.data:
             task = res.data[0]
             log_audit(created_by, "task_create", {"task_id": task["id"]})
-            # Activity log
             log_task_activity(task["id"], created_by, "created", {"title": title})
             return task
     except Exception:
@@ -400,9 +600,7 @@ def update_task(task_id, updates, updated_by):
             old = {}
         supabase.table("tasks").update(updates).eq("id", task_id).execute()
         log_audit(updated_by, "task_update", {"task_id": task_id, "old": old, "new": updates})
-        # Activity log
         log_task_activity(task_id, updated_by, "updated", updates)
-        # External notifications
         if 'status' in updates:
             send_external_notifications(f"Task #{task_id} status changed to {updates['status']} by {updated_by}")
         return True
@@ -488,7 +686,6 @@ def mark_notification_read(notification_id):
 # 10. PHOTO FUNCTIONS (with fallback)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
-    # Always store in memory first (as backup)
     st.session_state.setdefault("photos_memory", []).append({
         "task_id": task_id,
         "photo_url": f"memory://{filename}",
@@ -496,14 +693,12 @@ def upload_photo(task_id, file_bytes, filename, uploaded_by):
         "uploaded_at": datetime.now().isoformat()
     })
     log_audit(uploaded_by, "photo_upload_memory", {"task_id": task_id, "filename": filename})
-
-    # If Supabase is available, try to upload there as well
     if SUPABASE_AVAILABLE:
         try:
             valid, msg = validate_image(file_bytes, filename)
             if not valid:
                 st.error(msg)
-                return True  # memory already saved
+                return True
             ext = filename.split(".")[-1]
             safe_name = f"task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
             res = supabase.storage.from_("task_photos").upload(safe_name, file_bytes)
@@ -514,12 +709,10 @@ def upload_photo(task_id, file_bytes, filename, uploaded_by):
                     supabase.table("task_photos").insert(data).execute()
                     log_audit(uploaded_by, "photo_upload", {"task_id": task_id, "url": public_url})
                 except Exception:
-                    # RLS or other DB error – we already have memory record
                     pass
         except Exception:
-            # Storage upload failed – memory record already exists
             pass
-    return True  # always return True because memory record exists
+    return True
 
 def fetch_photos(task_id):
     if not SUPABASE_AVAILABLE:
@@ -539,7 +732,7 @@ def fetch_photos(task_id):
     return all_photos
 
 # -------------------------------
-# 11. FILE ATTACHMENTS (PDF/DOC) - CORRECTLY INDENTED
+# 11. FILE ATTACHMENTS
 # -------------------------------
 def upload_attachment(task_id, file_bytes, filename, uploaded_by):
     if not SUPABASE_AVAILABLE:
@@ -622,7 +815,7 @@ def fetch_comments(task_id):
     return []
 
 # -------------------------------
-# 13. CHAT FUNCTIONS (unchanged)
+# 13. CHAT FUNCTIONS
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -734,18 +927,19 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 15. EXPORT REPORTS
+# 15. EXPORT REPORTS (CSV)
 # -------------------------------
 def export_tasks_csv(tasks):
-    if not tasks:
+    if not tasks or not PANDAS_AVAILABLE:
         return None
     df = pd.DataFrame(tasks)
     cols = ['id', 'title', 'location', 'status', 'priority', 'assigned_to', 'due_date', 'created_at']
-    df = df[[c for c in cols if c in df.columns]]
+    existing_cols = [c for c in cols if c in df.columns]
+    df = df[existing_cols]
     return df.to_csv(index=False)
 
 # -------------------------------
-# 16. PUSH NOTIFICATIONS (already have toast)
+# 16. PUSH NOTIFICATIONS (toast)
 # -------------------------------
 def send_push_notification(title, body):
     try:
@@ -757,11 +951,9 @@ def send_push_notification(title, body):
 # 17. RECURRING TASK HANDLER
 # -------------------------------
 def handle_recurring_tasks():
-    """Check for recurring tasks and create new instances if needed."""
     if not SUPABASE_AVAILABLE:
         return
     try:
-        # Fetch all recurring tasks
         res = supabase.table("tasks").select("*").eq("is_recurring", True).execute()
         if not res.data:
             return
@@ -770,25 +962,20 @@ def handle_recurring_tasks():
             due_date = datetime.fromisoformat(task['due_date']) if task['due_date'] else None
             if not due_date:
                 continue
-            # Check if due date has passed and next occurrence should be created
             if due_date < now:
-                # Determine next due date
                 recurrence_type = task.get('recurrence_type')
                 if recurrence_type == 'daily':
                     next_due = due_date + timedelta(days=1)
                 elif recurrence_type == 'weekly':
                     next_due = due_date + timedelta(weeks=1)
                 elif recurrence_type == 'monthly':
-                    next_due = due_date + timedelta(days=30)  # approximate
+                    next_due = due_date + timedelta(days=30)
                 else:
                     continue
-                # Check if end date passed
                 end_date = datetime.fromisoformat(task['recurrence_end_date']) if task.get('recurrence_end_date') else None
                 if end_date and next_due > end_date:
-                    # No more recurrences, mark as not recurring
                     supabase.table("tasks").update({"is_recurring": False}).eq("id", task["id"]).execute()
                     continue
-                # Create new task
                 new_task = {
                     "title": task['title'],
                     "location": task['location'],
@@ -803,7 +990,6 @@ def handle_recurring_tasks():
                     "recurrence_end_date": task.get('recurrence_end_date')
                 }
                 supabase.table("tasks").insert(new_task).execute()
-                # Update the parent task due date to next occurrence
                 supabase.table("tasks").update({"due_date": next_due.isoformat()}).eq("id", task["id"]).execute()
     except Exception:
         pass
@@ -860,23 +1046,25 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 20. OATH LOGIN (Google)
+# 20. OAUTH LOGIN (Google) - placeholder
 # -------------------------------
 def google_oauth():
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         st.error("Google OAuth not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in secrets.")
         return None
-    # This is a simplified OAuth flow – in practice you'd need a full callback handling.
-    # For now, we'll just show a button that redirects to Google.
-    # To keep it simple, we'll use a placeholder – the user will still be able to use the normal login.
     st.info("OAuth login is available but requires setup of a callback endpoint. Please use the regular login for now.")
     return None
 
 # -------------------------------
-# 21. AUTHENTICATION GATEWAY (with forms + OAuth button)
+# 21. AUTHENTICATION GATEWAY (with forms + OAuth button + modern header)
 # -------------------------------
 if not st.session_state.authenticated:
-    st.markdown('<div class="main-header"><i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker</div>', unsafe_allow_html=True)
+    st.markdown('''
+    <div class="main-header">
+        <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
+        <small>Smart Maintenance Management System</small>
+    </div>
+    ''', unsafe_allow_html=True)
     st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
 
     with st.form("login_form"):
@@ -901,7 +1089,6 @@ if not st.session_state.authenticated:
         else:
             st.error("Invalid credentials or database unreachable.")
 
-    # OAuth button (Google) – placeholder
     if AUTH_AVAILABLE and GOOGLE_CLIENT_ID:
         if st.button("🔑 Login with Google", use_container_width=True):
             st.info("OAuth login will redirect to Google. (Integration in progress)")
@@ -947,12 +1134,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 23. HANDLE RECURRING TASKS (run on startup)
+# 23. HANDLE RECURRING TASKS
 # -------------------------------
 handle_recurring_tasks()
 
 # -------------------------------
-# 24. MAIN APP
+# 24. MAIN APP (with updated header and sidebar)
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -961,17 +1148,27 @@ role = user['role'].strip().lower()
 user_email = user.get('email', None)
 avatar_url = user.get('avatar_url', None)
 
+# Modern header in main app
+st.markdown('''
+<div class="main-header">
+    <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
+    <small>Smart Maintenance Management System</small>
+</div>
+''', unsafe_allow_html=True)
+
 # Sidebar
 with st.sidebar:
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        if avatar_url:
-            st.image(avatar_url, width=50)
-        else:
-            st.markdown('<i class="fas fa-user-circle" style="font-size: 2.5rem; color: #3b82f6;"></i>', unsafe_allow_html=True)
-    with col2:
-        st.markdown(f"**{full_name}**")
-        st.markdown(f"<small>{user['role']}</small>", unsafe_allow_html=True)
+    # Modern user display with verified badge
+    st.markdown(f"""
+    <div style="padding: 0.5rem 0; text-align: center;">
+        <i class="fas fa-user-circle" style="font-size: 3rem; color: #4fc3f7;"></i>
+        <div style="font-weight: 700; font-size: 1.2rem; margin-top: 0.3rem;">{full_name}</div>
+        <div style="font-size: 0.9rem; color: #94a3b8;">
+            <i class="fas fa-id-badge"></i> {user['role']}
+            <span class="verified-badge">VERIFIED</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     if USING_HARDCODED:
         st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
@@ -1073,12 +1270,12 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 25. TABS: TASKS, CHAT, ADMIN, PROFILE, ACTIVITY (new)
+# 25. TABS: TASKS, CHAT, ADMIN, PROFILE, ACTIVITY
 # -------------------------------
 tabs_list = ['📋 Task Dashboard', '💬 Chat Room', '⚙️ Admin Panel', '👤 Profile', '⏱️ Activity Timeline']
 tab_tasks, tab_chat, tab_admin, tab_profile, tab_activity = st.tabs(tabs_list)
 
-# ---- TASK DASHBOARD (unchanged, but with recurring tasks support) ----
+# ---- TASK DASHBOARD ----
 with tab_tasks:
     if role == "worker":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
@@ -1098,90 +1295,99 @@ with tab_tasks:
                 st.info("No tasks assigned to you.")
             else:
                 for idx, task in enumerate(my_tasks):
-                    with st.container(border=True):
-                        st.markdown(f"**Task #{task['id']}:** {task['title']}")
-                        st.write(f"📍 {task['location']} | Priority: **{task['priority']}** | Status: `{task['status']}`")
-                        if task.get('due_date'):
-                            due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
-                            st.write(f"📅 Due: {due}")
-                            if datetime.now() > datetime.fromisoformat(task['due_date']):
-                                st.error("⚠️ Overdue!")
-                        # Recurring info
-                        if task.get('is_recurring'):
-                            st.info(f"🔄 Recurring ({task.get('recurrence_type')})")
-                        col1, col2 = st.columns([2, 3])
-                        with col1:
-                            loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
-                            jsa = st.checkbox("📋 JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}_{idx}")
-                        with col2:
-                            status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
-                            current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
-                            new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}_{idx}")
-                            if new_status != task['status']:
-                                update_task(task['id'], {"status": new_status}, full_name)
-                                log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
-                                st.rerun()
-                        if loto != task.get('loto') or jsa != task.get('jsa'):
-                            update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
+                    priority_class = f"priority-{task['priority']}"
+                    status_class = f"status-{task['status'].replace(' ', '')}"
+                    # Modern card
+                    st.markdown(f"""
+                    <div class="task-card" style="border-top: 4px solid #0f3460;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <div class="task-title">#{task['id']} {task['title']}</div>
+                                <div class="task-meta">
+                                    <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
+                                    <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
+                                    <span><i class="fas fa-circle" style="color: #3b82f6;"></i> <span class="status-badge {status_class}">{task['status']}</span></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # Widgets
+                    col1, col2 = st.columns([2, 3])
+                    with col1:
+                        loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
+                        jsa = st.checkbox("📋 JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}_{idx}")
+                    with col2:
+                        status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
+                        current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
+                        new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}_{idx}")
+                        if new_status != task['status']:
+                            update_task(task['id'], {"status": new_status}, full_name)
+                            log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
                             st.rerun()
-                        if not loto or not jsa:
-                            st.error("🔒 Safety isolation forms are required before proceeding.")
+                    if loto != task.get('loto') or jsa != task.get('jsa'):
+                        update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
+                        st.rerun()
+                    if not loto or not jsa:
+                        st.error("🔒 Safety isolation forms are required before proceeding.")
+                    else:
+                        st.success("✅ Safety checks passed.")
+
+                    # Comments, attachments, photos (same as before)
+                    with st.expander("💬 Comments"):
+                        comments = fetch_comments(task['id'])
+                        if comments:
+                            for c in comments:
+                                st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
                         else:
-                            st.success("✅ Safety checks passed.")
+                            st.caption("No comments yet.")
+                        new_comment = st.text_area("Add comment", key=f"comment_{task['id']}_{idx}", placeholder="Write comment...")
+                        if st.button("Post Comment", key=f"post_comment_{task['id']}_{idx}"):
+                            if new_comment.strip():
+                                add_comment(task['id'], new_comment, full_name)
+                                st.rerun()
 
-                        with st.expander("💬 Comments"):
-                            comments = fetch_comments(task['id'])
-                            if comments:
-                                for c in comments:
-                                    st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
-                            else:
-                                st.caption("No comments yet.")
-                            new_comment = st.text_area("Add comment", key=f"comment_{task['id']}_{idx}", placeholder="Write comment...")
-                            if st.button("Post Comment", key=f"post_comment_{task['id']}_{idx}"):
-                                if new_comment.strip():
-                                    add_comment(task['id'], new_comment, full_name)
-                                    st.rerun()
-
-                        with st.expander("📎 Attachments"):
-                            attachments = fetch_attachments(task['id'])
-                            if attachments:
-                                for a in attachments:
-                                    st.markdown(f"[{a['file_name']}]({a['file_url']}) (uploaded by {a['uploaded_by']})")
-                            else:
-                                st.caption("No attachments.")
-                            uploaded_file = st.file_uploader("Upload attachment (PDF, DOC, etc.)", key=f"attach_{task['id']}_{idx}")
-                            if uploaded_file is not None:
-                                if st.button("Upload Attachment", key=f"attach_btn_{task['id']}_{idx}"):
-                                    bytes_data = uploaded_file.getvalue()
-                                    if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
-                                        st.success("Attachment uploaded!")
-                                        st.rerun()
-
-                        st.markdown("---")
-                        st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
-                        uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
+                    with st.expander("📎 Attachments"):
+                        attachments = fetch_attachments(task['id'])
+                        if attachments:
+                            for a in attachments:
+                                st.markdown(f"[{a['file_name']}]({a['file_url']}) (uploaded by {a['uploaded_by']})")
+                        else:
+                            st.caption("No attachments.")
+                        uploaded_file = st.file_uploader("Upload attachment (PDF, DOC, etc.)", key=f"attach_{task['id']}_{idx}")
                         if uploaded_file is not None:
-                            if st.button(f"📤 Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}_{idx}"):
+                            if st.button("Upload Attachment", key=f"attach_btn_{task['id']}_{idx}"):
                                 bytes_data = uploaded_file.getvalue()
-                                success = upload_photo(task['id'], bytes_data, uploaded_file.name, full_name)
-                                if success:
-                                    st.success("Photo uploaded!")
+                                if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
+                                    st.success("Attachment uploaded!")
                                     st.rerun()
+
+                    st.markdown("---")
+                    st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
+                    uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
+                    if uploaded_file is not None:
+                        if st.button(f"📤 Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}_{idx}"):
+                            bytes_data = uploaded_file.getvalue()
+                            success = upload_photo(task['id'], bytes_data, uploaded_file.name, full_name)
+                            if success:
+                                st.success("Photo uploaded!")
+                                st.rerun()
+                            else:
+                                st.error("Upload failed.")
+                    photos = fetch_photos(task['id'])
+                    if photos:
+                        st.markdown("**📸 Already uploaded:**")
+                        cols = st.columns(min(4, len(photos)))
+                        for pic_idx, photo in enumerate(photos):
+                            with cols[pic_idx % len(cols)]:
+                                img_url = photo.get('photo_url', '')
+                                if img_url.startswith('memory://'):
+                                    st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
                                 else:
-                                    st.error("Upload failed.")
-                        photos = fetch_photos(task['id'])
-                        if photos:
-                            st.markdown("**📸 Already uploaded:**")
-                            cols = st.columns(min(4, len(photos)))
-                            for pic_idx, photo in enumerate(photos):
-                                with cols[pic_idx % len(cols)]:
-                                    img_url = photo.get('photo_url', '')
-                                    if img_url.startswith('memory://'):
-                                        st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
-                                    else:
-                                        st.image(img_url, width=120, use_container_width=True)
-                                    st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
-                        st.markdown("---")
+                                    st.image(img_url, width=120, use_container_width=True)
+                                st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
+                    st.markdown("---")
 
         with tab_unassigned:
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
@@ -1189,12 +1395,23 @@ with tab_tasks:
                 st.success("🎉 No unassigned tasks at the moment.")
             else:
                 for task in unassigned:
-                    with st.container(border=True):
-                        st.markdown(f"**#{task['id']}:** {task['title']}")
-                        st.write(f"📍 {task['location']} | Priority: **{task['priority']}**")
-                        if task.get('due_date'):
-                            due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
-                            st.write(f"📅 Due: {due}")
+                    priority_class = f"priority-{task['priority']}"
+                    st.markdown(f"""
+                    <div class="task-card" style="border-top: 4px solid #0f3460;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div class="task-title">#{task['id']} {task['title']}</div>
+                                <div class="task-meta">
+                                    <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
+                                    <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
+                                </div>
+                            </div>
+                            <div>
+                                <span class="status-badge status-Unassigned">Unassigned</span>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
     elif role == "supervisor":
         st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
@@ -1210,79 +1427,86 @@ with tab_tasks:
             if not st.session_state.tasks:
                 st.info("No tasks found.")
             for task in st.session_state.tasks:
-                with st.container(border=True):
-                    st.markdown(f"**#{task['id']}:** {task['title']}")
-                    st.write(f"📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
-                    if task.get('due_date'):
-                        due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
-                        st.write(f"📅 Due: {due}")
-                    if task.get('is_recurring'):
-                        st.info(f"🔄 Recurring ({task.get('recurrence_type')})")
-                    cols = st.columns([3, 1, 1])
-                    current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
-                    new_assign = cols[0].selectbox("Assign to:", worker_names,
-                                                   index=worker_names.index(current_assign),
-                                                   key=f"assign_{task['id']}")
-                    if new_assign != task['assigned_to']:
-                        update_task(task['id'], {"assigned_to": new_assign}, full_name)
-                        if task['status'] == "Unassigned" and new_assign != "Unassigned":
-                            update_task(task['id'], {"status": "In Progress"}, full_name)
-                        log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
-                        if new_assign != "Unassigned":
-                            worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
-                            if worker_email:
-                                subject = f"New Task Assigned: #{task['id']} - {task['title']}"
-                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Supervisor"
-                                send_email_notification(worker_email, subject, body)
-                            send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
-                            send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}")
+                priority_class = f"priority-{task['priority']}"
+                status_class = f"status-{task['status'].replace(' ', '')}"
+                st.markdown(f"""
+                <div class="custom-card" style="border-left-color: #0f3460;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>#{task['id']}: {task['title']}</strong><br>
+                            <i class="fas fa-map-marker-alt"></i> {task['location']}
+                            <span class="status-badge {status_class}">{task['status']}</span>
+                            <span class="priority-badge {priority_class}">{task['priority']}</span>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                cols = st.columns([3, 1, 1])
+                current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
+                new_assign = cols[0].selectbox("Assign to:", worker_names,
+                                               index=worker_names.index(current_assign),
+                                               key=f"assign_{task['id']}")
+                if new_assign != task['assigned_to']:
+                    update_task(task['id'], {"assigned_to": new_assign}, full_name)
+                    if task['status'] == "Unassigned" and new_assign != "Unassigned":
+                        update_task(task['id'], {"status": "In Progress"}, full_name)
+                    log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
+                    if new_assign != "Unassigned":
+                        worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
+                        if worker_email:
+                            subject = f"New Task Assigned: #{task['id']} - {task['title']}"
+                            body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Supervisor"
+                            send_email_notification(worker_email, subject, body)
+                        send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
+                        send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}")
+                    st.rerun()
+                if task['status'] == "Pending QA":
+                    if cols[1].button("✅ Approve & Close", key=f"approve_{task['id']}"):
+                        update_task(task['id'], {"status": "Complete"}, full_name)
+                        log_audit(full_name, "task_approve", {"task_id": task['id']})
                         st.rerun()
-                    if task['status'] == "Pending QA":
-                        if cols[1].button("✅ Approve & Close", key=f"approve_{task['id']}"):
-                            update_task(task['id'], {"status": "Complete"}, full_name)
-                            log_audit(full_name, "task_approve", {"task_id": task['id']})
+
+                # Comments, attachments, photos (same as before)
+                with st.expander("💬 Comments"):
+                    comments = fetch_comments(task['id'])
+                    if comments:
+                        for c in comments:
+                            st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
+                    else:
+                        st.caption("No comments yet.")
+                    new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
+                    if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
+                        if new_comment.strip():
+                            add_comment(task['id'], new_comment, full_name)
                             st.rerun()
 
-                    with st.expander("💬 Comments"):
-                        comments = fetch_comments(task['id'])
-                        if comments:
-                            for c in comments:
-                                st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
-                        else:
-                            st.caption("No comments yet.")
-                        new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
-                        if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
-                            if new_comment.strip():
-                                add_comment(task['id'], new_comment, full_name)
+                with st.expander("📎 Attachments"):
+                    attachments = fetch_attachments(task['id'])
+                    if attachments:
+                        for a in attachments:
+                            st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
+                    else:
+                        st.caption("No attachments.")
+                    uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
+                    if uploaded_file is not None:
+                        if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
+                            bytes_data = uploaded_file.getvalue()
+                            if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
+                                st.success("Attachment uploaded!")
                                 st.rerun()
 
-                    with st.expander("📎 Attachments"):
-                        attachments = fetch_attachments(task['id'])
-                        if attachments:
-                            for a in attachments:
-                                st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
-                        else:
-                            st.caption("No attachments.")
-                        uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
-                        if uploaded_file is not None:
-                            if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
-                                bytes_data = uploaded_file.getvalue()
-                                if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
-                                    st.success("Attachment uploaded!")
-                                    st.rerun()
-
-                    photos = fetch_photos(task['id'])
-                    if photos:
-                        with st.expander(f"📸 Photos for Task #{task['id']}"):
-                            cols = st.columns(min(4, len(photos)))
-                            for idx, photo in enumerate(photos):
-                                with cols[idx % len(cols)]:
-                                    img_url = photo.get('photo_url', '')
-                                    if img_url.startswith('memory://'):
-                                        st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
-                                    else:
-                                        st.image(img_url, width=120)
-                                    st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
+                photos = fetch_photos(task['id'])
+                if photos:
+                    with st.expander(f"📸 Photos for Task #{task['id']}"):
+                        cols = st.columns(min(4, len(photos)))
+                        for idx, photo in enumerate(photos):
+                            with cols[idx % len(cols)]:
+                                img_url = photo.get('photo_url', '')
+                                if img_url.startswith('memory://'):
+                                    st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
+                                else:
+                                    st.image(img_url, width=120)
+                                st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
 
         with tab_create:
             st.markdown("### Dispatch New Work Ticket")
@@ -1313,290 +1537,13 @@ with tab_tasks:
                             st.error("Failed to create task.")
                     else:
                         st.error("Title and Location are required.")
-with tab_dashboard:
-    st.markdown("### 📊 Task Analytics")
-    tasks = st.session_state.tasks
-    if tasks:
-        df = pd.DataFrame(tasks)
-        fig1 = px.pie(df, names='status', title='Tasks by Status')
-        st.plotly_chart(fig1, use_container_width=True)
-        fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
-        st.plotly_chart(fig2, use_container_width=True)
-        if 'created_at' in df.columns:
-            df['created_at'] = pd.to_datetime(df['created_at'])
-            df['day'] = df['created_at'].dt.date
-            fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
-            st.plotly_chart(fig3, use_container_width=True)
-    else:
-        st.info("No data to display.")
-    if st.button("📥 Export Tasks as CSV"):
-        csv = export_tasks_csv(st.session_state.tasks)
-        if csv:
-            st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
-    elif role == "superintendent":
-        st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
-        tab_overview, tab_manage, tab_broadcasts, tab_dashboard = st.tabs([
-            '📊 Overview',
-            '📋 Manage Tasks',
-            '📢 Broadcast Log',
-            '📊 Dashboard'
-        ])
-        with tab_overview:
-            total = len(st.session_state.tasks)
-            completed = sum(1 for t in st.session_state.tasks if t['status'] == "Complete")
-            in_progress = sum(1 for t in st.session_state.tasks if t['status'] == "In Progress")
-            unassigned = sum(1 for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned")
-            blocked = sum(1 for t in st.session_state.tasks if t['status'] == "Blocked")
-            col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("Total Tasks", total)
-            col2.metric("Completed", completed)
-            col3.metric("In Progress", in_progress)
-            col4.metric("Unassigned", unassigned)
-            col5.metric("Blocked", blocked)
-            st.markdown("### Recent Broadcasts")
-            if st.session_state.broadcast_messages:
-                for msg in reversed(st.session_state.broadcast_messages[-3:]):
-                    st.info(f"**{msg['sender']}** at {msg['timestamp']}: {msg['message']}")
-            else:
-                st.caption("No broadcasts yet.")
-        with tab_manage:
-            st.markdown("### Full Task Control")
-            all_users = fetch_all_users_from_db()
-            worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker"]
-            if not st.session_state.tasks:
-                st.info("No tasks to manage.")
-            for task in st.session_state.tasks:
-                with st.container(border=True):
-                    st.markdown(f"**#{task['id']}:** {task['title']}")
-                    st.write(f"📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
-                    if task.get('due_date'):
-                        due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
-                        st.write(f"📅 Due: {due}")
-                    if task.get('is_recurring'):
-                        st.info(f"🔄 Recurring ({task.get('recurrence_type')})")
-                    cols = st.columns([2, 1, 1, 1])
-                    current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
-                    new_assign = cols[0].selectbox("Assign", worker_names,
-                                                   index=worker_names.index(current_assign),
-                                                   key=f"sup_assign_{task['id']}")
-                    if new_assign != task['assigned_to']:
-                        update_task(task['id'], {"assigned_to": new_assign}, full_name)
-                        if task['status'] == "Unassigned" and new_assign != "Unassigned":
-                            update_task(task['id'], {"status": "In Progress"}, full_name)
-                        log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
-                        if new_assign != "Unassigned":
-                            worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
-                            if worker_email:
-                                subject = f"New Task Assigned: #{task['id']} - {task['title']}"
-                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Superintendent"
-                                send_email_notification(worker_email, subject, body)
-                            send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
-                            send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}")
-                        st.rerun()
-                    status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
-                    curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
-                    new_stat = cols[1].selectbox("Status", status_opts, index=curr_stat_idx, key=f"stat_ovr_{task['id']}")
-                    if new_stat != task['status']:
-                        update_task(task['id'], {"status": new_stat}, full_name)
-                        log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_stat})
-                        st.rerun()
-                    if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
-                        delete_task(task['id'], full_name)
-                        st.rerun()
 
-                    with st.expander("💬 Comments"):
-                        comments = fetch_comments(task['id'])
-                        if comments:
-                            for c in comments:
-                                st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
-                        else:
-                            st.caption("No comments yet.")
-                        new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
-                        if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
-                            if new_comment.strip():
-                                add_comment(task['id'], new_comment, full_name)
-                                st.rerun()
-
-                    with st.expander("📎 Attachments"):
-                        attachments = fetch_attachments(task['id'])
-                        if attachments:
-                            for a in attachments:
-                                st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
-                        else:
-                            st.caption("No attachments.")
-                        uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
-                        if uploaded_file is not None:
-                            if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
-                                bytes_data = uploaded_file.getvalue()
-                                if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
-                                    st.success("Attachment uploaded!")
-                                    st.rerun()
-
-                    photos = fetch_photos(task['id'])
-                    if photos:
-                        with st.expander(f"📸 Photos for Task #{task['id']}"):
-                            cols = st.columns(min(4, len(photos)))
-                            for idx, photo in enumerate(photos):
-                                with cols[idx % len(cols)]:
-                                    img_url = photo.get('photo_url', '')
-                                    if img_url.startswith('memory://'):
-                                        st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
-                                    else:
-                                        st.image(img_url, width=120)
-                                    st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
-
-        with tab_broadcasts:
-            st.markdown("### All Broadcast Messages")
-            if st.session_state.broadcast_messages:
-                for msg in reversed(st.session_state.broadcast_messages):
-                    st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
-            else:
-                st.info("No messages sent yet.")
-
+        # ---- SUPERVISOR DASHBOARD TAB ----
         with tab_dashboard:
             st.markdown("### 📊 Task Analytics")
-    tasks = st.session_state.tasks
-    if tasks:
-        df = pd.DataFrame(tasks)
-        fig1 = px.pie(df, names='status', title='Tasks by Status')
-        st.plotly_chart(fig1, use_container_width=True)
-        fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
-        st.plotly_chart(fig2, use_container_width=True)
-        if 'created_at' in df.columns:
-            df['created_at'] = pd.to_datetime(df['created_at'])
-            df['day'] = df['created_at'].dt.date
-            fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
-            st.plotly_chart(fig3, use_container_width=True)
-    else:
-        st.info("No data to display.")
-    if st.button("📥 Export Tasks as CSV"):
-        csv = export_tasks_csv(st.session_state.tasks)
-        if csv:
-            st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
-    elif role == "superintendent":
-        st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
-        tab_overview, tab_manage, tab_broadcasts, tab_dashboard = st.tabs([
-            '📊 Overview',
-            '📋 Manage Tasks',
-            '📢 Broadcast Log',
-            '📊 Dashboard'
-        ])
-        with tab_overview:
-            total = len(st.session_state.tasks)
-            completed = sum(1 for t in st.session_state.tasks if t['status'] == "Complete")
-            in_progress = sum(1 for t in st.session_state.tasks if t['status'] == "In Progress")
-            unassigned = sum(1 for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned")
-            blocked = sum(1 for t in st.session_state.tasks if t['status'] == "Blocked")
-            col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("Total Tasks", total)
-            col2.metric("Completed", completed)
-            col3.metric("In Progress", in_progress)
-            col4.metric("Unassigned", unassigned)
-            col5.metric("Blocked", blocked)
-            st.markdown("### Recent Broadcasts")
-            if st.session_state.broadcast_messages:
-                for msg in reversed(st.session_state.broadcast_messages[-3:]):
-                    st.info(f"**{msg['sender']}** at {msg['timestamp']}: {msg['message']}")
-            else:
-                st.caption("No broadcasts yet.")
-        with tab_manage:
-            st.markdown("### Full Task Control")
-            all_users = fetch_all_users_from_db()
-            worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker"]
-            if not st.session_state.tasks:
-                st.info("No tasks to manage.")
-            for task in st.session_state.tasks:
-                with st.container(border=True):
-                    st.markdown(f"**#{task['id']}:** {task['title']}")
-                    st.write(f"📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
-                    if task.get('due_date'):
-                        due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
-                        st.write(f"📅 Due: {due}")
-                    if task.get('is_recurring'):
-                        st.info(f"🔄 Recurring ({task.get('recurrence_type')})")
-                    cols = st.columns([2, 1, 1, 1])
-                    current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
-                    new_assign = cols[0].selectbox("Assign", worker_names,
-                                                   index=worker_names.index(current_assign),
-                                                   key=f"sup_assign_{task['id']}")
-                    if new_assign != task['assigned_to']:
-                        update_task(task['id'], {"assigned_to": new_assign}, full_name)
-                        if task['status'] == "Unassigned" and new_assign != "Unassigned":
-                            update_task(task['id'], {"status": "In Progress"}, full_name)
-                        log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
-                        if new_assign != "Unassigned":
-                            worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
-                            if worker_email:
-                                subject = f"New Task Assigned: #{task['id']} - {task['title']}"
-                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Superintendent"
-                                send_email_notification(worker_email, subject, body)
-                            send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
-                            send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}")
-                        st.rerun()
-                    status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
-                    curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
-                    new_stat = cols[1].selectbox("Status", status_opts, index=curr_stat_idx, key=f"stat_ovr_{task['id']}")
-                    if new_stat != task['status']:
-                        update_task(task['id'], {"status": new_stat}, full_name)
-                        log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_stat})
-                        st.rerun()
-                    if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
-                        delete_task(task['id'], full_name)
-                        st.rerun()
-
-                    with st.expander("💬 Comments"):
-                        comments = fetch_comments(task['id'])
-                        if comments:
-                            for c in comments:
-                                st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
-                        else:
-                            st.caption("No comments yet.")
-                        new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
-                        if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
-                            if new_comment.strip():
-                                add_comment(task['id'], new_comment, full_name)
-                                st.rerun()
-
-                    with st.expander("📎 Attachments"):
-                        attachments = fetch_attachments(task['id'])
-                        if attachments:
-                            for a in attachments:
-                                st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
-                        else:
-                            st.caption("No attachments.")
-                        uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
-                        if uploaded_file is not None:
-                            if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
-                                bytes_data = uploaded_file.getvalue()
-                                if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
-                                    st.success("Attachment uploaded!")
-                                    st.rerun()
-
-                    photos = fetch_photos(task['id'])
-                    if photos:
-                        with st.expander(f"📸 Photos for Task #{task['id']}"):
-                            cols = st.columns(min(4, len(photos)))
-                            for idx, photo in enumerate(photos):
-                                with cols[idx % len(cols)]:
-                                    img_url = photo.get('photo_url', '')
-                                    if img_url.startswith('memory://'):
-                                        st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
-                                    else:
-                                        st.image(img_url, width=120)
-                                    st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
-
-        with tab_broadcasts:
-            st.markdown("### All Broadcast Messages")
-            if st.session_state.broadcast_messages:
-                for msg in reversed(st.session_state.broadcast_messages):
-                    st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
-            else:
-                st.info("No messages sent yet.")
-
-        with tab_dashboard:
-            st.markdown("### 📊 Task Analytics")
-            if st.session_state.tasks:
-                df = pd.DataFrame(st.session_state.tasks)
+            tasks = st.session_state.tasks
+            if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
+                df = pd.DataFrame(tasks)
                 fig1 = px.pie(df, names='status', title='Tasks by Status')
                 st.plotly_chart(fig1, use_container_width=True)
                 fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
@@ -1606,6 +1553,159 @@ with tab_dashboard:
                     df['day'] = df['created_at'].dt.date
                     fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
                     st.plotly_chart(fig3, use_container_width=True)
+            elif not PANDAS_AVAILABLE or not PLOTLY_AVAILABLE:
+                st.warning("Plotly or pandas not installed. Please run: pip install plotly pandas")
+            else:
+                st.info("No data to display.")
+            if st.button("📥 Export Tasks as CSV"):
+                csv = export_tasks_csv(st.session_state.tasks)
+                if csv:
+                    st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
+
+    elif role == "superintendent":
+        st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
+        tab_overview, tab_manage, tab_broadcasts, tab_dashboard = st.tabs([
+            '📊 Overview',
+            '📋 Manage Tasks',
+            '📢 Broadcast Log',
+            '📊 Dashboard'
+        ])
+        with tab_overview:
+            total = len(st.session_state.tasks)
+            completed = sum(1 for t in st.session_state.tasks if t['status'] == "Complete")
+            in_progress = sum(1 for t in st.session_state.tasks if t['status'] == "In Progress")
+            unassigned = sum(1 for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned")
+            blocked = sum(1 for t in st.session_state.tasks if t['status'] == "Blocked")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            col1.metric("Total Tasks", total)
+            col2.metric("Completed", completed)
+            col3.metric("In Progress", in_progress)
+            col4.metric("Unassigned", unassigned)
+            col5.metric("Blocked", blocked)
+            st.markdown("### Recent Broadcasts")
+            if st.session_state.broadcast_messages:
+                for msg in reversed(st.session_state.broadcast_messages[-3:]):
+                    st.info(f"**{msg['sender']}** at {msg['timestamp']}: {msg['message']}")
+            else:
+                st.caption("No broadcasts yet.")
+        with tab_manage:
+            st.markdown("### Full Task Control")
+            all_users = fetch_all_users_from_db()
+            worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker"]
+            if not st.session_state.tasks:
+                st.info("No tasks to manage.")
+            for task in st.session_state.tasks:
+                priority_class = f"priority-{task['priority']}"
+                status_class = f"status-{task['status'].replace(' ', '')}"
+                st.markdown(f"""
+                <div class="custom-card" style="border-left-color: #0f3460;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>#{task['id']}: {task['title']}</strong><br>
+                            <i class="fas fa-map-marker-alt"></i> {task['location']}
+                            <span class="status-badge {status_class}">{task['status']}</span>
+                            <span class="priority-badge {priority_class}">{task['priority']}</span>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                cols = st.columns([2, 1, 1, 1])
+                current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
+                new_assign = cols[0].selectbox("Assign", worker_names,
+                                               index=worker_names.index(current_assign),
+                                               key=f"sup_assign_{task['id']}")
+                if new_assign != task['assigned_to']:
+                    update_task(task['id'], {"assigned_to": new_assign}, full_name)
+                    if task['status'] == "Unassigned" and new_assign != "Unassigned":
+                        update_task(task['id'], {"status": "In Progress"}, full_name)
+                    log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
+                    if new_assign != "Unassigned":
+                        worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
+                        if worker_email:
+                            subject = f"New Task Assigned: #{task['id']} - {task['title']}"
+                            body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Superintendent"
+                            send_email_notification(worker_email, subject, body)
+                        send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
+                        send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}")
+                    st.rerun()
+                status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
+                curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
+                new_stat = cols[1].selectbox("Status", status_opts, index=curr_stat_idx, key=f"stat_ovr_{task['id']}")
+                if new_stat != task['status']:
+                    update_task(task['id'], {"status": new_stat}, full_name)
+                    log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_stat})
+                    st.rerun()
+                if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
+                    delete_task(task['id'], full_name)
+                    st.rerun()
+
+                # Comments, attachments, photos (same as before)
+                with st.expander("💬 Comments"):
+                    comments = fetch_comments(task['id'])
+                    if comments:
+                        for c in comments:
+                            st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
+                    else:
+                        st.caption("No comments yet.")
+                    new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
+                    if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
+                        if new_comment.strip():
+                            add_comment(task['id'], new_comment, full_name)
+                            st.rerun()
+
+                with st.expander("📎 Attachments"):
+                    attachments = fetch_attachments(task['id'])
+                    if attachments:
+                        for a in attachments:
+                            st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
+                    else:
+                        st.caption("No attachments.")
+                    uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
+                    if uploaded_file is not None:
+                        if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
+                            bytes_data = uploaded_file.getvalue()
+                            if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
+                                st.success("Attachment uploaded!")
+                                st.rerun()
+
+                photos = fetch_photos(task['id'])
+                if photos:
+                    with st.expander(f"📸 Photos for Task #{task['id']}"):
+                        cols = st.columns(min(4, len(photos)))
+                        for idx, photo in enumerate(photos):
+                            with cols[idx % len(cols)]:
+                                img_url = photo.get('photo_url', '')
+                                if img_url.startswith('memory://'):
+                                    st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
+                                else:
+                                    st.image(img_url, width=120)
+                                st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
+
+        with tab_broadcasts:
+            st.markdown("### All Broadcast Messages")
+            if st.session_state.broadcast_messages:
+                for msg in reversed(st.session_state.broadcast_messages):
+                    st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
+            else:
+                st.info("No messages sent yet.")
+
+        # ---- SUPERINTENDENT DASHBOARD TAB ----
+        with tab_dashboard:
+            st.markdown("### 📊 Task Analytics")
+            tasks = st.session_state.tasks
+            if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
+                df = pd.DataFrame(tasks)
+                fig1 = px.pie(df, names='status', title='Tasks by Status')
+                st.plotly_chart(fig1, use_container_width=True)
+                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
+                st.plotly_chart(fig2, use_container_width=True)
+                if 'created_at' in df.columns:
+                    df['created_at'] = pd.to_datetime(df['created_at'])
+                    df['day'] = df['created_at'].dt.date
+                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
+                    st.plotly_chart(fig3, use_container_width=True)
+            elif not PANDAS_AVAILABLE or not PLOTLY_AVAILABLE:
+                st.warning("Plotly or pandas not installed. Please run: pip install plotly pandas")
             else:
                 st.info("No data to display.")
             if st.button("📥 Export Tasks as CSV"):
@@ -1822,7 +1922,7 @@ with tab_profile:
             else:
                 st.error("Failed to update email.")
 
-# ---- ACTIVITY TIMELINE (new) ----
+# ---- ACTIVITY TIMELINE ----
 with tab_activity:
     st.subheader("⏱️ Activity Timeline")
     st.markdown("Recent actions across all tasks (last 50)")
