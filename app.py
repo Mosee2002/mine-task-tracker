@@ -507,26 +507,27 @@ def validate_image(file_bytes, filename):
 # -------------------------------
 # 6. USER FUNCTIONS (with admin approval)
 # -------------------------------
+
 def fetch_all_users_from_db():
+    # Define fallback users (pre‑approved)
+    fallback = [
+        {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None, "is_approved": True},
+        {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None, "is_approved": True},
+        {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None, "is_approved": True}
+    ]
+
     if not SUPABASE_AVAILABLE:
-        fallback = [
-            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None, "is_approved": True},
-            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None, "is_approved": True},
-            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None, "is_approved": True}
-        ]
         return fallback
+
     try:
         res = supabase.table("facility_users").select("*").execute()
         if res.data:
             return res.data
         else:
-            return []
+            # Table exists but is empty – return fallback
+            return fallback
     except Exception:
-        fallback = [
-            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None, "is_approved": True},
-            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None, "is_approved": True},
-            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None, "is_approved": True}
-        ]
+        # On any error, return fallback
         return fallback
 
 def register_user_to_db(username, name, role, password, email=None):
