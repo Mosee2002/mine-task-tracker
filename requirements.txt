@@ -10,3 +10,5 @@ supabase
 sendgrid
 python-dotenv
 bcrypt
+pillow
+plotly
