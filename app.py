@@ -1313,27 +1313,26 @@ with tab_tasks:
                             st.error("Failed to create task.")
                     else:
                         st.error("Title and Location are required.")
-
-        with tab_dashboard:
-            st.markdown("### 📊 Task Analytics")
-            if st.session_state.tasks:
-                df = pd.DataFrame(st.session_state.tasks)
-                fig1 = px.pie(df, names='status', title='Tasks by Status')
-                st.plotly_chart(fig1, use_container_width=True)
-                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
-                st.plotly_chart(fig2, use_container_width=True)
-                if 'created_at' in df.columns:
-                    df['created_at'] = pd.to_datetime(df['created_at'])
-                    df['day'] = df['created_at'].dt.date
-                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
-                    st.plotly_chart(fig3, use_container_width=True)
-            else:
-                st.info("No data to display.")
-            if st.button("📥 Export Tasks as CSV"):
-                csv = export_tasks_csv(st.session_state.tasks)
-                if csv:
-                    st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
-
+with tab_dashboard:
+    st.markdown("### 📊 Task Analytics")
+    tasks = st.session_state.tasks
+    if tasks:
+        df = pd.DataFrame(tasks)
+        fig1 = px.pie(df, names='status', title='Tasks by Status')
+        st.plotly_chart(fig1, use_container_width=True)
+        fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
+        st.plotly_chart(fig2, use_container_width=True)
+        if 'created_at' in df.columns:
+            df['created_at'] = pd.to_datetime(df['created_at'])
+            df['day'] = df['created_at'].dt.date
+            fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
+            st.plotly_chart(fig3, use_container_width=True)
+    else:
+        st.info("No data to display.")
+    if st.button("📥 Export Tasks as CSV"):
+        csv = export_tasks_csv(st.session_state.tasks)
+        if csv:
+            st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
     elif role == "superintendent":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
         tab_overview, tab_manage, tab_broadcasts, tab_dashboard = st.tabs([
@@ -1456,22 +1455,24 @@ with tab_tasks:
 
         with tab_dashboard:
             st.markdown("### 📊 Task Analytics")
-            if st.session_state.tasks:
-                df = pd.DataFrame(st.session_state.tasks)
-                fig1 = px.pie(df, names='status', title='Tasks by Status')
-                st.plotly_chart(fig2, use_container_width=True)
-                if 'created_at' in df.columns:
-                    df['created_at'] = pd.to_datetime(df['created_at'])
-                    df['day'] = df['created_at'].dt.date
-                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
-                    st.plotly_chart(fig3, use_container_width=True)
-            else:
-                st.info("No data to display.")
-            if st.button("📥 Export Tasks as CSV"):
-                csv = export_tasks_csv(st.session_state.tasks)
-                if csv:
-                    st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
-
+    tasks = st.session_state.tasks
+    if tasks:
+        df = pd.DataFrame(tasks)
+        fig1 = px.pie(df, names='status', title='Tasks by Status')
+        st.plotly_chart(fig1, use_container_width=True)
+        fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
+        st.plotly_chart(fig2, use_container_width=True)
+        if 'created_at' in df.columns:
+            df['created_at'] = pd.to_datetime(df['created_at'])
+            df['day'] = df['created_at'].dt.date
+            fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
+            st.plotly_chart(fig3, use_container_width=True)
+    else:
+        st.info("No data to display.")
+    if st.button("📥 Export Tasks as CSV"):
+        csv = export_tasks_csv(st.session_state.tasks)
+        if csv:
+            st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
     elif role == "superintendent":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
         tab_overview, tab_manage, tab_broadcasts, tab_dashboard = st.tabs([
