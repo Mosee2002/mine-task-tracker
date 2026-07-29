@@ -12,3 +12,4 @@ python-dotenv
 bcrypt
 pillow
 plotly
+authlib
