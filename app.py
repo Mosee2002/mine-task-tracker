@@ -87,7 +87,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Theme toggle (dark/light) – we keep it, but modern design looks good in both.
+# Theme toggle (dark/light)
 if 'dark_mode' not in st.session_state:
     st.session_state.dark_mode = False
 
@@ -101,11 +101,14 @@ dark_css = """
     .custom-card { background: #1e293b; border-color: #334155; color: #e2e8f0; }
     .task-card { background: #1e293b; border-color: #334155; color: #e2e8f0; }
     .metric-box { background: #1e293b; border-color: #334155; color: #e2e8f0; }
-    .stTabs [data-baseweb="tab"] { background: #1e293b; color: #e2e8f0; border-color: #334155; }
-    .stTabs [aria-selected="true"] { background: #2563eb; color: white; }
     .stFileUploader { background: #1e293b; border-color: #334155; }
     .streamlit-expanderHeader { background: #1e293b; color: #e2e8f0; }
     .footer { border-top-color: #334155; color: #94a3b8; }
+    .chat-message { background: #1e293b; border-left-color: #4fc3f7; }
+    .chat-message.self { background: #0f3460; border-left-color: #4fc3f7; }
+    .tab-button { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+    .tab-button:hover { background: #334155; }
+    .tab-button.active { background: #2563eb; color: white; border-color: #2563eb; }
 </style>
 """
 light_css = """
@@ -118,11 +121,14 @@ light_css = """
     .custom-card { background: white; border-color: #e8ecf0; color: #1e293b; }
     .task-card { background: white; border-color: #e8ecf0; color: #1e293b; }
     .metric-box { background: white; border-color: #e2e8f0; color: #1e293b; }
-    .stTabs [data-baseweb="tab"] { background: white; color: #1e293b; border-color: #e2e8f0; }
-    .stTabs [aria-selected="true"] { background: #0f3460; color: white; border-color: #0f3460; }
     .stFileUploader { background: #f8fafc; border-color: #cbd5e1; }
     .streamlit-expanderHeader { background: #f1f5f9; color: #1e293b; }
     .footer { border-top-color: #e2e8f0; color: #94a3b8; }
+    .chat-message { background: #f1f5f9; border-left-color: #0f3460; }
+    .chat-message.self { background: #e3f2fd; border-left-color: #0f3460; }
+    .tab-button { background: white; color: #64748b; border: 1px solid #e2e8f0; }
+    .tab-button:hover { background: #f1f5f9; }
+    .tab-button.active { background: #0f3460; color: white; border-color: #0f3460; }
 </style>
 """
 
@@ -278,6 +284,7 @@ st.markdown("""
         margin: 0.2rem 0;
         background: #f1f5f9;
         border-left: 4px solid #0f3460;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
     }
     .chat-message.self {
         background: #e3f2fd;
@@ -292,22 +299,40 @@ st.markdown("""
         color: #64748b;
         margin-left: 0.5rem;
     }
-    /* ----- TABS ----- */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0.5rem;
+    /* ----- CUSTOM TAB BUTTONS ----- */
+    .tab-container {
+        display: flex;
+        gap: 0.3rem;
+        margin-bottom: 1.5rem;
+        flex-wrap: wrap;
+        border-bottom: 2px solid #e2e8f0;
+        padding-bottom: 0.2rem;
     }
-    .stTabs [data-baseweb="tab"] {
+    .tab-button {
         background: white;
-        border-radius: 12px 12px 0 0;
-        padding: 0.6rem 1.2rem;
         border: 1px solid #e2e8f0;
         border-bottom: none;
+        border-radius: 12px 12px 0 0;
+        padding: 0.6rem 1.2rem;
         font-weight: 600;
+        color: #64748b;
+        cursor: pointer;
+        transition: 0.2s;
+        font-size: 0.95rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
     }
-    .stTabs [aria-selected="true"] {
+    .tab-button:hover {
+        background: #f1f5f9;
+    }
+    .tab-button.active {
         background: #0f3460;
         color: white;
         border-color: #0f3460;
+    }
+    .tab-button i {
+        margin-right: 0.3rem;
     }
     /* ----- FILE UPLOADER ----- */
     .stFileUploader {
@@ -339,10 +364,21 @@ st.markdown("""
     .stButton button i {
         margin-right: 0.5rem;
     }
-    /* ----- MODERN VERIFIED BADGE (like in screenshot) ----- */
+    /* ----- VERIFIED BADGE ----- */
     .verified-badge {
         display: inline-block;
         background: #10b981;
+        color: white;
+        padding: 0.15rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        margin-left: 0.5rem;
+    }
+    /* ----- PENDING BADGE (for admin approval) ----- */
+    .pending-badge {
+        display: inline-block;
+        background: #f59e0b;
         color: white;
         padding: 0.15rem 0.8rem;
         border-radius: 20px;
@@ -469,14 +505,14 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 # -------------------------------
-# 6. USER FUNCTIONS (with universal verification)
+# 6. USER FUNCTIONS (with admin approval)
 # -------------------------------
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
         fallback = [
-            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None},
-            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None},
-            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None}
+            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None, "is_approved": True},
+            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None, "is_approved": True},
+            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None, "is_approved": True}
         ]
         return fallback
     try:
@@ -487,9 +523,9 @@ def fetch_all_users_from_db():
             return []
     except Exception:
         fallback = [
-            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None},
-            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None},
-            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None}
+            {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None, "is_approved": True},
+            {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None, "is_approved": True},
+            {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None, "is_approved": True}
         ]
         return fallback
 
@@ -498,9 +534,16 @@ def register_user_to_db(username, name, role, password, email=None):
         return False
     try:
         hashed = hash_password(password)
-        payload = {"username": username, "full_name": name, "role": role, "password_hash": hashed, "email": email}
+        payload = {
+            "username": username,
+            "full_name": name,
+            "role": role,
+            "password_hash": hashed,
+            "email": email,
+            "is_approved": False   # Require admin approval
+        }
         supabase.table("facility_users").insert(payload).execute()
-        log_audit(name, "user_register", {"username": username, "role": role})
+        log_audit(name, "user_register", {"username": username, "role": role, "status": "pending_approval"})
         return True
     except Exception:
         return False
@@ -509,15 +552,39 @@ def authenticate_user(username, password):
     users = fetch_all_users_from_db()
     for u in users:
         if u["username"].lower() == username.lower():
+            # Check if approved
+            if not u.get("is_approved", False):
+                return None, "pending_approval"
             if verify_password(password, u["password_hash"]):
-                return u
-    return None
+                return u, "approved"
+    return None, None
 
 def update_user_profile(username, updates):
     if not SUPABASE_AVAILABLE:
         return False
     try:
         supabase.table("facility_users").update(updates).eq("username", username).execute()
+        return True
+    except Exception:
+        return False
+
+# Admin functions
+def approve_user(username):
+    if not SUPABASE_AVAILABLE:
+        return False
+    try:
+        supabase.table("facility_users").update({"is_approved": True}).eq("username", username).execute()
+        log_audit("admin", "approve_user", {"username": username})
+        return True
+    except Exception:
+        return False
+
+def reject_user(username):
+    if not SUPABASE_AVAILABLE:
+        return False
+    try:
+        supabase.table("facility_users").delete().eq("username", username).execute()
+        log_audit("admin", "reject_user", {"username": username})
         return True
     except Exception:
         return False
@@ -1031,6 +1098,8 @@ if 'notifications_cache' not in st.session_state:
     st.session_state.notifications_cache = []
 if 'oauth_token' not in st.session_state:
     st.session_state.oauth_token = None
+if 'active_tab' not in st.session_state:
+    st.session_state.active_tab = "tasks"
 
 # -------------------------------
 # 19. SESSION TIMEOUT CHECK
@@ -1073,7 +1142,7 @@ if not st.session_state.authenticated:
         login_submitted = st.form_submit_button('🔐 Authenticate Profile', use_container_width=True)
 
     if login_submitted:
-        matched_user = authenticate_user(user_in, pass_in)
+        matched_user, status = authenticate_user(user_in, pass_in)
         if matched_user:
             st.session_state.user_payload = {
                 "name": matched_user.get("full_name", matched_user.get("username")),
@@ -1086,6 +1155,8 @@ if not st.session_state.authenticated:
             st.session_state.last_activity = datetime.now()
             log_audit(matched_user.get("full_name"), "login")
             st.rerun()
+        elif status == "pending_approval":
+            st.error("Your account is pending admin approval. Please wait for a superintendent to approve your account.")
         else:
             st.error("Invalid credentials or database unreachable.")
 
@@ -1112,7 +1183,7 @@ if not st.session_state.authenticated:
             else:
                 success = register_user_to_db(reg_user, reg_name, reg_role, reg_pass, reg_email)
                 if success:
-                    st.success(f"Account '{reg_user}' created! Please log in.")
+                    st.success(f"Account '{reg_user}' created! Please wait for admin approval before logging in.")
                 else:
                     st.error("Registration failed. Database error.")
         else:
@@ -1122,7 +1193,7 @@ else:
     check_timeout()
 
 # -------------------------------
-# 22. PWA MANIFEST & SERVICE WORKER
+# 22. PWA MANIFEST & SERVICE WORKER (OFFLINE MODE)
 # -------------------------------
 st.markdown("""
 <link rel="manifest" href="/static/manifest.json">
@@ -1225,7 +1296,7 @@ with st.sidebar:
 
     st.markdown("👤 **Private Chat**")
     all_users = fetch_all_users_from_db()
-    other_users = [u["full_name"] for u in all_users if u["full_name"] != full_name]
+    other_users = [u["full_name"] for u in all_users if u["full_name"] != full_name and u.get("is_approved", False)]
     if other_users:
         selected_user = st.selectbox("Choose contact", other_users)
         if st.button("🔐 Open Private Chat", use_container_width=True):
@@ -1235,7 +1306,7 @@ with st.sidebar:
             st.session_state.chat_partner = selected_user
             st.rerun()
     else:
-        st.info("No other users available.")
+        st.info("No other approved users available.")
 
     st.markdown("---")
     st.markdown("👤 **Profile**")
@@ -1270,13 +1341,37 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 25. TABS: TASKS, CHAT, ADMIN, PROFILE, ACTIVITY
+# 25. CUSTOM TABS WITH FONT AWESOME ICONS
 # -------------------------------
-tabs_list = ['📋 Task Dashboard', '💬 Chat Room', '⚙️ Admin Panel', '👤 Profile', '⏱️ Activity Timeline']
-tab_tasks, tab_chat, tab_admin, tab_profile, tab_activity = st.tabs(tabs_list)
+# Define tab labels with Font Awesome icons
+tabs = [
+    {"key": "tasks", "label": "Task Dashboard", "icon": "fa-tasks"},
+    {"key": "chat", "label": "Chat Room", "icon": "fa-comment-dots"},
+    {"key": "admin", "label": "Admin Panel", "icon": "fa-cog"},
+    {"key": "profile", "label": "Profile", "icon": "fa-user"},
+    {"key": "activity", "label": "Activity Timeline", "icon": "fa-clock"}
+]
+
+# Render custom tab buttons
+cols = st.columns(len(tabs))
+for i, tab in enumerate(tabs):
+    is_active = (st.session_state.active_tab == tab["key"])
+    with cols[i]:
+        # Use a button that updates session state and reruns
+        if st.button(
+            f'<i class="fas {tab["icon"]}"></i> {tab["label"]}',
+            key=f"tab_{tab['key']}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary"
+        ):
+            st.session_state.active_tab = tab["key"]
+            st.rerun()
+
+# Display content based on active tab
+active_tab = st.session_state.active_tab
 
 # ---- TASK DASHBOARD ----
-with tab_tasks:
+if active_tab == "tasks":
     if role == "worker":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
         if st.session_state.broadcast_messages:
@@ -1284,9 +1379,10 @@ with tab_tasks:
             for msg in reversed(st.session_state.broadcast_messages[-5:]):
                 st.warning(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
 
+        # Use st.tabs for internal sub-tabs (they can keep emojis or we can also style them, but keeping simple)
         tab_my, tab_unassigned = st.tabs([
-            '📋 My Assigned Tasks',
-            '📥 Unassigned Board'
+            '<i class="fas fa-clipboard-list"></i> My Assigned Tasks',
+            '<i class="fas fa-inbox"></i> Unassigned Board'
         ])
 
         with tab_my:
@@ -1297,7 +1393,6 @@ with tab_tasks:
                 for idx, task in enumerate(my_tasks):
                     priority_class = f"priority-{task['priority']}"
                     status_class = f"status-{task['status'].replace(' ', '')}"
-                    # Modern card
                     st.markdown(f"""
                     <div class="task-card" style="border-top: 4px solid #0f3460;">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -1313,7 +1408,6 @@ with tab_tasks:
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # Widgets
                     col1, col2 = st.columns([2, 3])
                     with col1:
                         loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
@@ -1334,7 +1428,6 @@ with tab_tasks:
                     else:
                         st.success("✅ Safety checks passed.")
 
-                    # Comments, attachments, photos (same as before)
                     with st.expander("💬 Comments"):
                         comments = fetch_comments(task['id'])
                         if comments:
@@ -1416,14 +1509,14 @@ with tab_tasks:
     elif role == "supervisor":
         st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
         tab_manage, tab_create, tab_dashboard = st.tabs([
-            '📋 Manage All Tasks',
-            '➕ Create New Task',
-            '📊 Dashboard'
+            '<i class="fas fa-tasks"></i> Manage All Tasks',
+            '<i class="fas fa-plus-circle"></i> Create New Task',
+            '<i class="fas fa-chart-pie"></i> Dashboard'
         ])
         with tab_manage:
             st.markdown("### All Maintenance Tasks")
             all_users = fetch_all_users_from_db()
-            worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker"]
+            worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
             if not st.session_state.tasks:
                 st.info("No tasks found.")
             for task in st.session_state.tasks:
@@ -1465,8 +1558,6 @@ with tab_tasks:
                         update_task(task['id'], {"status": "Complete"}, full_name)
                         log_audit(full_name, "task_approve", {"task_id": task['id']})
                         st.rerun()
-
-                # Comments, attachments, photos (same as before)
                 with st.expander("💬 Comments"):
                     comments = fetch_comments(task['id'])
                     if comments:
@@ -1479,7 +1570,6 @@ with tab_tasks:
                         if new_comment.strip():
                             add_comment(task['id'], new_comment, full_name)
                             st.rerun()
-
                 with st.expander("📎 Attachments"):
                     attachments = fetch_attachments(task['id'])
                     if attachments:
@@ -1494,7 +1584,6 @@ with tab_tasks:
                             if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
                                 st.success("Attachment uploaded!")
                                 st.rerun()
-
                 photos = fetch_photos(task['id'])
                 if photos:
                     with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -1538,7 +1627,6 @@ with tab_tasks:
                     else:
                         st.error("Title and Location are required.")
 
-        # ---- SUPERVISOR DASHBOARD TAB ----
         with tab_dashboard:
             st.markdown("### 📊 Task Analytics")
             tasks = st.session_state.tasks
@@ -1564,11 +1652,12 @@ with tab_tasks:
 
     elif role == "superintendent":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
-        tab_overview, tab_manage, tab_broadcasts, tab_dashboard = st.tabs([
-            '📊 Overview',
-            '📋 Manage Tasks',
-            '📢 Broadcast Log',
-            '📊 Dashboard'
+        tab_overview, tab_manage, tab_broadcasts, tab_dashboard, tab_admin_users = st.tabs([
+            '<i class="fas fa-chart-pie"></i> Overview',
+            '<i class="fas fa-tasks"></i> Manage Tasks',
+            '<i class="fas fa-bullhorn"></i> Broadcast Log',
+            '<i class="fas fa-chart-line"></i> Dashboard',
+            '<i class="fas fa-users"></i> User Management'
         ])
         with tab_overview:
             total = len(st.session_state.tasks)
@@ -1591,7 +1680,7 @@ with tab_tasks:
         with tab_manage:
             st.markdown("### Full Task Control")
             all_users = fetch_all_users_from_db()
-            worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker"]
+            worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
             if not st.session_state.tasks:
                 st.info("No tasks to manage.")
             for task in st.session_state.tasks:
@@ -1638,8 +1727,6 @@ with tab_tasks:
                 if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
                     delete_task(task['id'], full_name)
                     st.rerun()
-
-                # Comments, attachments, photos (same as before)
                 with st.expander("💬 Comments"):
                     comments = fetch_comments(task['id'])
                     if comments:
@@ -1652,7 +1739,6 @@ with tab_tasks:
                         if new_comment.strip():
                             add_comment(task['id'], new_comment, full_name)
                             st.rerun()
-
                 with st.expander("📎 Attachments"):
                     attachments = fetch_attachments(task['id'])
                     if attachments:
@@ -1667,7 +1753,6 @@ with tab_tasks:
                             if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
                                 st.success("Attachment uploaded!")
                                 st.rerun()
-
                 photos = fetch_photos(task['id'])
                 if photos:
                     with st.expander(f"📸 Photos for Task #{task['id']}"):
@@ -1689,7 +1774,6 @@ with tab_tasks:
             else:
                 st.info("No messages sent yet.")
 
-        # ---- SUPERINTENDENT DASHBOARD TAB ----
         with tab_dashboard:
             st.markdown("### 📊 Task Analytics")
             tasks = st.session_state.tasks
@@ -1713,8 +1797,49 @@ with tab_tasks:
                 if csv:
                     st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
 
-# ---- CHAT ROOM (REAL-TIME) ----
-with tab_chat:
+        with tab_admin_users:
+            st.markdown("### 👥 User Management")
+            st.markdown("Approve or reject pending user registrations.")
+
+            all_users = fetch_all_users_from_db()
+            pending_users = [u for u in all_users if not u.get("is_approved", False)]
+            approved_users = [u for u in all_users if u.get("is_approved", False)]
+
+            if pending_users:
+                st.markdown("#### ⏳ Pending Approvals")
+                for u in pending_users:
+                    with st.container(border=True):
+                        st.write(f"**Username:** {u['username']}")
+                        st.write(f"**Full Name:** {u['full_name']}")
+                        st.write(f"**Role:** {u['role']}")
+                        st.write(f"**Email:** {u.get('email', 'Not set')}")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button(f"✅ Approve {u['username']}", key=f"approve_{u['username']}"):
+                                if approve_user(u['username']):
+                                    st.success(f"User {u['username']} approved!")
+                                    st.rerun()
+                                else:
+                                    st.error("Approval failed.")
+                        with col2:
+                            if st.button(f"❌ Reject {u['username']}", key=f"reject_{u['username']}"):
+                                if reject_user(u['username']):
+                                    st.success(f"User {u['username']} rejected and removed.")
+                                    st.rerun()
+                                else:
+                                    st.error("Rejection failed.")
+            else:
+                st.info("No pending approvals.")
+
+            st.markdown("#### ✅ Approved Users")
+            if approved_users:
+                for u in approved_users:
+                    st.write(f"- **{u['full_name']}** ({u['username']}) – {u['role']}")
+            else:
+                st.info("No approved users yet.")
+
+# ---- CHAT ROOM ----
+elif active_tab == "chat":
     st.subheader("💬 Real‑time Chat")
 
     room = st.session_state.chat_room
@@ -1785,9 +1910,9 @@ with tab_chat:
             col_text, col_delete = st.columns([5, 1])
             with col_text:
                 if sender == full_name:
-                    st.markdown(f"**You** ({timestamp}): {content}")
+                    st.markdown(f"<div class='chat-message self'><span class='sender'>You</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"**{sender}** ({timestamp}): {content}")
+                    st.markdown(f"<div class='chat-message'><span class='sender'>{sender}</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
             with col_delete:
                 if sender == full_name:
                     if st.button("🗑️", key=f"del_msg_{msg['id']}"):
@@ -1835,8 +1960,8 @@ with tab_chat:
                 st.session_state.chat_input_value = ""
                 st.rerun()
 
-# ---- ADMIN PANEL ----
-with tab_admin:
+# ---- ADMIN PANEL (original – now superseded by User Management tab for superintendent) ----
+elif active_tab == "admin":
     if role != "superintendent":
         st.warning("You do not have admin privileges.")
     else:
@@ -1850,7 +1975,8 @@ with tab_admin:
                     "Username": u.get("username"),
                     "Full Name": u.get("full_name"),
                     "Role": u.get("role"),
-                    "Email": u.get("email", "Not set")
+                    "Email": u.get("email", "Not set"),
+                    "Approved": u.get("is_approved", False)
                 })
             st.dataframe(user_data, use_container_width=True)
         else:
@@ -1873,7 +1999,7 @@ with tab_admin:
             st.info("Audit log not available (Supabase not connected).")
 
 # ---- PROFILE TAB ----
-with tab_profile:
+elif active_tab == "profile":
     st.subheader("👤 User Profile")
     st.markdown(f"**Username:** {username}")
     st.markdown(f"**Full Name:** {full_name}")
@@ -1923,7 +2049,7 @@ with tab_profile:
                 st.error("Failed to update email.")
 
 # ---- ACTIVITY TIMELINE ----
-with tab_activity:
+elif active_tab == "activity":
     st.subheader("⏱️ Activity Timeline")
     st.markdown("Recent actions across all tasks (last 50)")
 
