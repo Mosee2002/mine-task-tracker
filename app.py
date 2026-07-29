@@ -422,51 +422,6 @@ def fetch_photos(task_id):
 # -------------------------------
 # 8. FILE ATTACHMENTS (PDF/DOC) - FIXED
 # -------------------------------
-def upload_attachment(task_id, file_bytes, filename, uploaded_by):
-    if not SUPABASE_AVAILABLE:
-        st.session_state.setdefault("attachments_memory", []).append({
-            "task_id": task_id,
-            "file_name": filename,
-            "file_url": f"memory://{filename}",
-            "file_type": filename.split('.')[-1].lower(),
-            "uploaded_by": uploaded_by,
-            "uploaded_at": datetime.now().isoformat()
-        })
-        log_audit(uploaded_by, "attachment_upload_memory", {"task_id": task_id, "filename": filename})
-        return True
-    try:
-        ext = filename.split('.')[-1].lower()
-        safe_name = f"attachments/task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
-        res = supabase.storage.from_("task_attachments").upload(safe_name, file_bytes)
-        if res:
-            public_url = supabase.storage.from_("task_attachments").get_public_url(safe_name)
-            data = {
-                "task_id": task_id,
-                "file_name": filename,
-                "file_url": public_url,
-                "file_type": ext,
-                "uploaded_by": uploaded_by
-            }
-            supabase.table("task_attachments").insert(data).execute()
-            log_audit(uploaded_by, "attachment_upload", {"task_id": task_id, "filename": filename})
-            return True
-        else:
-            return False
-    except Exception as e:
-        st.error(f"Upload failed: {e}")
-        return False
-
-def fetch_attachments(task_id):
-    if not SUPABASE_AVAILABLE:
-        return st.session_state.get("attachments_memory", [])
-    try:
-        res = supabase.table("task_attachments").select("*").eq("task_id", task_id).order("uploaded_at", desc=True).execute()
-        if res.data:
-            return res.data
-        else:
-            return []
-    except Exception:
-        return []
 
 # -------------------------------
 # 9. TASK COMMENTS
