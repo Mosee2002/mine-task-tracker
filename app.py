@@ -508,28 +508,42 @@ def validate_image(file_bytes, filename):
 # 6. USER FUNCTIONS (with admin approval)
 # -------------------------------
 
-def fetch_all_users_from_db():
-    # Define fallback users (pre‑approved)
-    fallback = [
+def get_default_users():
+    """Return the list of default (fallback) users."""
+    return [
         {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None, "is_approved": True},
         {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None, "is_approved": True},
         {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None, "is_approved": True}
     ]
 
+def fetch_all_users_from_db():
+    """Return DB users + default fallback users (merged, no duplicates)."""
+    default_users = get_default_users()
     if not SUPABASE_AVAILABLE:
-        return fallback
+        return default_users
 
     try:
         res = supabase.table("facility_users").select("*").execute()
-        if res.data:
-            return res.data
-        else:
-            # Table exists but is empty – return fallback
-            return fallback
+        db_users = res.data if res.data else []
     except Exception:
-        # On any error, return fallback
-        return fallback
+        db_users = []
 
+    # Merge: keep default users and add DB users that don't have the same username
+    existing_usernames = {u["username"] for u in default_users}
+    for db_user in db_users:
+        if db_user["username"] not in existing_usernames:
+            default_users.append(db_user)
+    return default_users
+
+def authenticate_user(username, password):
+    users = fetch_all_users_from_db()
+    for u in users:
+        if u["username"].lower() == username.lower():
+            if not u.get("is_approved", False):
+                return None, "pending_approval"
+            if verify_password(password, u["password_hash"]):
+                return u, "approved"
+    return None, None
 def register_user_to_db(username, name, role, password, email=None):
     if not SUPABASE_AVAILABLE:
         return False
@@ -548,18 +562,6 @@ def register_user_to_db(username, name, role, password, email=None):
         return True
     except Exception:
         return False
-
-def authenticate_user(username, password):
-    users = fetch_all_users_from_db()
-    for u in users:
-        if u["username"].lower() == username.lower():
-            # Check if approved
-            if not u.get("is_approved", False):
-                return None, "pending_approval"
-            if verify_password(password, u["password_hash"]):
-                return u, "approved"
-    return None, None
-
 def update_user_profile(username, updates):
     if not SUPABASE_AVAILABLE:
         return False
