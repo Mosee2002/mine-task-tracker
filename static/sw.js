@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mine-tracker-v1';
+const CACHE_NAME = 'mine-tracker-v3';
 const urlsToCache = [
   '/',
   '/static/manifest.json'
@@ -14,6 +14,17 @@ self.addEventListener('install', event => {
 self.addEventListener('fetch', event => {
   event.respondWith(
     caches.match(event.request)
-      .then(response => response || fetch(event.request))
+      .then(response => {
+        if (response) {
+          return response;
+        }
+        return fetch(event.request).catch(() => {
+          // Offline fallback – return a simple offline page
+          return new Response('You are offline. Please connect to the internet.', {
+            status: 503,
+            statusText: 'Service Unavailable'
+          });
+        });
+      })
   );
 });
