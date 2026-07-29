@@ -11,6 +11,13 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
+# OAuth support
+try:
+    from authlib.integrations.requests_client import OAuth2Session
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+
 # Try to import bcrypt; fallback to built-in hashing
 try:
     import bcrypt
@@ -40,6 +47,15 @@ else:
 SESSION_TIMEOUT_MINUTES = st.secrets.get("SESSION_TIMEOUT_MINUTES", 60) if 'SESSION_TIMEOUT_MINUTES' in st.secrets else 60
 MAX_UPLOAD_SIZE_MB = st.secrets.get("MAX_UPLOAD_SIZE_MB", 5) if 'MAX_UPLOAD_SIZE_MB' in st.secrets else 5
 MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+# Slack / Teams webhook URLs (optional)
+SLACK_WEBHOOK = st.secrets.get("SLACK_WEBHOOK", "")
+TEAMS_WEBHOOK = st.secrets.get("TEAMS_WEBHOOK", "")
+
+# OAuth config (Google)
+GOOGLE_CLIENT_ID = st.secrets.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = st.secrets.get("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = st.secrets.get("GOOGLE_REDIRECT_URI", "https://yourapp.streamlit.app/oauth_callback")
 
 # Use Supabase client
 try:
@@ -207,7 +223,34 @@ def send_email_notification(recipient, subject, body):
         return False
 
 # -------------------------------
-# 4. IMAGE VALIDATION
+# 4. SLACK / TEAMS WEBHOOK INTEGRATION
+# -------------------------------
+def send_slack_notification(message):
+    if not SLACK_WEBHOOK:
+        return False
+    try:
+        payload = {"text": message}
+        requests.post(SLACK_WEBHOOK, json=payload, timeout=5)
+        return True
+    except:
+        return False
+
+def send_teams_notification(message):
+    if not TEAMS_WEBHOOK:
+        return False
+    try:
+        payload = {"text": message}
+        requests.post(TEAMS_WEBHOOK, json=payload, timeout=5)
+        return True
+    except:
+        return False
+
+def send_external_notifications(message):
+    send_slack_notification(message)
+    send_teams_notification(message)
+
+# -------------------------------
+# 5. IMAGE VALIDATION
 # -------------------------------
 def validate_image(file_bytes, filename):
     ext = filename.split('.')[-1].lower()
@@ -225,7 +268,7 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 # -------------------------------
-# 5. USER FUNCTIONS (with universal verification)
+# 6. USER FUNCTIONS (with universal verification)
 # -------------------------------
 def fetch_all_users_from_db():
     if not SUPABASE_AVAILABLE:
@@ -279,7 +322,7 @@ def update_user_profile(username, updates):
         return False
 
 # -------------------------------
-# 6. TASK FUNCTIONS (with due date)
+# 7. TASK FUNCTIONS (with due date & recurrence)
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -293,7 +336,7 @@ def fetch_all_tasks():
     except Exception:
         return st.session_state.get("tasks_memory", [])
 
-def create_task(title, location, priority, loto, jsa, created_by, due_date=None):
+def create_task(title, location, priority, loto, jsa, created_by, due_date=None, is_recurring=False, recurrence_type=None, recurrence_end_date=None):
     if not SUPABASE_AVAILABLE:
         tasks = st.session_state.get("tasks_memory", [])
         new_id = max([t["id"] for t in tasks], default=0) + 1
@@ -306,7 +349,10 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None)
             "jsa": jsa,
             "status": "Unassigned",
             "assigned_to": "Unassigned",
-            "due_date": due_date.isoformat() if due_date else None
+            "due_date": due_date.isoformat() if due_date else None,
+            "is_recurring": is_recurring,
+            "recurrence_type": recurrence_type,
+            "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None
         }
         tasks.append(new_task)
         st.session_state.tasks_memory = tasks
@@ -321,12 +367,17 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None)
             "jsa": jsa,
             "status": "Unassigned",
             "assigned_to": "Unassigned",
-            "due_date": due_date.isoformat() if due_date else None
+            "due_date": due_date.isoformat() if due_date else None,
+            "is_recurring": is_recurring,
+            "recurrence_type": recurrence_type,
+            "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None
         }
         res = supabase.table("tasks").insert(new_task).execute()
         if res.data:
             task = res.data[0]
             log_audit(created_by, "task_create", {"task_id": task["id"]})
+            # Activity log
+            log_task_activity(task["id"], created_by, "created", {"title": title})
             return task
     except Exception:
         return None
@@ -349,6 +400,11 @@ def update_task(task_id, updates, updated_by):
             old = {}
         supabase.table("tasks").update(updates).eq("id", task_id).execute()
         log_audit(updated_by, "task_update", {"task_id": task_id, "old": old, "new": updates})
+        # Activity log
+        log_task_activity(task_id, updated_by, "updated", updates)
+        # External notifications
+        if 'status' in updates:
+            send_external_notifications(f"Task #{task_id} status changed to {updates['status']} by {updated_by}")
         return True
     except Exception:
         return False
@@ -361,12 +417,75 @@ def delete_task(task_id, deleted_by):
     try:
         supabase.table("tasks").delete().eq("id", task_id).execute()
         log_audit(deleted_by, "task_delete", {"task_id": task_id})
+        log_task_activity(task_id, deleted_by, "deleted", {})
+        send_external_notifications(f"Task #{task_id} deleted by {deleted_by}")
         return True
     except Exception:
         return False
 
 # -------------------------------
-# 7. PHOTO FUNCTIONS (with fallback)
+# 8. TASK ACTIVITY LOG
+# -------------------------------
+def log_task_activity(task_id, user_name, action, details=None):
+    if not SUPABASE_AVAILABLE:
+        return
+    try:
+        supabase.table("task_activity").insert({
+            "task_id": task_id,
+            "user_name": user_name,
+            "action": action,
+            "details": json.dumps(details) if details else None
+        }).execute()
+    except Exception:
+        pass
+
+def fetch_task_activity(task_id):
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("activity_memory", [])
+    try:
+        res = supabase.table("task_activity").select("*").eq("task_id", task_id).order("created_at", asc=True).execute()
+        if res.data:
+            return res.data
+    except Exception:
+        pass
+    return []
+
+# -------------------------------
+# 9. NOTIFICATIONS
+# -------------------------------
+def send_notification(user_name, title, body):
+    if not SUPABASE_AVAILABLE:
+        return
+    try:
+        supabase.table("notifications").insert({
+            "user_name": user_name,
+            "title": title,
+            "body": body
+        }).execute()
+    except Exception:
+        pass
+
+def fetch_notifications(user_name):
+    if not SUPABASE_AVAILABLE:
+        return []
+    try:
+        res = supabase.table("notifications").select("*").eq("user_name", user_name).order("created_at", desc=True).limit(20).execute()
+        if res.data:
+            return res.data
+    except Exception:
+        pass
+    return []
+
+def mark_notification_read(notification_id):
+    if not SUPABASE_AVAILABLE:
+        return
+    try:
+        supabase.table("notifications").update({"is_read": True}).eq("id", notification_id).execute()
+    except Exception:
+        pass
+
+# -------------------------------
+# 10. PHOTO FUNCTIONS (with fallback)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
     # Always store in memory first (as backup)
@@ -420,7 +539,7 @@ def fetch_photos(task_id):
     return all_photos
 
 # -------------------------------
-# 8. FILE ATTACHMENTS (PDF/DOC) - CORRECTLY INDENTED
+# 11. FILE ATTACHMENTS (PDF/DOC) - CORRECTLY INDENTED
 # -------------------------------
 def upload_attachment(task_id, file_bytes, filename, uploaded_by):
     if not SUPABASE_AVAILABLE:
@@ -469,7 +588,7 @@ def fetch_attachments(task_id):
         return []
 
 # -------------------------------
-# 9. TASK COMMENTS
+# 12. TASK COMMENTS
 # -------------------------------
 def add_comment(task_id, comment, posted_by):
     if not SUPABASE_AVAILABLE:
@@ -485,6 +604,7 @@ def add_comment(task_id, comment, posted_by):
         data = {"task_id": task_id, "comment": comment, "posted_by": posted_by}
         supabase.table("task_comments").insert(data).execute()
         log_audit(posted_by, "comment_add", {"task_id": task_id, "comment": comment[:50]})
+        log_task_activity(task_id, posted_by, "commented", {"comment": comment[:50]})
         return True
     except Exception:
         return False
@@ -502,7 +622,7 @@ def fetch_comments(task_id):
     return []
 
 # -------------------------------
-# 10. CHAT FUNCTIONS (unchanged)
+# 13. CHAT FUNCTIONS (unchanged)
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -573,7 +693,7 @@ def delete_message(message_id, deleted_by):
             return False
 
 # -------------------------------
-# 11. ENCRYPTION HELPERS
+# 14. ENCRYPTION HELPERS
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -614,7 +734,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 12. EXPORT REPORTS
+# 15. EXPORT REPORTS
 # -------------------------------
 def export_tasks_csv(tasks):
     if not tasks:
@@ -625,7 +745,7 @@ def export_tasks_csv(tasks):
     return df.to_csv(index=False)
 
 # -------------------------------
-# 13. PUSH NOTIFICATIONS
+# 16. PUSH NOTIFICATIONS (already have toast)
 # -------------------------------
 def send_push_notification(title, body):
     try:
@@ -634,7 +754,62 @@ def send_push_notification(title, body):
         pass
 
 # -------------------------------
-# 14. SESSION STATE INIT
+# 17. RECURRING TASK HANDLER
+# -------------------------------
+def handle_recurring_tasks():
+    """Check for recurring tasks and create new instances if needed."""
+    if not SUPABASE_AVAILABLE:
+        return
+    try:
+        # Fetch all recurring tasks
+        res = supabase.table("tasks").select("*").eq("is_recurring", True).execute()
+        if not res.data:
+            return
+        now = datetime.now()
+        for task in res.data:
+            due_date = datetime.fromisoformat(task['due_date']) if task['due_date'] else None
+            if not due_date:
+                continue
+            # Check if due date has passed and next occurrence should be created
+            if due_date < now:
+                # Determine next due date
+                recurrence_type = task.get('recurrence_type')
+                if recurrence_type == 'daily':
+                    next_due = due_date + timedelta(days=1)
+                elif recurrence_type == 'weekly':
+                    next_due = due_date + timedelta(weeks=1)
+                elif recurrence_type == 'monthly':
+                    next_due = due_date + timedelta(days=30)  # approximate
+                else:
+                    continue
+                # Check if end date passed
+                end_date = datetime.fromisoformat(task['recurrence_end_date']) if task.get('recurrence_end_date') else None
+                if end_date and next_due > end_date:
+                    # No more recurrences, mark as not recurring
+                    supabase.table("tasks").update({"is_recurring": False}).eq("id", task["id"]).execute()
+                    continue
+                # Create new task
+                new_task = {
+                    "title": task['title'],
+                    "location": task['location'],
+                    "priority": task['priority'],
+                    "loto": task.get('loto', False),
+                    "jsa": task.get('jsa', False),
+                    "status": "Unassigned",
+                    "assigned_to": "Unassigned",
+                    "due_date": next_due.isoformat(),
+                    "is_recurring": True,
+                    "recurrence_type": recurrence_type,
+                    "recurrence_end_date": task.get('recurrence_end_date')
+                }
+                supabase.table("tasks").insert(new_task).execute()
+                # Update the parent task due date to next occurrence
+                supabase.table("tasks").update({"due_date": next_due.isoformat()}).eq("id", task["id"]).execute()
+    except Exception:
+        pass
+
+# -------------------------------
+# 18. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -664,9 +839,15 @@ if 'attachments_memory' not in st.session_state:
     st.session_state.attachments_memory = []
 if 'comments_memory' not in st.session_state:
     st.session_state.comments_memory = []
+if 'activity_memory' not in st.session_state:
+    st.session_state.activity_memory = []
+if 'notifications_cache' not in st.session_state:
+    st.session_state.notifications_cache = []
+if 'oauth_token' not in st.session_state:
+    st.session_state.oauth_token = None
 
 # -------------------------------
-# 15. SESSION TIMEOUT CHECK
+# 19. SESSION TIMEOUT CHECK
 # -------------------------------
 def check_timeout():
     if st.session_state.authenticated:
@@ -679,7 +860,20 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 16. AUTHENTICATION GATEWAY (with forms)
+# 20. OATH LOGIN (Google)
+# -------------------------------
+def google_oauth():
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        st.error("Google OAuth not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in secrets.")
+        return None
+    # This is a simplified OAuth flow – in practice you'd need a full callback handling.
+    # For now, we'll just show a button that redirects to Google.
+    # To keep it simple, we'll use a placeholder – the user will still be able to use the normal login.
+    st.info("OAuth login is available but requires setup of a callback endpoint. Please use the regular login for now.")
+    return None
+
+# -------------------------------
+# 21. AUTHENTICATION GATEWAY (with forms + OAuth button)
 # -------------------------------
 if not st.session_state.authenticated:
     st.markdown('<div class="main-header"><i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker</div>', unsafe_allow_html=True)
@@ -706,6 +900,11 @@ if not st.session_state.authenticated:
             st.rerun()
         else:
             st.error("Invalid credentials or database unreachable.")
+
+    # OAuth button (Google) – placeholder
+    if AUTH_AVAILABLE and GOOGLE_CLIENT_ID:
+        if st.button("🔑 Login with Google", use_container_width=True):
+            st.info("OAuth login will redirect to Google. (Integration in progress)")
 
     st.markdown("---")
     st.markdown('<div class="sub-header"><i class="fas fa-user-plus"></i> Create Account Profile</div>', unsafe_allow_html=True)
@@ -736,7 +935,7 @@ else:
     check_timeout()
 
 # -------------------------------
-# 17. PWA MANIFEST & SERVICE WORKER
+# 22. PWA MANIFEST & SERVICE WORKER
 # -------------------------------
 st.markdown("""
 <link rel="manifest" href="/static/manifest.json">
@@ -748,7 +947,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 18. MAIN APP
+# 23. HANDLE RECURRING TASKS (run on startup)
+# -------------------------------
+handle_recurring_tasks()
+
+# -------------------------------
+# 24. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -771,6 +975,19 @@ with st.sidebar:
 
     if USING_HARDCODED:
         st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
+
+    # Notifications
+    if SUPABASE_AVAILABLE:
+        notifications = fetch_notifications(username)
+        unread = sum(1 for n in notifications if not n['is_read'])
+        if unread > 0:
+            st.warning(f"🔔 {unread} unread notification(s)")
+            for n in notifications[:3]:
+                if not n['is_read']:
+                    st.info(f"**{n['title']}**\n{n['body']}")
+                    if st.button("Mark as read", key=f"read_{n['id']}"):
+                        mark_notification_read(n['id'])
+                        st.rerun()
 
     if st.button("🌓 Toggle Theme", use_container_width=True):
         st.session_state.dark_mode = not st.session_state.dark_mode
@@ -856,12 +1073,12 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 19. TABS: TASKS, CHAT, ADMIN, PROFILE
+# 25. TABS: TASKS, CHAT, ADMIN, PROFILE, ACTIVITY (new)
 # -------------------------------
-tabs_list = ['📋 Task Dashboard', '💬 Chat Room', '⚙️ Admin Panel', '👤 Profile']
-tab_tasks, tab_chat, tab_admin, tab_profile = st.tabs(tabs_list)
+tabs_list = ['📋 Task Dashboard', '💬 Chat Room', '⚙️ Admin Panel', '👤 Profile', '⏱️ Activity Timeline']
+tab_tasks, tab_chat, tab_admin, tab_profile, tab_activity = st.tabs(tabs_list)
 
-# ---- TASK DASHBOARD ----
+# ---- TASK DASHBOARD (unchanged, but with recurring tasks support) ----
 with tab_tasks:
     if role == "worker":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
@@ -889,6 +1106,9 @@ with tab_tasks:
                             st.write(f"📅 Due: {due}")
                             if datetime.now() > datetime.fromisoformat(task['due_date']):
                                 st.error("⚠️ Overdue!")
+                        # Recurring info
+                        if task.get('is_recurring'):
+                            st.info(f"🔄 Recurring ({task.get('recurrence_type')})")
                         col1, col2 = st.columns([2, 3])
                         with col1:
                             loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
@@ -996,6 +1216,8 @@ with tab_tasks:
                     if task.get('due_date'):
                         due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
                         st.write(f"📅 Due: {due}")
+                    if task.get('is_recurring'):
+                        st.info(f"🔄 Recurring ({task.get('recurrence_type')})")
                     cols = st.columns([3, 1, 1])
                     current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
                     new_assign = cols[0].selectbox("Assign to:", worker_names,
@@ -1013,6 +1235,7 @@ with tab_tasks:
                                 body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Supervisor"
                                 send_email_notification(worker_email, subject, body)
                             send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
+                            send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}")
                         st.rerun()
                     if task['status'] == "Pending QA":
                         if cols[1].button("✅ Approve & Close", key=f"approve_{task['id']}"):
@@ -1068,12 +1291,21 @@ with tab_tasks:
                 location = st.text_input("Location / Area *", max_chars=100)
                 priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
                 due_date = st.date_input("Due Date", value=datetime.now() + timedelta(days=7))
+                is_recurring = st.checkbox("Recurring Task")
+                recurrence_type = st.selectbox("Recurrence Type", ["daily", "weekly", "monthly"], disabled=not is_recurring)
+                recurrence_end_date = st.date_input("End Date (optional)", value=datetime.now() + timedelta(days=30), disabled=not is_recurring)
                 loto = st.checkbox("Requires LOTO")
                 jsa = st.checkbox("Requires JSA")
                 submitted = st.form_submit_button('➕ Create Work Ticket')
                 if submitted:
                     if title and location:
-                        new_task = create_task(title, location, priority, loto, jsa, full_name, due_date)
+                        new_task = create_task(
+                            title, location, priority, loto, jsa, full_name,
+                            due_date=due_date,
+                            is_recurring=is_recurring,
+                            recurrence_type=recurrence_type if is_recurring else None,
+                            recurrence_end_date=recurrence_end_date if is_recurring else None
+                        )
                         if new_task:
                             st.success(f"Task #{new_task['id']} created!")
                             st.rerun()
@@ -1141,6 +1373,8 @@ with tab_tasks:
                     if task.get('due_date'):
                         due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
                         st.write(f"📅 Due: {due}")
+                    if task.get('is_recurring'):
+                        st.info(f"🔄 Recurring ({task.get('recurrence_type')})")
                     cols = st.columns([2, 1, 1, 1])
                     current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
                     new_assign = cols[0].selectbox("Assign", worker_names,
@@ -1158,6 +1392,145 @@ with tab_tasks:
                                 body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Superintendent"
                                 send_email_notification(worker_email, subject, body)
                             send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
+                            send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}")
+                        st.rerun()
+                    status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
+                    curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
+                    new_stat = cols[1].selectbox("Status", status_opts, index=curr_stat_idx, key=f"stat_ovr_{task['id']}")
+                    if new_stat != task['status']:
+                        update_task(task['id'], {"status": new_stat}, full_name)
+                        log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_stat})
+                        st.rerun()
+                    if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
+                        delete_task(task['id'], full_name)
+                        st.rerun()
+
+                    with st.expander("💬 Comments"):
+                        comments = fetch_comments(task['id'])
+                        if comments:
+                            for c in comments:
+                                st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
+                        else:
+                            st.caption("No comments yet.")
+                        new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
+                        if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
+                            if new_comment.strip():
+                                add_comment(task['id'], new_comment, full_name)
+                                st.rerun()
+
+                    with st.expander("📎 Attachments"):
+                        attachments = fetch_attachments(task['id'])
+                        if attachments:
+                            for a in attachments:
+                                st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
+                        else:
+                            st.caption("No attachments.")
+                        uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
+                        if uploaded_file is not None:
+                            if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
+                                bytes_data = uploaded_file.getvalue()
+                                if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
+                                    st.success("Attachment uploaded!")
+                                    st.rerun()
+
+                    photos = fetch_photos(task['id'])
+                    if photos:
+                        with st.expander(f"📸 Photos for Task #{task['id']}"):
+                            cols = st.columns(min(4, len(photos)))
+                            for idx, photo in enumerate(photos):
+                                with cols[idx % len(cols)]:
+                                    img_url = photo.get('photo_url', '')
+                                    if img_url.startswith('memory://'):
+                                        st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
+                                    else:
+                                        st.image(img_url, width=120)
+                                    st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
+
+        with tab_broadcasts:
+            st.markdown("### All Broadcast Messages")
+            if st.session_state.broadcast_messages:
+                for msg in reversed(st.session_state.broadcast_messages):
+                    st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
+            else:
+                st.info("No messages sent yet.")
+
+        with tab_dashboard:
+            st.markdown("### 📊 Task Analytics")
+            if st.session_state.tasks:
+                df = pd.DataFrame(st.session_state.tasks)
+                fig1 = px.pie(df, names='status', title='Tasks by Status')
+                st.plotly_chart(fig2, use_container_width=True)
+                if 'created_at' in df.columns:
+                    df['created_at'] = pd.to_datetime(df['created_at'])
+                    df['day'] = df['created_at'].dt.date
+                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
+                    st.plotly_chart(fig3, use_container_width=True)
+            else:
+                st.info("No data to display.")
+            if st.button("📥 Export Tasks as CSV"):
+                csv = export_tasks_csv(st.session_state.tasks)
+                if csv:
+                    st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
+
+    elif role == "superintendent":
+        st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
+        tab_overview, tab_manage, tab_broadcasts, tab_dashboard = st.tabs([
+            '📊 Overview',
+            '📋 Manage Tasks',
+            '📢 Broadcast Log',
+            '📊 Dashboard'
+        ])
+        with tab_overview:
+            total = len(st.session_state.tasks)
+            completed = sum(1 for t in st.session_state.tasks if t['status'] == "Complete")
+            in_progress = sum(1 for t in st.session_state.tasks if t['status'] == "In Progress")
+            unassigned = sum(1 for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned")
+            blocked = sum(1 for t in st.session_state.tasks if t['status'] == "Blocked")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            col1.metric("Total Tasks", total)
+            col2.metric("Completed", completed)
+            col3.metric("In Progress", in_progress)
+            col4.metric("Unassigned", unassigned)
+            col5.metric("Blocked", blocked)
+            st.markdown("### Recent Broadcasts")
+            if st.session_state.broadcast_messages:
+                for msg in reversed(st.session_state.broadcast_messages[-3:]):
+                    st.info(f"**{msg['sender']}** at {msg['timestamp']}: {msg['message']}")
+            else:
+                st.caption("No broadcasts yet.")
+        with tab_manage:
+            st.markdown("### Full Task Control")
+            all_users = fetch_all_users_from_db()
+            worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker"]
+            if not st.session_state.tasks:
+                st.info("No tasks to manage.")
+            for task in st.session_state.tasks:
+                with st.container(border=True):
+                    st.markdown(f"**#{task['id']}:** {task['title']}")
+                    st.write(f"📍 {task['location']} | Status: `{task['status']}` | Priority: {task['priority']}")
+                    if task.get('due_date'):
+                        due = datetime.fromisoformat(task['due_date']).strftime("%Y-%m-%d %H:%M")
+                        st.write(f"📅 Due: {due}")
+                    if task.get('is_recurring'):
+                        st.info(f"🔄 Recurring ({task.get('recurrence_type')})")
+                    cols = st.columns([2, 1, 1, 1])
+                    current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
+                    new_assign = cols[0].selectbox("Assign", worker_names,
+                                                   index=worker_names.index(current_assign),
+                                                   key=f"sup_assign_{task['id']}")
+                    if new_assign != task['assigned_to']:
+                        update_task(task['id'], {"assigned_to": new_assign}, full_name)
+                        if task['status'] == "Unassigned" and new_assign != "Unassigned":
+                            update_task(task['id'], {"status": "In Progress"}, full_name)
+                        log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
+                        if new_assign != "Unassigned":
+                            worker_email = next((u.get('email') for u in all_users if u['full_name'] == new_assign), None)
+                            if worker_email:
+                                subject = f"New Task Assigned: #{task['id']} - {task['title']}"
+                                body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Superintendent"
+                                send_email_notification(worker_email, subject, body)
+                            send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
+                            send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}")
                         st.rerun()
                     status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
                     curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
@@ -1447,6 +1820,28 @@ with tab_profile:
                 st.rerun()
             else:
                 st.error("Failed to update email.")
+
+# ---- ACTIVITY TIMELINE (new) ----
+with tab_activity:
+    st.subheader("⏱️ Activity Timeline")
+    st.markdown("Recent actions across all tasks (last 50)")
+
+    if SUPABASE_AVAILABLE:
+        try:
+            activities = supabase.table("task_activity").select("*").order("created_at", desc=True).limit(50).execute()
+            if activities.data:
+                for act in activities.data:
+                    task = supabase.table("tasks").select("title").eq("id", act['task_id']).execute()
+                    task_title = task.data[0]['title'] if task.data else f"Task #{act['task_id']}"
+                    st.write(f"**{act['user_name']}** {act['action']} **{task_title}** at {act['created_at']}")
+                    if act['details']:
+                        st.caption(f"Details: {act['details']}")
+            else:
+                st.info("No activity logs yet.")
+        except Exception:
+            st.info("Activity log unavailable.")
+    else:
+        st.info("Activity log not available (Supabase not connected).")
 
 # Footer
 st.markdown("""
