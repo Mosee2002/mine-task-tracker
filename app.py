@@ -9,17 +9,19 @@ import time
 import html as html_lib
 from io import BytesIO
 
+# ----- ESCAPE FUNCTION (prevents XSS) -----
 def esc(text):
-    """Escape user-supplied text before it goes into any unsafe_allow_html=True block.
-    Prevents stored XSS via chat messages, comments, task titles/locations, filenames, etc.
-    Always wrap raw user input with this before interpolating it into an HTML string."""
+    """Escape user‑supplied text before it goes into any unsafe_allow_html=True block.
+    Prevents stored XSS via chat messages, comments, task titles/locations, filenames, etc."""
     if text is None:
         return ""
     return html_lib.escape(str(text), quote=True)
 
-# Icon-based navigation (replaces Font Awesome text-in-st.tabs, which doesn't render)
-# pip install streamlit-option-menu
-from streamlit_option_menu import option_menu
+# ----- ALLOWED FILE EXTENSIONS FOR ATTACHMENTS -----
+ALLOWED_ATTACHMENT_EXTENSIONS = [
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt',
+    'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'
+]
 
 # Optional: try to import pandas and plotly for dashboard charts
 try:
@@ -57,7 +59,7 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # -------------------------------
-# 0. SECRETS AND CONFIG (with fallback)
+# 0. SECRETS AND CONFIG (with fallback) - HARDCODED WARNING
 # -------------------------------
 if 'SUPABASE_URL' in st.secrets:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -67,6 +69,8 @@ else:
     SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
     SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
     USING_HARDCODED = True
+    # CRITICAL: In production, always use secrets.toml and enable RLS on all tables.
+    st.warning("⚠️ Using hardcoded Supabase credentials. For production, create .streamlit/secrets.toml and enable RLS on all tables.")
 
 SESSION_TIMEOUT_MINUTES = st.secrets.get("SESSION_TIMEOUT_MINUTES", 60) if 'SESSION_TIMEOUT_MINUTES' in st.secrets else 60
 MAX_UPLOAD_SIZE_MB = st.secrets.get("MAX_UPLOAD_SIZE_MB", 5) if 'MAX_UPLOAD_SIZE_MB' in st.secrets else 5
@@ -140,6 +144,16 @@ dark_css = """
     .stMetric .value { color: #e2e8f0 !important; }
     .stMetric .label { color: #94a3b8 !important; }
     .stDataFrame { color: #e2e8f0 !important; }
+    /* Overdue task badge */
+    .overdue-badge {
+        background: #dc2626;
+        color: white;
+        padding: 0.15rem 0.6rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        margin-left: 0.5rem;
+    }
 </style>
 """
 light_css = """
@@ -176,6 +190,16 @@ light_css = """
     .stMetric .value { color: #1e293b !important; }
     .stMetric .label { color: #64748b !important; }
     .stDataFrame { color: #1e293b !important; }
+    /* Overdue task badge */
+    .overdue-badge {
+        background: #dc2626;
+        color: white;
+        padding: 0.15rem 0.6rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        margin-left: 0.5rem;
+    }
 </style>
 """
 
@@ -315,6 +339,17 @@ st.markdown("""
     .status-PendingQA { background: #f59e0b; }
     .status-Blocked { background: #dc2626; }
     .status-Complete { background: #10b981; }
+    /* ----- OVERDUE BADGE ----- */
+    .overdue-badge {
+        display: inline-block;
+        background: #dc2626;
+        color: white;
+        padding: 0.15rem 0.6rem;
+        border-radius: 20px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        margin-left: 0.5rem;
+    }
     /* ----- METRIC BOXES ----- */
     .metric-box {
         background: white;
@@ -516,7 +551,7 @@ def menu_styles():
     }
 
 # -------------------------------
-# 2. PASSWORD HASHING (universal)
+# 2. PASSWORD HASHING & STRENGTH
 # -------------------------------
 def hash_password(password):
     if BCRYPT_AVAILABLE:
@@ -542,6 +577,21 @@ def verify_password(password, hashed):
         return computed == stored_hash
     except Exception:
         return False
+
+def is_strong_password(password):
+    """Check password strength: min 8 chars, at least one uppercase, one lowercase, one digit, one special."""
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long."
+    if not any(c.isupper() for c in password):
+        return False, "Password must contain at least one uppercase letter."
+    if not any(c.islower() for c in password):
+        return False, "Password must contain at least one lowercase letter."
+    if not any(c.isdigit() for c in password):
+        return False, "Password must contain at least one digit."
+    special_chars = "!@#$%^&*()_+-=[]{};:'\"\\|,.<>/?"
+    if not any(c in special_chars for c in password):
+        return False, "Password must contain at least one special character."
+    return True, ""
 
 def log_audit(user_name, action, details=None):
     if not SUPABASE_AVAILABLE:
@@ -613,7 +663,7 @@ def send_external_notifications(message):
     send_teams_notification(message)
 
 # -------------------------------
-# 5. IMAGE VALIDATION
+# 5. IMAGE & ATTACHMENT VALIDATION
 # -------------------------------
 def validate_image(file_bytes, filename):
     ext = filename.split('.')[-1].lower()
@@ -630,16 +680,8 @@ def validate_image(file_bytes, filename):
             return False, "Invalid or corrupt image file."
     return True, "Valid image."
 
-# Allowlist of extensions permitted for general task attachments (documents/records only).
-# Deliberately excludes executables, scripts, and archives to reduce malware upload risk.
-ALLOWED_ATTACHMENT_EXTENSIONS = [
-    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt',
-    'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'
-]
-
 def validate_attachment(file_bytes, filename):
-    """Validate a general task attachment: extension allowlist + size cap.
-    Mirrors validate_image() but for non-image document types."""
+    """Validate a general task attachment: extension allowlist + size cap."""
     if not filename or '.' not in filename:
         return False, "File must have a valid extension."
     ext = filename.split('.')[-1].lower()
@@ -680,6 +722,11 @@ def fetch_all_users_from_db():
 
 def register_user_to_db(username, name, role, password, email=None):
     if not SUPABASE_AVAILABLE:
+        return False
+    # Check password strength
+    strong, msg = is_strong_password(password)
+    if not strong:
+        st.error(msg)
         return False
     try:
         hashed = hash_password(password)
@@ -946,7 +993,7 @@ def fetch_photos(task_id):
     return all_photos
 
 # -------------------------------
-# 11. FILE ATTACHMENTS
+# 11. FILE ATTACHMENTS (with validation)
 # -------------------------------
 def upload_attachment(task_id, file_bytes, filename, uploaded_by):
     valid, msg = validate_attachment(file_bytes, filename)
@@ -1034,7 +1081,7 @@ def fetch_comments(task_id):
     return []
 
 # -------------------------------
-# 13. CHAT FUNCTIONS
+# 13. CHAT FUNCTIONS (with XSS escaping in display)
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -1105,7 +1152,7 @@ def delete_message(message_id, deleted_by):
             return False
 
 # -------------------------------
-# 14. ENCRYPTION HELPERS
+# 14. ENCRYPTION HELPERS (Note: this is obfuscation, not true encryption)
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -1116,6 +1163,7 @@ except ImportError:
     CRYPTO_AVAILABLE = False
 
 def derive_key(name1, name2):
+    # WARNING: This uses a fixed salt and username-derived key – it is obfuscation, not secure encryption.
     sorted_names = sorted([name1.lower(), name2.lower()])
     combined = sorted_names[0] + sorted_names[1]
     salt = b"fixed_salt_for_demo"
@@ -1491,10 +1539,17 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 25. TOP-LEVEL NAVIGATION (icon menu replaces st.tabs — FA text does not
-#     render inside st.tabs labels, so we use streamlit-option-menu instead,
-#     which supports real icons from the Bootstrap Icons set)
+# 25. TOP-LEVEL NAVIGATION (icon menu) - Using option_menu with Bootstrap icons
 # -------------------------------
+# We need to include Bootstrap icons CDN for option_menu to work.
+st.markdown('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">', unsafe_allow_html=True)
+
+try:
+    from streamlit_option_menu import option_menu
+except ImportError:
+    st.error("streamlit-option-menu not installed. Please run: pip install streamlit-option-menu")
+    st.stop()
+
 selected_section = option_menu(
     menu_title=None,
     options=["Task Dashboard", "Chat Room", "Admin Panel", "Profile", "Activity Timeline"],
@@ -1530,15 +1585,23 @@ if selected_section == "Task Dashboard":
                 for idx, task in enumerate(my_tasks):
                     priority_class = f"priority-{task['priority']}"
                     status_class = f"status-{task['status'].replace(' ', '')}"
+                    # Overdue check
+                    overdue = False
+                    if task.get('due_date'):
+                        due = datetime.fromisoformat(task['due_date'])
+                        if datetime.now() > due:
+                            overdue = True
+                    overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
                     st.markdown(f"""
-                    <div class="task-card" style="border-top: 4px solid #0f3460;">
+                    <div class="task-card" style="border-top: 4px solid { '#dc2626' if overdue else '#0f3460' };">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                             <div>
-                                <div class="task-title">#{task['id']} {esc(task['title'])}</div>
+                                <div class="task-title">#{task['id']} {esc(task['title'])} {overdue_badge}</div>
                                 <div class="task-meta">
                                     <span><i class="fas fa-map-marker-alt"></i> {esc(task['location'])}</span>
                                     <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
                                     <span><i class="fas fa-circle" style="color: #3b82f6;"></i> <span class="status-badge {status_class}">{task['status']}</span></span>
+                                    {f'<span><i class="fas fa-calendar-alt"></i> Due: {task["due_date"][:10]}</span>' if task.get('due_date') else ''}
                                 </div>
                             </div>
                         </div>
@@ -1626,14 +1689,21 @@ if selected_section == "Task Dashboard":
             else:
                 for task in unassigned:
                     priority_class = f"priority-{task['priority']}"
+                    overdue = False
+                    if task.get('due_date'):
+                        due = datetime.fromisoformat(task['due_date'])
+                        if datetime.now() > due:
+                            overdue = True
+                    overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
                     st.markdown(f"""
-                    <div class="task-card" style="border-top: 4px solid #0f3460;">
+                    <div class="task-card" style="border-top: 4px solid { '#dc2626' if overdue else '#0f3460' };">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div>
-                                <div class="task-title">#{task['id']} {esc(task['title'])}</div>
+                                <div class="task-title">#{task['id']} {esc(task['title'])} {overdue_badge}</div>
                                 <div class="task-meta">
                                     <span><i class="fas fa-map-marker-alt"></i> {esc(task['location'])}</span>
                                     <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
+                                    {f'<span><i class="fas fa-calendar-alt"></i> Due: {task["due_date"][:10]}</span>' if task.get('due_date') else ''}
                                 </div>
                             </div>
                             <div>
@@ -1662,14 +1732,21 @@ if selected_section == "Task Dashboard":
             for task in st.session_state.tasks:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
+                overdue = False
+                if task.get('due_date'):
+                    due = datetime.fromisoformat(task['due_date'])
+                    if datetime.now() > due:
+                        overdue = True
+                overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
                 st.markdown(f"""
-                <div class="custom-card" style="border-left-color: #0f3460;">
+                <div class="custom-card" style="border-left-color: { '#dc2626' if overdue else '#0f3460' };">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong>#{task['id']}: {esc(task['title'])}</strong><br>
+                            <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong><br>
                             <i class="fas fa-map-marker-alt"></i> {esc(task['location'])}
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
+                            {f'<i class="fas fa-calendar-alt"></i> {task["due_date"][:10]}' if task.get('due_date') else ''}
                         </div>
                     </div>
                 </div>
@@ -1828,14 +1905,21 @@ if selected_section == "Task Dashboard":
             for task in st.session_state.tasks:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
+                overdue = False
+                if task.get('due_date'):
+                    due = datetime.fromisoformat(task['due_date'])
+                    if datetime.now() > due:
+                        overdue = True
+                overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
                 st.markdown(f"""
-                <div class="custom-card" style="border-left-color: #0f3460;">
+                <div class="custom-card" style="border-left-color: { '#dc2626' if overdue else '#0f3460' };">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong>#{task['id']}: {esc(task['title'])}</strong><br>
+                            <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong><br>
                             <i class="fas fa-map-marker-alt"></i> {esc(task['location'])}
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
+                            {f'<i class="fas fa-calendar-alt"></i> {task["due_date"][:10]}' if task.get('due_date') else ''}
                         </div>
                     </div>
                 </div>
