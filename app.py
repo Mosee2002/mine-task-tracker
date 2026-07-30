@@ -262,6 +262,19 @@ st.markdown("""
     .stButton button i { margin-right: 0.5rem; }
     .verified-badge { display: inline-block; background: #10b981; color: white; padding: 0.15rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
     .pending-badge { display: inline-block; background: #f59e0b; color: white; padding: 0.15rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
+    .severity-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
+    .severity-Critical { background: #7f1d1d; }
+    .severity-High { background: #dc2626; }
+    .severity-Medium { background: #f59e0b; }
+    .severity-Low { background: #0f3460; }
+    .asset-status-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
+    .asset-status-Operational { background: #10b981; }
+    .asset-status-Down { background: #dc2626; }
+    .asset-status-Maintenance { background: #f59e0b; }
+    .asset-status-Retired { background: #94a3b8; }
+    .stock-badge { display: inline-block; padding: 0.15rem 0.7rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; color: white; margin-left: 0.5rem; }
+    .stock-ok { background: #10b981; }
+    .stock-low { background: #dc2626; }
     .sidebar-user { padding: 0.5rem 0; text-align: center; color: #e2e8f0; }
     .sidebar-user .user-name { font-weight: 700; font-size: 1.2rem; margin-top: 0.3rem; color: #e2e8f0; }
     .sidebar-user .user-role { font-size: 0.9rem; color: #94a3b8; }
@@ -595,7 +608,7 @@ def fetch_all_tasks():
         log_error(str(e), endpoint="fetch_tasks")
         return st.session_state.get("tasks_memory", [])
 
-def create_task(title, location, priority, loto, jsa, created_by, due_date=None, is_recurring=False, recurrence_type=None, recurrence_end_date=None):
+def create_task(title, location, priority, loto, jsa, created_by, due_date=None, is_recurring=False, recurrence_type=None, recurrence_end_date=None, asset_id=None, meter_interval=None):
     if not SUPABASE_AVAILABLE:
         tasks = st.session_state.get("tasks_memory", [])
         new_id = max([t["id"] for t in tasks], default=0) + 1
@@ -612,6 +625,8 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
             "is_recurring": is_recurring,
             "recurrence_type": recurrence_type,
             "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None,
+            "asset_id": asset_id,
+            "meter_interval": meter_interval,
             "version": 0
         }
         tasks.append(new_task)
@@ -631,6 +646,8 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
             "is_recurring": is_recurring,
             "recurrence_type": recurrence_type,
             "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None,
+            "asset_id": asset_id,
+            "meter_interval": meter_interval,
             "version": 0
         }
         res = supabase.table("tasks").insert(new_task).execute()
@@ -1078,6 +1095,307 @@ def handle_recurring_tasks():
         log_error(str(e), endpoint="handle_recurring_tasks")
 
 # -------------------------------
+# 20A. ASSET REGISTER FUNCTIONS
+# -------------------------------
+def fetch_all_assets():
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("assets_memory", [])
+    try:
+        res = supabase.table("assets").select("*").order("id", desc=False).execute()
+        if res.data:
+            return res.data
+        return st.session_state.get("assets_memory", [])
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_assets")
+        return st.session_state.get("assets_memory", [])
+
+def create_asset(name, asset_tag, category, location, manufacturer, model_number, serial_number,
+                  install_date, status, criticality, current_meter, meter_unit, created_by):
+    payload = {
+        "name": name,
+        "asset_tag": asset_tag,
+        "category": category,
+        "location": location,
+        "manufacturer": manufacturer,
+        "model_number": model_number,
+        "serial_number": serial_number,
+        "install_date": install_date.isoformat() if install_date else None,
+        "status": status,
+        "criticality": criticality,
+        "current_meter": current_meter,
+        "meter_unit": meter_unit,
+        "version": 0
+    }
+    if not SUPABASE_AVAILABLE:
+        assets = st.session_state.get("assets_memory", [])
+        new_id = max([a["id"] for a in assets], default=0) + 1
+        payload["id"] = new_id
+        assets.append(payload)
+        st.session_state.assets_memory = assets
+        log_audit(created_by, "asset_create_memory", {"asset_id": new_id})
+        return payload
+    try:
+        res = supabase.table("assets").insert(payload).execute()
+        if res.data:
+            asset = res.data[0]
+            log_audit(created_by, "asset_create", {"asset_id": asset["id"], "name": name})
+            return asset
+    except Exception as e:
+        log_error(str(e), details={"name": name}, endpoint="create_asset")
+        return None
+    return None
+
+def update_asset(asset_id, updates, updated_by):
+    if not SUPABASE_AVAILABLE:
+        for a in st.session_state.get("assets_memory", []):
+            if a["id"] == asset_id:
+                a.update(updates)
+                log_audit(updated_by, "asset_update_memory", {"asset_id": asset_id, "new": updates})
+                return True
+        return False
+    try:
+        supabase.table("assets").update(updates).eq("id", asset_id).execute()
+        log_audit(updated_by, "asset_update", {"asset_id": asset_id, "new": updates})
+        return True
+    except Exception as e:
+        log_error(str(e), details={"asset_id": asset_id, "updates": updates}, endpoint="update_asset")
+        return False
+
+def delete_asset(asset_id, deleted_by):
+    if not SUPABASE_AVAILABLE:
+        st.session_state.assets_memory = [a for a in st.session_state.get("assets_memory", []) if a["id"] != asset_id]
+        log_audit(deleted_by, "asset_delete_memory", {"asset_id": asset_id})
+        return True
+    try:
+        supabase.table("assets").delete().eq("id", asset_id).execute()
+        log_audit(deleted_by, "asset_delete", {"asset_id": asset_id})
+        return True
+    except Exception as e:
+        log_error(str(e), details={"asset_id": asset_id}, endpoint="delete_asset")
+        return False
+
+# -------------------------------
+# 20B. INVENTORY / PARTS FUNCTIONS
+# -------------------------------
+def fetch_all_parts():
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("inventory_memory", [])
+    try:
+        res = supabase.table("inventory_parts").select("*").order("id", desc=False).execute()
+        if res.data:
+            return res.data
+        return st.session_state.get("inventory_memory", [])
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_parts")
+        return st.session_state.get("inventory_memory", [])
+
+def create_part(part_name, part_number, category, quantity_on_hand, reorder_point, reorder_qty,
+                 unit_cost, supplier, bin_location, created_by):
+    payload = {
+        "part_name": part_name,
+        "part_number": part_number,
+        "category": category,
+        "quantity_on_hand": quantity_on_hand,
+        "reorder_point": reorder_point,
+        "reorder_qty": reorder_qty,
+        "unit_cost": unit_cost,
+        "supplier": supplier,
+        "bin_location": bin_location,
+    }
+    if not SUPABASE_AVAILABLE:
+        parts = st.session_state.get("inventory_memory", [])
+        new_id = max([p["id"] for p in parts], default=0) + 1
+        payload["id"] = new_id
+        parts.append(payload)
+        st.session_state.inventory_memory = parts
+        log_audit(created_by, "part_create_memory", {"part_id": new_id})
+        return payload
+    try:
+        res = supabase.table("inventory_parts").insert(payload).execute()
+        if res.data:
+            part = res.data[0]
+            log_audit(created_by, "part_create", {"part_id": part["id"], "name": part_name})
+            return part
+    except Exception as e:
+        log_error(str(e), details={"part_name": part_name}, endpoint="create_part")
+        return None
+    return None
+
+def adjust_part_quantity(part_id, delta, adjusted_by, reason="manual adjustment"):
+    """delta can be negative (consumption) or positive (restock)."""
+    if not SUPABASE_AVAILABLE:
+        for p in st.session_state.get("inventory_memory", []):
+            if p["id"] == part_id:
+                p["quantity_on_hand"] = max(0, p.get("quantity_on_hand", 0) + delta)
+                log_audit(adjusted_by, "part_adjust_memory", {"part_id": part_id, "delta": delta, "reason": reason})
+                return True
+        return False
+    try:
+        current = supabase.table("inventory_parts").select("quantity_on_hand").eq("id", part_id).execute()
+        if not current.data:
+            return False
+        new_qty = max(0, current.data[0]["quantity_on_hand"] + delta)
+        supabase.table("inventory_parts").update({"quantity_on_hand": new_qty}).eq("id", part_id).execute()
+        log_audit(adjusted_by, "part_adjust", {"part_id": part_id, "delta": delta, "reason": reason})
+        return True
+    except Exception as e:
+        log_error(str(e), details={"part_id": part_id, "delta": delta}, endpoint="adjust_part_quantity")
+        return False
+
+def delete_part(part_id, deleted_by):
+    if not SUPABASE_AVAILABLE:
+        st.session_state.inventory_memory = [p for p in st.session_state.get("inventory_memory", []) if p["id"] != part_id]
+        log_audit(deleted_by, "part_delete_memory", {"part_id": part_id})
+        return True
+    try:
+        supabase.table("inventory_parts").delete().eq("id", part_id).execute()
+        log_audit(deleted_by, "part_delete", {"part_id": part_id})
+        return True
+    except Exception as e:
+        log_error(str(e), details={"part_id": part_id}, endpoint="delete_part")
+        return False
+
+def link_part_to_task(task_id, part_id, quantity_used, used_by):
+    """Records parts consumption against a task/work order and decrements stock."""
+    payload = {
+        "task_id": task_id,
+        "part_id": part_id,
+        "quantity_used": quantity_used,
+        "used_by": used_by,
+    }
+    if not SUPABASE_AVAILABLE:
+        st.session_state.setdefault("task_parts_memory", []).append(payload)
+    else:
+        try:
+            supabase.table("task_parts").insert(payload).execute()
+        except Exception as e:
+            log_error(str(e), details=payload, endpoint="link_part_to_task")
+            return False
+    adjust_part_quantity(part_id, -abs(quantity_used), used_by, reason=f"used on task #{task_id}")
+    log_task_activity(task_id, used_by, "part_used", {"part_id": part_id, "quantity": quantity_used})
+    return True
+
+def fetch_task_parts(task_id):
+    if not SUPABASE_AVAILABLE:
+        return [tp for tp in st.session_state.get("task_parts_memory", []) if tp["task_id"] == task_id]
+    try:
+        res = supabase.table("task_parts").select("*").eq("task_id", task_id).execute()
+        if res.data:
+            return res.data
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_task_parts")
+    return []
+
+# -------------------------------
+# 20C. INCIDENT / SAFETY REPORTING FUNCTIONS
+# -------------------------------
+def fetch_all_incidents():
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("incidents_memory", [])
+    try:
+        res = supabase.table("incidents").select("*").order("id", desc=True).execute()
+        if res.data:
+            return res.data
+        return st.session_state.get("incidents_memory", [])
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_incidents")
+        return st.session_state.get("incidents_memory", [])
+
+def create_incident(incident_type, severity, location, description, reported_by, asset_id=None, witnesses=None, immediate_action=None):
+    payload = {
+        "incident_type": incident_type,
+        "severity": severity,
+        "location": location,
+        "description": description,
+        "reported_by": reported_by,
+        "asset_id": asset_id,
+        "witnesses": witnesses,
+        "immediate_action": immediate_action,
+        "status": "Open",
+        "root_cause": None,
+        "corrective_action": None,
+    }
+    if not SUPABASE_AVAILABLE:
+        incidents = st.session_state.get("incidents_memory", [])
+        new_id = max([i["id"] for i in incidents], default=0) + 1
+        payload["id"] = new_id
+        payload["created_at"] = datetime.now().isoformat()
+        incidents.append(payload)
+        st.session_state.incidents_memory = incidents
+        log_audit(reported_by, "incident_report_memory", {"incident_id": new_id, "severity": severity})
+        return payload
+    try:
+        res = supabase.table("incidents").insert(payload).execute()
+        if res.data:
+            incident = res.data[0]
+            log_audit(reported_by, "incident_report", {"incident_id": incident["id"], "severity": severity})
+            if severity in ("Critical", "High"):
+                send_external_notifications(f"⚠️ {severity} incident reported by {reported_by} at {location}: {incident_type}")
+            return incident
+    except Exception as e:
+        log_error(str(e), details={"incident_type": incident_type}, endpoint="create_incident")
+        return None
+    return None
+
+def update_incident(incident_id, updates, updated_by):
+    if not SUPABASE_AVAILABLE:
+        for i in st.session_state.get("incidents_memory", []):
+            if i["id"] == incident_id:
+                i.update(updates)
+                log_audit(updated_by, "incident_update_memory", {"incident_id": incident_id, "new": updates})
+                return True
+        return False
+    try:
+        supabase.table("incidents").update(updates).eq("id", incident_id).execute()
+        log_audit(updated_by, "incident_update", {"incident_id": incident_id, "new": updates})
+        return True
+    except Exception as e:
+        log_error(str(e), details={"incident_id": incident_id, "updates": updates}, endpoint="update_incident")
+        return False
+
+# -------------------------------
+# 20D. KPI / ANALYTICS HELPERS
+# -------------------------------
+def compute_mttr_hours(tasks):
+    """Mean Time To Repair: average hours between task creation and completion, for Complete tasks with timestamps."""
+    durations = []
+    for t in tasks:
+        if t.get('status') == 'Complete' and t.get('created_at') and t.get('due_date'):
+            try:
+                created = datetime.fromisoformat(str(t['created_at']).replace('Z', '+00:00').split('+')[0])
+                completed_ref = datetime.fromisoformat(str(t['due_date']).replace('Z', '+00:00').split('+')[0])
+                delta = (completed_ref - created).total_seconds() / 3600.0
+                if delta >= 0:
+                    durations.append(delta)
+            except Exception:
+                continue
+    if not durations:
+        return None
+    return sum(durations) / len(durations)
+
+def compute_pm_compliance(tasks):
+    """Percentage of recurring/PM tasks completed on or before their due date."""
+    pm_tasks = [t for t in tasks if t.get('is_recurring')]
+    if not pm_tasks:
+        return None
+    on_time = 0
+    for t in pm_tasks:
+        if t.get('status') == 'Complete':
+            on_time += 1
+    return round((on_time / len(pm_tasks)) * 100, 1)
+
+def compute_asset_downtime_ranking(tasks, assets):
+    """Ranks assets by number of associated maintenance tasks (proxy for downtime frequency)."""
+    counts = {}
+    for t in tasks:
+        aid = t.get('asset_id')
+        if aid:
+            counts[aid] = counts.get(aid, 0) + 1
+    ranked = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    asset_lookup = {a['id']: a['name'] for a in assets}
+    return [(asset_lookup.get(aid, f"Asset #{aid}"), cnt) for aid, cnt in ranked]
+
+# -------------------------------
 # 21. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
@@ -1114,6 +1432,14 @@ if 'notifications_cache' not in st.session_state:
     st.session_state.notifications_cache = []
 if 'oauth_token' not in st.session_state:
     st.session_state.oauth_token = None
+if 'assets_memory' not in st.session_state:
+    st.session_state.assets_memory = []
+if 'inventory_memory' not in st.session_state:
+    st.session_state.inventory_memory = []
+if 'incidents_memory' not in st.session_state:
+    st.session_state.incidents_memory = []
+if 'task_parts_memory' not in st.session_state:
+    st.session_state.task_parts_memory = []
 
 # -------------------------------
 # 22. SESSION TIMEOUT CHECK
@@ -1416,14 +1742,25 @@ except ImportError:
     st.error("streamlit-option-menu not installed. Please run: pip install streamlit-option-menu")
     st.stop()
 
+nav_options = ["Task Dashboard", "Asset Register", "Inventory", "Incident Reports", "Chat Room", "Admin Panel", "Profile", "Activity Timeline"]
+nav_icons = ["list-task", "hdd-stack-fill", "box-seam-fill", "exclamation-triangle-fill", "chat-dots-fill", "gear-fill", "person-circle", "clock-history"]
+
 selected_section = option_menu(
     menu_title=None,
-    options=["Task Dashboard", "Chat Room", "Admin Panel", "Profile", "Activity Timeline"],
-    icons=["list-task", "chat-dots-fill", "gear-fill", "person-circle", "clock-history"],
+    options=nav_options,
+    icons=nav_icons,
     orientation="horizontal",
     default_index=0,
     styles=menu_styles(),
 )
+
+# Load shared datasets used across the new modules
+db_assets = fetch_all_assets()
+st.session_state.assets = db_assets if db_assets else st.session_state.assets_memory
+db_parts = fetch_all_parts()
+st.session_state.parts = db_parts if db_parts else st.session_state.inventory_memory
+db_incidents = fetch_all_incidents()
+st.session_state.incidents = db_incidents if db_incidents else st.session_state.incidents_memory
 
 # ---- TASK DASHBOARD ----
 if selected_section == "Task Dashboard":
@@ -1686,20 +2023,28 @@ if selected_section == "Task Dashboard":
                 location = st.text_input("Location / Area *", max_chars=100)
                 priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
                 due_date = st.date_input("Due Date", value=datetime.now() + timedelta(days=7))
-                is_recurring = st.checkbox("Recurring Task")
-                recurrence_type = st.selectbox("Recurrence Type", ["daily", "weekly", "monthly"], disabled=not is_recurring)
+                asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in st.session_state.get("assets", [])]
+                selected_asset = st.selectbox("Linked Asset (optional)", asset_options)
+                is_recurring = st.checkbox("Recurring Task (Preventive Maintenance)")
+                recurrence_type = st.selectbox("Recurrence Type", ["daily", "weekly", "monthly", "meter-based"], disabled=not is_recurring)
                 recurrence_end_date = st.date_input("End Date (optional)", value=datetime.now() + timedelta(days=30), disabled=not is_recurring)
+                meter_interval = st.number_input("Meter Interval (e.g. every N hours, only if meter-based)", min_value=0, value=0, disabled=not is_recurring)
                 loto = st.checkbox("Requires LOTO")
                 jsa = st.checkbox("Requires JSA")
                 submitted = st.form_submit_button('➕ Create Work Ticket')
                 if submitted:
                     if title and location:
+                        asset_id = None
+                        if selected_asset != "None":
+                            asset_id = int(selected_asset.split(" ")[0].replace("#", ""))
                         new_task = create_task(
                             title, location, priority, loto, jsa, full_name,
                             due_date=due_date,
                             is_recurring=is_recurring,
                             recurrence_type=recurrence_type if is_recurring else None,
-                            recurrence_end_date=recurrence_end_date if is_recurring else None
+                            recurrence_end_date=recurrence_end_date if is_recurring else None,
+                            asset_id=asset_id,
+                            meter_interval=meter_interval if (is_recurring and recurrence_type == "meter-based") else None
                         )
                         if new_task:
                             st.success(f"Task #{new_task['id']} created!")
@@ -1712,6 +2057,17 @@ if selected_section == "Task Dashboard":
         elif supervisor_sub == "Dashboard":
             st.markdown("### 📊 Task Analytics")
             tasks = st.session_state.tasks
+            st.markdown("#### 🎯 Key Performance Indicators")
+            kcol1, kcol2, kcol3, kcol4 = st.columns(4)
+            mttr = compute_mttr_hours(tasks)
+            kcol1.metric("MTTR (avg hrs)", f"{mttr:.1f}" if mttr is not None else "N/A")
+            pm_compliance = compute_pm_compliance(tasks)
+            kcol2.metric("PM Compliance", f"{pm_compliance}%" if pm_compliance is not None else "N/A")
+            open_incidents = sum(1 for i in st.session_state.get("incidents", []) if i.get("status") in ("Open", "Investigating"))
+            kcol3.metric("Open Incidents", open_incidents)
+            low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
+            kcol4.metric("Low Stock Parts", low_stock_count)
+            st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
                 fig1 = px.pie(df, names='status', title='Tasks by Status')
@@ -1754,6 +2110,16 @@ if selected_section == "Task Dashboard":
             col3.metric("In Progress", in_progress)
             col4.metric("Unassigned", unassigned)
             col5.metric("Blocked", blocked)
+
+            acol1, acol2, acol3, acol4 = st.columns(4)
+            acol1.metric("Registered Assets", len(st.session_state.get("assets", [])))
+            down_assets = sum(1 for a in st.session_state.get("assets", []) if a.get('status') == 'Down')
+            acol2.metric("Assets Down", down_assets)
+            low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
+            acol3.metric("Low Stock Parts", low_stock_count)
+            open_incidents = sum(1 for i in st.session_state.get("incidents", []) if i.get("status") in ("Open", "Investigating"))
+            acol4.metric("Open Incidents", open_incidents)
+
             st.markdown("### Recent Broadcasts")
             if st.session_state.broadcast_messages:
                 for msg in reversed(st.session_state.broadcast_messages[-3:]):
@@ -1868,6 +2234,17 @@ if selected_section == "Task Dashboard":
         elif superintendent_sub == "Dashboard":
             st.markdown("### 📊 Task Analytics")
             tasks = st.session_state.tasks
+            st.markdown("#### 🎯 Key Performance Indicators")
+            kcol1, kcol2, kcol3, kcol4 = st.columns(4)
+            mttr = compute_mttr_hours(tasks)
+            kcol1.metric("MTTR (avg hrs)", f"{mttr:.1f}" if mttr is not None else "N/A")
+            pm_compliance = compute_pm_compliance(tasks)
+            kcol2.metric("PM Compliance", f"{pm_compliance}%" if pm_compliance is not None else "N/A")
+            open_incidents = sum(1 for i in st.session_state.get("incidents", []) if i.get("status") in ("Open", "Investigating"))
+            kcol3.metric("Open Incidents", open_incidents)
+            low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
+            kcol4.metric("Low Stock Parts", low_stock_count)
+            st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
                 fig1 = px.pie(df, names='status', title='Tasks by Status')
@@ -1934,6 +2311,315 @@ if selected_section == "Task Dashboard":
                             st.error("Deactivation failed.")
             else:
                 st.info("No approved users yet.")
+
+# ---- ASSET REGISTER ----
+elif selected_section == "Asset Register":
+    st.subheader("🏭 Asset Register")
+    can_manage_assets = role in ["supervisor", "superintendent"]
+
+    if can_manage_assets:
+        asset_sub = option_menu(
+            menu_title=None,
+            options=["All Assets", "Add Asset"],
+            icons=["hdd-stack-fill", "plus-circle"],
+            orientation="horizontal",
+            default_index=0,
+            styles=menu_styles(),
+        )
+    else:
+        asset_sub = "All Assets"
+
+    if asset_sub == "All Assets":
+        assets = st.session_state.assets
+        if not assets:
+            st.info("No assets registered yet.")
+        else:
+            search = st.text_input("🔍 Search by name, tag, or location", "")
+            filtered = assets
+            if search:
+                s = search.lower()
+                filtered = [a for a in assets if s in str(a.get('name', '')).lower()
+                            or s in str(a.get('asset_tag', '')).lower()
+                            or s in str(a.get('location', '')).lower()]
+            for a in filtered:
+                status_class = f"asset-status-{a.get('status', 'Operational').replace(' ', '')}"
+                st.markdown(f"""
+                <div class="custom-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>#{a['id']}: {esc(a.get('name'))}</strong>
+                            <span class="asset-status-badge {status_class}">{esc(a.get('status', 'Operational'))}</span>
+                            <span class="priority-badge priority-{esc(a.get('criticality', 'Medium'))}">{esc(a.get('criticality', 'Medium'))}</span><br>
+                            <i class="fas fa-tag"></i> Tag: {esc(a.get('asset_tag', 'N/A'))} &nbsp;
+                            <i class="fas fa-map-marker-alt"></i> {esc(a.get('location', 'N/A'))} &nbsp;
+                            <i class="fas fa-industry"></i> {esc(a.get('manufacturer', 'N/A'))} {esc(a.get('model_number', ''))} &nbsp;
+                            <i class="fas fa-tachometer-alt"></i> Meter: {a.get('current_meter', 0)} {esc(a.get('meter_unit', ''))}
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                if can_manage_assets:
+                    with st.expander(f"⚙️ Manage #{a['id']} {a.get('name')}"):
+                        cols = st.columns(4)
+                        new_status = cols[0].selectbox("Status", ["Operational", "Down", "Maintenance", "Retired"],
+                                                        index=["Operational", "Down", "Maintenance", "Retired"].index(a.get('status', 'Operational')) if a.get('status') in ["Operational", "Down", "Maintenance", "Retired"] else 0,
+                                                        key=f"asset_stat_{a['id']}")
+                        new_meter = cols[1].number_input("Current Meter Reading", value=float(a.get('current_meter', 0) or 0), key=f"asset_meter_{a['id']}")
+                        if cols[2].button("💾 Save", key=f"asset_save_{a['id']}"):
+                            update_asset(a['id'], {"status": new_status, "current_meter": new_meter}, full_name)
+                            st.success("Asset updated.")
+                            st.rerun()
+                        if role == "superintendent" and cols[3].button("🗑️ Delete", key=f"asset_del_{a['id']}"):
+                            delete_asset(a['id'], full_name)
+                            st.rerun()
+                        related_tasks = [t for t in st.session_state.tasks if t.get('asset_id') == a['id']]
+                        st.caption(f"📋 {len(related_tasks)} maintenance task(s) linked to this asset.")
+                        meter_tasks = [t for t in related_tasks if t.get('meter_interval')]
+                        for mt in meter_tasks:
+                            interval = mt.get('meter_interval', 0)
+                            current = a.get('current_meter', 0) or 0
+                            if interval and current and (current % interval) >= (interval * 0.9):
+                                st.warning(f"⏰ '{mt['title']}' is meter-based (every {interval} {a.get('meter_unit', '')}) and is approaching its next service interval.")
+
+    # PM compliance quick view for managers
+    if can_manage_assets and st.session_state.assets:
+        st.markdown("---")
+        st.markdown("#### 📊 Asset Task Frequency (proxy for downtime)")
+        ranking = compute_asset_downtime_ranking(st.session_state.tasks, st.session_state.assets)
+        if ranking:
+            for name, count in ranking[:10]:
+                st.write(f"- **{esc(name)}**: {count} maintenance task(s)")
+        else:
+            st.caption("No tasks linked to assets yet.")
+
+    elif asset_sub == "Add Asset":
+        st.markdown("### Register New Asset")
+        with st.form("new_asset_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                name = st.text_input("Asset Name *", max_chars=100)
+                asset_tag = st.text_input("Asset Tag / ID *", max_chars=50)
+                category = st.selectbox("Category", ["Heavy Equipment", "Fixed Plant", "Vehicle", "Electrical", "Hydraulic", "Conveyor", "Pump", "Other"])
+                location = st.text_input("Location / Area *", max_chars=100)
+                criticality = st.selectbox("Criticality", ["Low", "Medium", "High", "Critical"])
+            with c2:
+                manufacturer = st.text_input("Manufacturer", max_chars=100)
+                model_number = st.text_input("Model Number", max_chars=100)
+                serial_number = st.text_input("Serial Number", max_chars=100)
+                install_date = st.date_input("Install Date", value=datetime.now())
+                status = st.selectbox("Status", ["Operational", "Down", "Maintenance", "Retired"])
+            colm1, colm2 = st.columns(2)
+            current_meter = colm1.number_input("Current Meter Reading", value=0.0)
+            meter_unit = colm2.selectbox("Meter Unit", ["hours", "km", "cycles", "N/A"])
+            submitted = st.form_submit_button("➕ Register Asset")
+            if submitted:
+                if name and asset_tag and location:
+                    new_asset = create_asset(name, asset_tag, category, location, manufacturer, model_number,
+                                              serial_number, install_date, status, criticality,
+                                              current_meter, meter_unit, full_name)
+                    if new_asset:
+                        st.success(f"Asset '{name}' registered!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to register asset.")
+                else:
+                    st.error("Asset Name, Tag, and Location are required.")
+
+# ---- INVENTORY ----
+elif selected_section == "Inventory":
+    st.subheader("📦 Inventory & Parts Management")
+    can_manage_inventory = role in ["supervisor", "superintendent"]
+
+    if can_manage_inventory:
+        inv_sub = option_menu(
+            menu_title=None,
+            options=["Stock Levels", "Add Part", "Record Usage"],
+            icons=["box-seam-fill", "plus-circle", "dash-circle"],
+            orientation="horizontal",
+            default_index=0,
+            styles=menu_styles(),
+        )
+    else:
+        inv_sub = "Stock Levels"
+
+    parts = st.session_state.parts
+
+    if inv_sub == "Stock Levels":
+        low_stock = [p for p in parts if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0)]
+        if low_stock:
+            st.warning(f"⚠️ {len(low_stock)} part(s) at or below reorder point.")
+        if not parts:
+            st.info("No parts in inventory yet.")
+        for p in parts:
+            is_low = p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0)
+            stock_class = "stock-low" if is_low else "stock-ok"
+            stock_label = "LOW STOCK" if is_low else "IN STOCK"
+            st.markdown(f"""
+            <div class="custom-card">
+                <strong>{esc(p.get('part_name'))}</strong> ({esc(p.get('part_number', 'N/A'))})
+                <span class="stock-badge {stock_class}">{stock_label}</span><br>
+                <i class="fas fa-cubes"></i> Qty on hand: {p.get('quantity_on_hand', 0)} &nbsp;
+                <i class="fas fa-bell"></i> Reorder at: {p.get('reorder_point', 0)} &nbsp;
+                <i class="fas fa-map-marker-alt"></i> Bin: {esc(p.get('bin_location', 'N/A'))} &nbsp;
+                <i class="fas fa-truck"></i> Supplier: {esc(p.get('supplier', 'N/A'))} &nbsp;
+                <i class="fas fa-dollar-sign"></i> Unit cost: {p.get('unit_cost', 0)}
+            </div>
+            """, unsafe_allow_html=True)
+            if can_manage_inventory:
+                cols = st.columns(4)
+                restock_qty = cols[0].number_input("Restock qty", min_value=0, value=0, key=f"restock_{p['id']}")
+                if cols[1].button("📥 Restock", key=f"restock_btn_{p['id']}"):
+                    if restock_qty > 0:
+                        adjust_part_quantity(p['id'], restock_qty, full_name, reason="restock")
+                        st.success("Stock updated.")
+                        st.rerun()
+                if role == "superintendent" and cols[2].button("🗑️ Delete", key=f"part_del_{p['id']}"):
+                    delete_part(p['id'], full_name)
+                    st.rerun()
+
+    elif inv_sub == "Add Part":
+        st.markdown("### Add New Part to Inventory")
+        with st.form("new_part_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                part_name = st.text_input("Part Name *", max_chars=100)
+                part_number = st.text_input("Part Number", max_chars=50)
+                category = st.selectbox("Category", ["Bearings", "Belts", "Filters", "Hydraulic", "Electrical", "Fasteners", "Seals", "Lubricants", "Other"])
+                supplier = st.text_input("Supplier", max_chars=100)
+            with c2:
+                quantity_on_hand = st.number_input("Starting Quantity", min_value=0, value=0)
+                reorder_point = st.number_input("Reorder Point", min_value=0, value=5)
+                reorder_qty = st.number_input("Reorder Quantity", min_value=0, value=10)
+                unit_cost = st.number_input("Unit Cost", min_value=0.0, value=0.0, format="%.2f")
+            bin_location = st.text_input("Bin / Shelf Location", max_chars=50)
+            submitted = st.form_submit_button("➕ Add Part")
+            if submitted:
+                if part_name:
+                    new_part = create_part(part_name, part_number, category, quantity_on_hand, reorder_point,
+                                            reorder_qty, unit_cost, supplier, bin_location, full_name)
+                    if new_part:
+                        st.success(f"Part '{part_name}' added to inventory!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to add part.")
+                else:
+                    st.error("Part Name is required.")
+
+    elif inv_sub == "Record Usage":
+        st.markdown("### Record Parts Used on a Task")
+        if not parts:
+            st.info("No parts available. Add parts to inventory first.")
+        elif not st.session_state.tasks:
+            st.info("No tasks available to link parts to.")
+        else:
+            with st.form("use_part_form"):
+                part_names = {f"{p['part_name']} ({p.get('part_number', 'N/A')}) - {p.get('quantity_on_hand', 0)} in stock": p['id'] for p in parts}
+                task_titles = {f"#{t['id']} {t['title']}": t['id'] for t in st.session_state.tasks}
+                selected_part_label = st.selectbox("Part", list(part_names.keys()))
+                selected_task_label = st.selectbox("Task / Work Order", list(task_titles.keys()))
+                qty_used = st.number_input("Quantity Used", min_value=1, value=1)
+                submitted = st.form_submit_button("✅ Record Usage")
+                if submitted:
+                    part_id = part_names[selected_part_label]
+                    task_id = task_titles[selected_task_label]
+                    if link_part_to_task(task_id, part_id, qty_used, full_name):
+                        st.success("Parts usage recorded and stock updated.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to record usage.")
+
+# ---- INCIDENT REPORTS ----
+elif selected_section == "Incident Reports":
+    st.subheader("🚨 Incident & Safety Reporting")
+    can_manage_incidents = role in ["supervisor", "superintendent"]
+
+    if can_manage_incidents:
+        inc_sub = option_menu(
+            menu_title=None,
+            options=["All Incidents", "Report Incident"],
+            icons=["exclamation-triangle-fill", "plus-circle"],
+            orientation="horizontal",
+            default_index=0,
+            styles=menu_styles(),
+        )
+    else:
+        inc_sub = option_menu(
+            menu_title=None,
+            options=["My Reports", "Report Incident"],
+            icons=["file-earmark-text", "plus-circle"],
+            orientation="horizontal",
+            default_index=0,
+            styles=menu_styles(),
+        )
+
+    incidents = st.session_state.incidents
+
+    if inc_sub in ("All Incidents", "My Reports"):
+        visible = incidents if can_manage_incidents else [i for i in incidents if i.get('reported_by') == full_name]
+        if not visible:
+            st.info("No incidents reported yet.")
+        for inc in visible:
+            sev_class = f"severity-{inc.get('severity', 'Low')}"
+            st.markdown(f"""
+            <div class="custom-card" style="border-left-color: #dc2626;">
+                <strong>#{inc['id']}: {esc(inc.get('incident_type'))}</strong>
+                <span class="severity-badge {sev_class}">{esc(inc.get('severity', 'Low'))}</span>
+                <span class="status-badge status-{esc(inc.get('status', 'Open')).replace(' ', '')}">{esc(inc.get('status', 'Open'))}</span><br>
+                <i class="fas fa-map-marker-alt"></i> {esc(inc.get('location'))} &nbsp;
+                <i class="fas fa-user"></i> Reported by {esc(inc.get('reported_by'))} &nbsp;
+                <i class="fas fa-clock"></i> {str(inc.get('created_at', ''))[:16]}<br>
+                <p>{esc(inc.get('description'))}</p>
+                {f"<p><i>Immediate action:</i> {esc(inc.get('immediate_action'))}</p>" if inc.get('immediate_action') else ""}
+                {f"<p><i>Root cause:</i> {esc(inc.get('root_cause'))}</p>" if inc.get('root_cause') else ""}
+                {f"<p><i>Corrective action:</i> {esc(inc.get('corrective_action'))}</p>" if inc.get('corrective_action') else ""}
+            </div>
+            """, unsafe_allow_html=True)
+            if can_manage_incidents:
+                with st.expander(f"⚙️ Investigate #{inc['id']}"):
+                    new_status = st.selectbox("Status", ["Open", "Investigating", "Resolved", "Closed"],
+                                               index=["Open", "Investigating", "Resolved", "Closed"].index(inc.get('status', 'Open')) if inc.get('status') in ["Open", "Investigating", "Resolved", "Closed"] else 0,
+                                               key=f"inc_stat_{inc['id']}")
+                    root_cause = st.text_area("Root Cause", value=inc.get('root_cause') or '', key=f"inc_root_{inc['id']}")
+                    corrective_action = st.text_area("Corrective Action", value=inc.get('corrective_action') or '', key=f"inc_corr_{inc['id']}")
+                    if st.button("💾 Save Investigation", key=f"inc_save_{inc['id']}"):
+                        update_incident(inc['id'], {
+                            "status": new_status,
+                            "root_cause": root_cause,
+                            "corrective_action": corrective_action
+                        }, full_name)
+                        st.success("Incident updated.")
+                        st.rerun()
+
+    elif inc_sub == "Report Incident":
+        st.markdown("### Submit New Incident Report")
+        st.caption("Report near-misses, injuries, and hazards as soon as possible. All Critical/High severity reports notify supervisors immediately.")
+        with st.form("new_incident_form"):
+            incident_type = st.selectbox("Incident Type", ["Near Miss", "Injury", "Property Damage", "Equipment Failure", "Environmental", "Hazard Observation", "Other"])
+            severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"])
+            location = st.text_input("Location / Area *", max_chars=100)
+            assets_list = st.session_state.get("assets", [])
+            asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in assets_list]
+            selected_asset = st.selectbox("Related Asset (optional)", asset_options)
+            description = st.text_area("Description *", placeholder="What happened? Be specific.")
+            immediate_action = st.text_area("Immediate Action Taken", placeholder="What was done right away?")
+            witnesses = st.text_input("Witnesses (optional)", max_chars=200)
+            submitted = st.form_submit_button("🚨 Submit Report")
+            if submitted:
+                if location and description:
+                    asset_id = None
+                    if selected_asset != "None":
+                        asset_id = int(selected_asset.split(" ")[0].replace("#", ""))
+                    new_incident = create_incident(incident_type, severity, location, description, full_name,
+                                                    asset_id=asset_id, witnesses=witnesses, immediate_action=immediate_action)
+                    if new_incident:
+                        st.success("Incident reported. Thank you for keeping the site safe.")
+                        if severity in ("Critical", "High"):
+                            st.warning("This has been flagged for immediate supervisor attention.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to submit report.")
+                else:
+                    st.error("Location and Description are required.")
 
 # ---- CHAT ROOM ----
 elif selected_section == "Chat Room":
@@ -2170,6 +2856,6 @@ elif selected_section == "Activity Timeline":
 # Footer
 st.markdown("""
 <div class="footer">
-    <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker v2.0 &nbsp;|&nbsp; Powered by Streamlit & Supabase
+    <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker v3.0 — CMMS Edition &nbsp;|&nbsp; Asset Register · Inventory · Incident Reporting · KPI Analytics &nbsp;|&nbsp; Powered by Streamlit & Supabase
 </div>
 """, unsafe_allow_html=True)
