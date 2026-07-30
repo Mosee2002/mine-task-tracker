@@ -1058,27 +1058,93 @@ def validate_attachment(file_bytes, filename):
 # 9. USER FUNCTIONS
 # -------------------------------
 def get_default_users():
+    """Demo accounts — ONLY available when there is no database.
+
+    SECURITY: these previously loaded in production too, which meant
+    anyone who could reach the app could log in as Superintendent with
+    the publicly-known password below and get delete rights, user
+    management, and the audit log. They are now hard-gated on
+    SUPABASE_AVAILABLE being False, so they cannot exist once a real
+    database is connected.
+    """
+    if SUPABASE_AVAILABLE:
+        return []
     return [
-        {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None, "is_approved": True},
-        {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None, "is_approved": True},
-        {"username": "worker1", "full_name": "John Doe", "role": "Worker", "password_hash": hash_password("worker123"), "email": "worker1@example.com", "avatar_url": None, "is_approved": True}
+        {"username": "supervisor1", "full_name": "Demo Supervisor", "role": "Supervisor",
+         "password_hash": hash_password("super789"), "email": None,
+         "avatar_url": None, "is_approved": True, "_is_demo": True},
+        {"username": "superintendent1", "full_name": "Demo Superintendent", "role": "Superintendent",
+         "password_hash": hash_password("boss000"), "email": None,
+         "avatar_url": None, "is_approved": True, "_is_demo": True},
+        {"username": "worker1", "full_name": "Demo Worker", "role": "Worker",
+         "password_hash": hash_password("worker123"), "email": None,
+         "avatar_url": None, "is_approved": True, "_is_demo": True},
     ]
 
+
 def fetch_all_users_from_db():
-    default_users = get_default_users()
+    """Return real users. Demo accounts appear only in demo mode.
+
+    SECURITY: the previous version let hardcoded accounts SHADOW real
+    ones — a genuine 'superintendent1' in the database was discarded in
+    favour of the built-in copy with the known password. Database
+    records now always win.
+    """
     if not SUPABASE_AVAILABLE:
-        return default_users
+        return get_default_users()
+
     try:
         res = supabase.table("facility_users").select("*").execute()
-        db_users = res.data if res.data else []
+        return res.data if res.data else []
     except Exception as e:
         log_error(str(e), endpoint="fetch_users")
-        db_users = []
-    existing_usernames = {u["username"] for u in default_users}
-    for db_user in db_users:
-        if db_user["username"] not in existing_usernames:
-            default_users.append(db_user)
-    return default_users
+        # Fail CLOSED. Returning demo accounts here would reintroduce the
+        # known-password login the moment the database has a hiccup.
+        return []
+
+
+def has_any_admin():
+    """True if at least one approved Superintendent exists in the DB.
+    Used to gate first-run setup."""
+    if not SUPABASE_AVAILABLE:
+        return True
+    try:
+        res = (supabase.table("facility_users").select("username")
+               .eq("role", "Superintendent").eq("is_approved", True).limit(1).execute())
+        return bool(res.data)
+    except Exception:
+        # Fail closed: assume an admin exists rather than opening the
+        # bootstrap form on a transient database error.
+        return True
+
+
+def create_first_admin(username, full_name, password, email=None):
+    """One-time bootstrap: create the initial Superintendent.
+
+    Only callable while no approved Superintendent exists. Re-checked
+    server-side here so the gate cannot be bypassed by manipulating the
+    UI state."""
+    if not SUPABASE_AVAILABLE:
+        return False, "No database connected."
+    if has_any_admin():
+        return False, "An administrator already exists. Register normally instead."
+    strong, msg = is_strong_password(password)
+    if not strong:
+        return False, msg
+    try:
+        supabase.table("facility_users").insert({
+            "username": username,
+            "full_name": full_name,
+            "role": "Superintendent",
+            "password_hash": hash_password(password),
+            "email": email,
+            "is_approved": True,
+        }).execute()
+        log_audit(full_name, "bootstrap_first_admin", {"username": username})
+        return True, ""
+    except Exception as e:
+        log_error(str(e), endpoint="create_first_admin")
+        return False, str(e)
 
 def register_user_to_db(username, name, role, password, email=None):
     if not SUPABASE_AVAILABLE:
@@ -1322,7 +1388,7 @@ def fetch_task_activity(task_id):
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("activity_memory", [])
     try:
-        res = supabase.table("task_activity").select("*").eq("task_id", task_id).order("created_at", asc=True).execute()
+        res = supabase.table("task_activity").select("*").eq("task_id", task_id).order("created_at", desc=False).execute()
         if res.data:
             return res.data
     except Exception as e:
@@ -1500,7 +1566,7 @@ def fetch_comments(task_id):
         comments = st.session_state.get("comments_memory", [])
         return [c for c in comments if c["task_id"] == task_id]
     try:
-        res = supabase.table("task_comments").select("*").eq("task_id", task_id).order("posted_at", asc=True).execute()
+        res = supabase.table("task_comments").select("*").eq("task_id", task_id).order("posted_at", desc=False).execute()
         if res.data:
             return res.data
     except Exception as e:
@@ -1697,8 +1763,24 @@ def send_push_notification(title, body):
 # 20. RECURRING TASK HANDLER
 # -------------------------------
 def handle_recurring_tasks():
+    """Roll forward due preventive-maintenance tasks.
+
+    THROTTLED. This used to run on every Streamlit rerun — i.e. on every
+    click, checkbox, and dropdown change. Each run both INSERTS a new
+    task and updates the original's due date, so rapid reruns could
+    spawn duplicate work orders and it hammered the database on every
+    interaction. It now runs at most once every RECURRING_CHECK_MINUTES
+    per session.
+    """
     if not SUPABASE_AVAILABLE:
         return
+
+    RECURRING_CHECK_MINUTES = 15
+    last = st.session_state.get("_last_recurring_check")
+    if last and (datetime.now() - last) < timedelta(minutes=RECURRING_CHECK_MINUTES):
+        return
+    st.session_state._last_recurring_check = datetime.now()
+
     try:
         res = supabase.table("tasks").select("*").eq("is_recurring", True).execute()
         if not res.data:
@@ -2127,9 +2209,18 @@ def _update_permit(permit_id, updates, actor, action):
         log_error(str(e), details={"permit_id": permit_id}, endpoint=action)
         return False
 
-def task_has_active_permit(task_id):
-    """Safety gate: is there a live accepted permit for this task?"""
-    for p in fetch_permits(task_id=task_id):
+def task_has_active_permit(task_id, permits=None):
+    """Safety gate: is there a live accepted permit for this task?
+
+    Pass `permits` (the full list) when calling inside a loop. Without
+    it this issued one query per task rendered, which on a worker with
+    20 assigned tasks meant 20 round trips on every single rerun.
+    """
+    if permits is None:
+        candidates = fetch_permits(task_id=task_id)
+    else:
+        candidates = [p for p in permits if p.get("task_id") == task_id]
+    for p in candidates:
         if p.get("status") == "Active":
             valid_until = p.get("valid_until")
             if valid_until:
@@ -2303,10 +2394,16 @@ def log_meter_reading(asset_id, reading, meter_unit, recorded_by, notes=None):
     update_asset(asset_id, {"current_meter": reading}, recorded_by)
     return True
 
-def meter_usage_rate(asset_id):
+def meter_usage_rate(asset_id, readings=None):
     """Average units consumed per day, from the reading history.
-    Returns None until there are at least two readings spanning time."""
-    readings = fetch_meter_readings(asset_id)
+    Returns None until there are at least two readings spanning time.
+
+    Pass `readings` if you already fetched them — the asset expander
+    renders a chart from the same data, and without this the list was
+    queried twice per asset on every rerun.
+    """
+    if readings is None:
+        readings = fetch_meter_readings(asset_id)
     if len(readings) < 2:
         return None
     try:
@@ -2599,6 +2696,45 @@ if not st.session_state.authenticated:
     </div>
     ''', unsafe_allow_html=True)
     st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
+
+    # --- Demo mode notice -------------------------------------------------
+    if not SUPABASE_AVAILABLE:
+        st.info(
+            "**Demo mode — no database connected.** Nothing you enter will be saved. "
+            "Sign in with `superintendent1` / `boss000`, `supervisor1` / `super789`, "
+            "or `worker1` / `worker123`. These accounts exist ONLY in demo mode and "
+            "disappear automatically once Supabase is connected."
+        )
+
+    # --- First-run administrator bootstrap --------------------------------
+    # Without this, connecting a fresh database would leave nobody able to
+    # log in: the demo accounts are gone, and self-registration requires an
+    # existing Superintendent to approve it.
+    elif not has_any_admin():
+        st.warning("**First-run setup.** The database has no administrator yet. "
+                   "Create one now — this form disappears permanently once an "
+                   "administrator exists.")
+        with st.form("bootstrap_admin"):
+            st.markdown("#### Create the first Superintendent account")
+            _bs_user = st.text_input("Username", placeholder="e.g. amoses").strip().lower()
+            _bs_name = st.text_input("Full Name", placeholder="Your full name")
+            _bs_email = st.text_input("Email (optional)")
+            _bs_p1 = st.text_input("Password", type="password")
+            _bs_p2 = st.text_input("Confirm Password", type="password")
+            _bs_go = st.form_submit_button("🚀 Create Administrator", use_container_width=True)
+            if _bs_go:
+                if not (_bs_user and _bs_name and _bs_p1):
+                    st.error("Username, full name, and password are required.")
+                elif _bs_p1 != _bs_p2:
+                    st.error("Passwords do not match.")
+                else:
+                    _ok, _err = create_first_admin(_bs_user, _bs_name, _bs_p1, _bs_email or None)
+                    if _ok:
+                        st.success("Administrator created. You can now log in below.")
+                        st.rerun()
+                    else:
+                        st.error(_err)
+        st.markdown("---")
 
     # Check for reset token
     reset_token = st.query_params.get("reset_token")
@@ -2936,6 +3072,8 @@ if selected_section == "Task Dashboard":
 
         if worker_sub == "My Assigned Tasks":
             my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
+            # Fetch permits ONCE for the whole loop instead of per task.
+            _all_permits = fetch_permits() if any(t.get('loto') for t in my_tasks) else []
             if not my_tasks:
                 st.info("No tasks assigned to you.")
             else:
@@ -2967,7 +3105,7 @@ if selected_section == "Task Dashboard":
                     # Permit gate: if this task requires LOTO, there must be a
                     # live accepted permit before work can be marked in progress.
                     requires_permit = task.get('loto', False)
-                    has_permit = task_has_active_permit(task['id']) if requires_permit else True
+                    has_permit = task_has_active_permit(task['id'], _all_permits) if requires_permit else True
 
                     col1, col2 = st.columns([2, 3])
                     with col1:
@@ -3575,7 +3713,7 @@ elif selected_section == "Assets":
 
                         st.markdown("**📈 Meter Reading History**")
                         readings = fetch_meter_readings(a['id'])
-                        rate = meter_usage_rate(a['id'])
+                        rate = meter_usage_rate(a['id'], readings)
                         if rate is not None:
                             st.caption(f"Observed usage: **{rate:.1f} {a.get('meter_unit','units')}/day** "
                                        f"(from {len(readings)} readings)")
