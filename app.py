@@ -96,7 +96,7 @@ except ImportError:
     st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. CUSTOM CSS + FONT AWESOME (SAME AS BEFORE - kept compact)
+# 1. CUSTOM CSS + FONT AWESOME
 # -------------------------------
 st.set_page_config(
     page_title="Mine & Workshop Tracker",
@@ -105,7 +105,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Theme toggle (dark/light)
+# Theme toggle
 if 'dark_mode' not in st.session_state:
     st.session_state.dark_mode = False
 
@@ -367,7 +367,22 @@ def is_strong_password(password):
     return True, ""
 
 # -------------------------------
-# 5. EMAIL NOTIFICATION
+# 5. AUDIT LOG
+# -------------------------------
+def log_audit(user_name, action, details=None):
+    if not SUPABASE_AVAILABLE:
+        return
+    try:
+        supabase.table("audit_log").insert({
+            "user_name": user_name,
+            "action": action,
+            "details": json.dumps(details) if details else None
+        }).execute()
+    except Exception:
+        pass
+
+# -------------------------------
+# 6. EMAIL NOTIFICATION
 # -------------------------------
 def send_email_notification(recipient, subject, body):
     if not recipient:
@@ -398,7 +413,7 @@ def send_email_notification(recipient, subject, body):
         return False
 
 # -------------------------------
-# 6. SLACK / TEAMS WEBHOOK INTEGRATION
+# 7. SLACK / TEAMS WEBHOOK INTEGRATION
 # -------------------------------
 def send_slack_notification(message):
     if not SLACK_WEBHOOK:
@@ -427,7 +442,7 @@ def send_external_notifications(message):
     send_teams_notification(message)
 
 # -------------------------------
-# 7. IMAGE & ATTACHMENT VALIDATION
+# 8. IMAGE & ATTACHMENT VALIDATION
 # -------------------------------
 def validate_image(file_bytes, filename):
     ext = filename.split('.')[-1].lower()
@@ -455,7 +470,7 @@ def validate_attachment(file_bytes, filename):
     return True, "Valid attachment."
 
 # -------------------------------
-# 8. USER FUNCTIONS (with admin approval, deactivation, reset)
+# 9. USER FUNCTIONS
 # -------------------------------
 def get_default_users():
     return [
@@ -565,7 +580,7 @@ def generate_reset_token(username, email):
         return False
 
 # -------------------------------
-# 9. TASK FUNCTIONS (with optimistic locking)
+# 10. TASK FUNCTIONS (with optimistic locking)
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -639,14 +654,11 @@ def update_task(task_id, updates, updated_by):
                 return True
         return False
     try:
-        # Fetch current version
         current = supabase.table("tasks").select("version").eq("id", task_id).execute()
         if not current.data:
             return False
         current_version = current.data[0].get("version", 0)
-        # Increment version
         updates["version"] = current_version + 1
-        # Perform update only if version matches
         res = supabase.table("tasks").update(updates).eq("id", task_id).eq("version", current_version).execute()
         if res.data:
             log_audit(updated_by, "task_update", {"task_id": task_id, "new": updates})
@@ -677,7 +689,7 @@ def delete_task(task_id, deleted_by):
         return False
 
 # -------------------------------
-# 10. TASK ACTIVITY LOG
+# 11. TASK ACTIVITY LOG
 # -------------------------------
 def log_task_activity(task_id, user_name, action, details=None):
     if not SUPABASE_AVAILABLE:
@@ -705,7 +717,7 @@ def fetch_task_activity(task_id):
     return []
 
 # -------------------------------
-# 11. NOTIFICATIONS
+# 12. NOTIFICATIONS
 # -------------------------------
 def send_notification(user_name, title, body):
     if not SUPABASE_AVAILABLE:
@@ -740,7 +752,7 @@ def mark_notification_read(notification_id):
         log_error(str(e), endpoint="mark_notification_read")
 
 # -------------------------------
-# 12. PHOTO FUNCTIONS (with fallback)
+# 13. PHOTO FUNCTIONS (with fallback)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
     st.session_state.setdefault("photos_memory", []).append({
@@ -791,7 +803,7 @@ def fetch_photos(task_id):
     return all_photos
 
 # -------------------------------
-# 13. FILE ATTACHMENTS (with validation)
+# 14. FILE ATTACHMENTS
 # -------------------------------
 def upload_attachment(task_id, file_bytes, filename, uploaded_by):
     valid, msg = validate_attachment(file_bytes, filename)
@@ -847,7 +859,7 @@ def fetch_attachments(task_id):
         return []
 
 # -------------------------------
-# 14. TASK COMMENTS
+# 15. TASK COMMENTS
 # -------------------------------
 def add_comment(task_id, comment, posted_by):
     if not SUPABASE_AVAILABLE:
@@ -883,7 +895,7 @@ def fetch_comments(task_id):
     return []
 
 # -------------------------------
-# 15. CHAT FUNCTIONS (with XSS escaping)
+# 16. CHAT FUNCTIONS
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -957,7 +969,7 @@ def delete_message(message_id, deleted_by):
             return False
 
 # -------------------------------
-# 16. ENCRYPTION HELPERS (obfuscation)
+# 17. ENCRYPTION HELPERS (obfuscation)
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -968,7 +980,6 @@ except ImportError:
     CRYPTO_AVAILABLE = False
 
 def derive_key(name1, name2):
-    # WARNING: fixed salt – this is obfuscation, not secure encryption
     sorted_names = sorted([name1.lower(), name2.lower()])
     combined = sorted_names[0] + sorted_names[1]
     salt = b"fixed_salt_for_demo"
@@ -999,7 +1010,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 17. EXPORT REPORTS (CSV)
+# 18. EXPORT REPORTS
 # -------------------------------
 def export_tasks_csv(tasks):
     if not tasks or not PANDAS_AVAILABLE:
@@ -1011,7 +1022,7 @@ def export_tasks_csv(tasks):
     return df.to_csv(index=False)
 
 # -------------------------------
-# 18. PUSH NOTIFICATIONS (toast)
+# 19. PUSH NOTIFICATIONS
 # -------------------------------
 def send_push_notification(title, body):
     try:
@@ -1020,7 +1031,7 @@ def send_push_notification(title, body):
         pass
 
 # -------------------------------
-# 19. RECURRING TASK HANDLER
+# 20. RECURRING TASK HANDLER
 # -------------------------------
 def handle_recurring_tasks():
     if not SUPABASE_AVAILABLE:
@@ -1067,7 +1078,7 @@ def handle_recurring_tasks():
         log_error(str(e), endpoint="handle_recurring_tasks")
 
 # -------------------------------
-# 20. SESSION STATE INIT
+# 21. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -1105,7 +1116,7 @@ if 'oauth_token' not in st.session_state:
     st.session_state.oauth_token = None
 
 # -------------------------------
-# 21. SESSION TIMEOUT CHECK
+# 22. SESSION TIMEOUT CHECK
 # -------------------------------
 def check_timeout():
     if st.session_state.authenticated:
@@ -1118,7 +1129,7 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 22. OAUTH LOGIN (Google) - placeholder
+# 23. OAUTH LOGIN (Google) - placeholder
 # -------------------------------
 def google_oauth():
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
@@ -1128,7 +1139,7 @@ def google_oauth():
     return None
 
 # -------------------------------
-# 23. AUTHENTICATION GATEWAY (with forms + OAuth button + modern header)
+# 24. AUTHENTICATION GATEWAY
 # -------------------------------
 if not st.session_state.authenticated:
     st.markdown('''
@@ -1248,7 +1259,7 @@ else:
     check_timeout()
 
 # -------------------------------
-# 24. PWA MANIFEST & SERVICE WORKER
+# 25. PWA MANIFEST & SERVICE WORKER
 # -------------------------------
 st.markdown("""
 <link rel="manifest" href="/static/manifest.json">
@@ -1260,12 +1271,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 25. HANDLE RECURRING TASKS
+# 26. HANDLE RECURRING TASKS
 # -------------------------------
 handle_recurring_tasks()
 
 # -------------------------------
-# 26. MAIN APP
+# 27. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -1395,7 +1406,7 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 27. TOP-LEVEL NAVIGATION (icon menu)
+# 28. TOP-LEVEL NAVIGATION (icon menu)
 # -------------------------------
 st.markdown('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">', unsafe_allow_html=True)
 
