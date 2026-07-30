@@ -78,7 +78,7 @@ except ImportError:
     st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. CUSTOM CSS + FONT AWESOME (MODERN DESIGN - FIXED)
+# 1. CUSTOM CSS + FONT AWESOME (MODERN DESIGN - IMPROVED)
 # -------------------------------
 st.set_page_config(
     page_title="Mine & Workshop Tracker",
@@ -91,7 +91,7 @@ st.set_page_config(
 if 'dark_mode' not in st.session_state:
     st.session_state.dark_mode = False
 
-# CSS for both themes - fixed
+# CSS for both themes - improved font colors
 dark_css = """
 <style>
     .stApp { background-color: #0f172a; color: #e2e8f0; }
@@ -117,16 +117,16 @@ dark_css = """
     .footer { border-top-color: #334155; color: #94a3b8; }
     .chat-message { background: #1e293b; border-left-color: #4fc3f7; color: #e2e8f0; }
     .chat-message.self { background: #0f3460; border-left-color: #4fc3f7; }
-    .tab-button { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
-    .tab-button:hover { background: #334155; color: #e2e8f0; }
-    .tab-button.active { background: #2563eb; color: white; border-color: #2563eb; }
+    .stTabs [data-baseweb="tab"] { background: #1e293b; color: #94a3b8; border-color: #334155; }
+    .stTabs [aria-selected="true"] { background: #2563eb; color: white; border-color: #2563eb; }
+    .stTabs [data-baseweb="tab"]:hover { color: #e2e8f0; }
     .stButton button { color: white; }
-    .stSelectbox label { color: #e2e8f0; }
-    .stTextInput label { color: #e2e8f0; }
-    .stTextArea label { color: #e2e8f0; }
-    .stCheckbox label { color: #e2e8f0; }
-    .stDateInput label { color: #e2e8f0; }
-    .stFileUploader label { color: #e2e8f0; }
+    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label { color: #e2e8f0 !important; }
+    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div { color: #e2e8f0 !important; }
+    .stMetric label { color: #e2e8f0 !important; }
+    .stMetric .value { color: #e2e8f0 !important; }
+    .stMetric .label { color: #94a3b8 !important; }
+    .stDataFrame { color: #e2e8f0 !important; }
 </style>
 """
 light_css = """
@@ -154,9 +154,15 @@ light_css = """
     .footer { border-top-color: #e2e8f0; color: #94a3b8; }
     .chat-message { background: #f1f5f9; border-left-color: #0f3460; color: #1e293b; }
     .chat-message.self { background: #e3f2fd; border-left-color: #0f3460; }
-    .tab-button { background: white; color: #64748b; border: 1px solid #e2e8f0; }
-    .tab-button:hover { background: #f1f5f9; color: #1a1a2e; }
-    .tab-button.active { background: #0f3460; color: white; border-color: #0f3460; }
+    .stTabs [data-baseweb="tab"] { background: white; color: #64748b; border: 1px solid #e2e8f0; border-bottom: none; }
+    .stTabs [aria-selected="true"] { background: #0f3460; color: white; border-color: #0f3460; }
+    .stTabs [data-baseweb="tab"]:hover { color: #1a1a2e; }
+    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label { color: #1e293b !important; }
+    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div { color: #1e293b !important; }
+    .stMetric label { color: #1e293b !important; }
+    .stMetric .value { color: #1e293b !important; }
+    .stMetric .label { color: #64748b !important; }
+    .stDataFrame { color: #1e293b !important; }
 </style>
 """
 
@@ -191,7 +197,6 @@ st.markdown("""
     }
     .sub-header {
         font-size: 1.3rem;
-        color: #1a1a2e;
         font-weight: 600;
         margin-bottom: 1.5rem;
         padding-bottom: 0.5rem;
@@ -225,7 +230,7 @@ st.markdown("""
     .css-1d391kg .stTextInput label, 
     .css-1d391kg .stTextArea label,
     .css-1d391kg .stCheckbox label {
-        color: #e2e8f0;
+        color: #e2e8f0 !important;
     }
     /* ----- MODERN CARDS ----- */
     .custom-card {
@@ -340,35 +345,29 @@ st.markdown("""
         color: #64748b;
         margin-left: 0.5rem;
     }
-    /* ----- CUSTOM TAB BUTTONS - FIXED ----- */
-    .tab-btn {
-        background: white;
-        border: 2px solid #e2e8f0;
+    /* ----- TABS (using st.tabs) ----- */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.3rem;
+    }
+    .stTabs [data-baseweb="tab"] {
         border-radius: 12px 12px 0 0;
         padding: 0.6rem 1.2rem;
         font-weight: 600;
-        color: #64748b;
-        cursor: pointer;
-        transition: 0.2s;
-        font-size: 0.95rem;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        width: 100%;
-        justify-content: center;
+        border: 1px solid #e2e8f0;
         border-bottom: none;
+        background: white;
+        color: #64748b;
     }
-    .tab-btn:hover {
-        background: #f1f5f9;
-        color: #1a1a2e;
-    }
-    .tab-btn.active {
+    .stTabs [aria-selected="true"] {
         background: #0f3460;
         color: white;
         border-color: #0f3460;
     }
-    .tab-btn i {
-        font-size: 1.1rem;
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #1a1a2e;
+    }
+    .stTabs [data-baseweb="tab"] i {
+        margin-right: 8px;
     }
     /* ----- FILE UPLOADER ----- */
     .stFileUploader {
@@ -422,20 +421,6 @@ st.markdown("""
         font-weight: 700;
         margin-left: 0.5rem;
     }
-    /* ----- SIDEBAR TEXT COLORS - FIXED ----- */
-    .css-1d391kg .stMarkdown p, 
-    .css-1d391kg .stMarkdown div,
-    .css-1d391kg .stMarkdown strong {
-        color: #e2e8f0 !important;
-    }
-    .css-1d391kg .stSelectbox label,
-    .css-1d391kg .stTextInput label,
-    .css-1d391kg .stTextArea label {
-        color: #e2e8f0 !important;
-    }
-    .css-1d391kg .stCaption {
-        color: #94a3b8 !important;
-    }
     /* ----- SIDEBAR USER INFO ----- */
     .sidebar-user {
         padding: 0.5rem 0;
@@ -458,6 +443,32 @@ st.markdown("""
     .sidebar-user .user-icon {
         font-size: 3rem;
         color: #4fc3f7;
+    }
+    /* ----- BETTER FONT COLORS ----- */
+    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label {
+        font-weight: 600;
+        color: #1e293b !important;
+    }
+    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div {
+        color: #1e293b !important;
+    }
+    .stMetric label {
+        color: #1e293b !important;
+    }
+    .stMetric .value {
+        color: #1e293b !important;
+    }
+    .stMetric .label {
+        color: #64748b !important;
+    }
+    .stDataFrame {
+        color: #1e293b !important;
+    }
+    .stAlert {
+        border-radius: 12px;
+    }
+    .stSuccess, .stInfo, .stWarning, .stError {
+        border-radius: 12px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -600,7 +611,6 @@ def fetch_all_users_from_db():
     except Exception:
         db_users = []
 
-    # Merge: keep default users and add DB users that don't have the same username
     existing_usernames = {u["username"] for u in default_users}
     for db_user in db_users:
         if db_user["username"] not in existing_usernames:
@@ -1174,8 +1184,6 @@ if 'notifications_cache' not in st.session_state:
     st.session_state.notifications_cache = []
 if 'oauth_token' not in st.session_state:
     st.session_state.oauth_token = None
-if 'active_tab' not in st.session_state:
-    st.session_state.active_tab = "tasks"
 
 # -------------------------------
 # 19. SESSION TIMEOUT CHECK
@@ -1305,7 +1313,7 @@ st.markdown('''
 
 # Sidebar
 with st.sidebar:
-    # Modern user display with verified badge - FIXED
+    # Modern user display with verified badge
     st.markdown(f"""
     <div class="sidebar-user">
         <i class="fas fa-user-circle user-icon"></i>
@@ -1417,40 +1425,19 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 25. CUSTOM TABS WITH FONT AWESOME ICONS - FIXED
+# 25. TABS - USING ST.TABS WITH FONT AWESOME ICONS (CLEAN APPROACH)
 # -------------------------------
-# Define tab labels with Font Awesome icons
-tabs = [
-    {"key": "tasks", "label": "Task Dashboard", "icon": "fa-tasks"},
-    {"key": "chat", "label": "Chat Room", "icon": "fa-comment-dots"},
-    {"key": "admin", "label": "Admin Panel", "icon": "fa-cog"},
-    {"key": "profile", "label": "Profile", "icon": "fa-user"},
-    {"key": "activity", "label": "Activity Timeline", "icon": "fa-clock"}
-]
-
-# Render custom tab buttons - FIXED to properly show icons
-st.markdown('<div class="tab-container">', unsafe_allow_html=True)
-cols = st.columns(len(tabs))
-for i, tab in enumerate(tabs):
-    is_active = (st.session_state.active_tab == tab["key"])
-    with cols[i]:
-        # Use st.button with HTML for icons
-        button_html = f'<i class="fas {tab["icon"]}"></i> {tab["label"]}'
-        if st.button(
-            button_html,
-            key=f"tab_{tab['key']}",
-            use_container_width=True,
-            type="primary" if is_active else "secondary"
-        ):
-            st.session_state.active_tab = tab["key"]
-            st.rerun()
-st.markdown('</div>', unsafe_allow_html=True)
-
-# Display content based on active tab
-active_tab = st.session_state.active_tab
+# Create tabs with Font Awesome icons using HTML in labels
+tab_tasks, tab_chat, tab_admin, tab_profile, tab_activity = st.tabs([
+    '<i class="fas fa-tasks"></i> Task Dashboard',
+    '<i class="fas fa-comment-dots"></i> Chat Room',
+    '<i class="fas fa-cog"></i> Admin Panel',
+    '<i class="fas fa-user"></i> Profile',
+    '<i class="fas fa-clock"></i> Activity Timeline'
+])
 
 # ---- TASK DASHBOARD ----
-if active_tab == "tasks":
+with tab_tasks:
     if role == "worker":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
         if st.session_state.broadcast_messages:
@@ -1591,7 +1578,6 @@ if active_tab == "tasks":
             '<i class="fas fa-plus-circle"></i> Create New Task',
             '<i class="fas fa-chart-pie"></i> Dashboard'
         ])
-        # ... (rest of supervisor code - same as before, kept compact)
         with tab_manage:
             st.markdown("### All Maintenance Tasks")
             all_users = fetch_all_users_from_db()
@@ -1918,7 +1904,7 @@ if active_tab == "tasks":
                 st.info("No approved users yet.")
 
 # ---- CHAT ROOM ----
-elif active_tab == "chat":
+with tab_chat:
     st.subheader("💬 Real‑time Chat")
 
     room = st.session_state.chat_room
@@ -2040,7 +2026,7 @@ elif active_tab == "chat":
                 st.rerun()
 
 # ---- ADMIN PANEL ----
-elif active_tab == "admin":
+with tab_admin:
     if role != "superintendent":
         st.warning("You do not have admin privileges.")
     else:
@@ -2078,7 +2064,7 @@ elif active_tab == "admin":
             st.info("Audit log not available (Supabase not connected).")
 
 # ---- PROFILE TAB ----
-elif active_tab == "profile":
+with tab_profile:
     st.subheader("👤 User Profile")
     st.markdown(f"**Username:** {username}")
     st.markdown(f"**Full Name:** {full_name}")
@@ -2128,7 +2114,7 @@ elif active_tab == "profile":
                 st.error("Failed to update email.")
 
 # ---- ACTIVITY TIMELINE ----
-elif active_tab == "activity":
+with tab_activity:
     st.subheader("⏱️ Activity Timeline")
     st.markdown("Recent actions across all tasks (last 50)")
 
