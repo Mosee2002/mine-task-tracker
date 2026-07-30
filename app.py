@@ -8,6 +8,10 @@ import json
 import time
 from io import BytesIO
 
+# Icon-based navigation (replaces Font Awesome text-in-st.tabs, which doesn't render)
+# pip install streamlit-option-menu
+from streamlit_option_menu import option_menu
+
 # Optional: try to import pandas and plotly for dashboard charts
 try:
     import pandas as pd
@@ -472,6 +476,35 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# -------------------------------
+# Shared option_menu style dict (matches dark/light theme)
+# -------------------------------
+def menu_styles():
+    dark = st.session_state.dark_mode
+    return {
+        "container": {
+            "padding": "6px",
+            "background-color": "#1e293b" if dark else "white",
+            "border-radius": "14px",
+            "box-shadow": "0 2px 12px rgba(0,0,0,0.08)",
+            "margin-bottom": "1rem",
+        },
+        "icon": {"color": "#4fc3f7", "font-size": "16px"},
+        "nav-link": {
+            "font-size": "14px",
+            "font-weight": "600",
+            "text-align": "center",
+            "margin": "0px 2px",
+            "border-radius": "10px",
+            "color": "#e2e8f0" if dark else "#1e293b",
+            "--hover-color": "#334155" if dark else "#f1f5f9",
+        },
+        "nav-link-selected": {
+            "background-color": "#0f3460",
+            "color": "white",
+        },
+    }
 
 # -------------------------------
 # 2. PASSWORD HASHING (universal)
@@ -1425,19 +1458,21 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 25. TABS - USING ST.TABS WITH FONT AWESOME ICONS (CLEAN APPROACH)
+# 25. TOP-LEVEL NAVIGATION (icon menu replaces st.tabs — FA text does not
+#     render inside st.tabs labels, so we use streamlit-option-menu instead,
+#     which supports real icons from the Bootstrap Icons set)
 # -------------------------------
-# Create tabs with Font Awesome icons using HTML in labels
-tab_tasks, tab_chat, tab_admin, tab_profile, tab_activity = st.tabs([
-    '<i class="fas fa-tasks"></i> Task Dashboard',
-    '<i class="fas fa-comment-dots"></i> Chat Room',
-    '<i class="fas fa-cog"></i> Admin Panel',
-    '<i class="fas fa-user"></i> Profile',
-    '<i class="fas fa-clock"></i> Activity Timeline'
-])
+selected_section = option_menu(
+    menu_title=None,
+    options=["Task Dashboard", "Chat Room", "Admin Panel", "Profile", "Activity Timeline"],
+    icons=["list-task", "chat-dots-fill", "gear-fill", "person-circle", "clock-history"],
+    orientation="horizontal",
+    default_index=0,
+    styles=menu_styles(),
+)
 
 # ---- TASK DASHBOARD ----
-with tab_tasks:
+if selected_section == "Task Dashboard":
     if role == "worker":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
         if st.session_state.broadcast_messages:
@@ -1445,12 +1480,16 @@ with tab_tasks:
             for msg in reversed(st.session_state.broadcast_messages[-5:]):
                 st.warning(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
 
-        tab_my, tab_unassigned = st.tabs([
-            '<i class="fas fa-clipboard-list"></i> My Assigned Tasks',
-            '<i class="fas fa-inbox"></i> Unassigned Board'
-        ])
+        worker_sub = option_menu(
+            menu_title=None,
+            options=["My Assigned Tasks", "Unassigned Board"],
+            icons=["clipboard-check", "inbox"],
+            orientation="horizontal",
+            default_index=0,
+            styles=menu_styles(),
+        )
 
-        with tab_my:
+        if worker_sub == "My Assigned Tasks":
             my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
             if not my_tasks:
                 st.info("No tasks assigned to you.")
@@ -1547,7 +1586,7 @@ with tab_tasks:
                                 st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
                     st.markdown("---")
 
-        with tab_unassigned:
+        elif worker_sub == "Unassigned Board":
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
             if not unassigned:
                 st.success("🎉 No unassigned tasks at the moment.")
@@ -1573,12 +1612,15 @@ with tab_tasks:
 
     elif role == "supervisor":
         st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
-        tab_manage, tab_create, tab_dashboard = st.tabs([
-            '<i class="fas fa-tasks"></i> Manage All Tasks',
-            '<i class="fas fa-plus-circle"></i> Create New Task',
-            '<i class="fas fa-chart-pie"></i> Dashboard'
-        ])
-        with tab_manage:
+        supervisor_sub = option_menu(
+            menu_title=None,
+            options=["Manage All Tasks", "Create New Task", "Dashboard"],
+            icons=["list-check", "plus-circle", "pie-chart-fill"],
+            orientation="horizontal",
+            default_index=0,
+            styles=menu_styles(),
+        )
+        if supervisor_sub == "Manage All Tasks":
             st.markdown("### All Maintenance Tasks")
             all_users = fetch_all_users_from_db()
             worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
@@ -1662,7 +1704,7 @@ with tab_tasks:
                                     st.image(img_url, width=120)
                                 st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
 
-        with tab_create:
+        elif supervisor_sub == "Create New Task":
             st.markdown("### Dispatch New Work Ticket")
             with st.form("new_task_form"):
                 title = st.text_input("Task Title *", max_chars=100)
@@ -1692,7 +1734,7 @@ with tab_tasks:
                     else:
                         st.error("Title and Location are required.")
 
-        with tab_dashboard:
+        elif supervisor_sub == "Dashboard":
             st.markdown("### 📊 Task Analytics")
             tasks = st.session_state.tasks
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
@@ -1717,14 +1759,15 @@ with tab_tasks:
 
     elif role == "superintendent":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
-        tab_overview, tab_manage, tab_broadcasts, tab_dashboard, tab_admin_users = st.tabs([
-            '<i class="fas fa-chart-pie"></i> Overview',
-            '<i class="fas fa-tasks"></i> Manage Tasks',
-            '<i class="fas fa-bullhorn"></i> Broadcast Log',
-            '<i class="fas fa-chart-line"></i> Dashboard',
-            '<i class="fas fa-users"></i> User Management'
-        ])
-        with tab_overview:
+        superintendent_sub = option_menu(
+            menu_title=None,
+            options=["Overview", "Manage Tasks", "Broadcast Log", "Dashboard", "User Management"],
+            icons=["pie-chart-fill", "list-check", "megaphone-fill", "graph-up-arrow", "people-fill"],
+            orientation="horizontal",
+            default_index=0,
+            styles=menu_styles(),
+        )
+        if superintendent_sub == "Overview":
             total = len(st.session_state.tasks)
             completed = sum(1 for t in st.session_state.tasks if t['status'] == "Complete")
             in_progress = sum(1 for t in st.session_state.tasks if t['status'] == "In Progress")
@@ -1742,7 +1785,8 @@ with tab_tasks:
                     st.info(f"**{msg['sender']}** at {msg['timestamp']}: {msg['message']}")
             else:
                 st.caption("No broadcasts yet.")
-        with tab_manage:
+
+        elif superintendent_sub == "Manage Tasks":
             st.markdown("### Full Task Control")
             all_users = fetch_all_users_from_db()
             worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
@@ -1831,7 +1875,7 @@ with tab_tasks:
                                     st.image(img_url, width=120)
                                 st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
 
-        with tab_broadcasts:
+        elif superintendent_sub == "Broadcast Log":
             st.markdown("### All Broadcast Messages")
             if st.session_state.broadcast_messages:
                 for msg in reversed(st.session_state.broadcast_messages):
@@ -1839,7 +1883,7 @@ with tab_tasks:
             else:
                 st.info("No messages sent yet.")
 
-        with tab_dashboard:
+        elif superintendent_sub == "Dashboard":
             st.markdown("### 📊 Task Analytics")
             tasks = st.session_state.tasks
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
@@ -1862,7 +1906,7 @@ with tab_tasks:
                 if csv:
                     st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
 
-        with tab_admin_users:
+        elif superintendent_sub == "User Management":
             st.markdown("### 👥 User Management")
             st.markdown("Approve or reject pending user registrations.")
 
@@ -1904,7 +1948,7 @@ with tab_tasks:
                 st.info("No approved users yet.")
 
 # ---- CHAT ROOM ----
-with tab_chat:
+elif selected_section == "Chat Room":
     st.subheader("💬 Real‑time Chat")
 
     room = st.session_state.chat_room
@@ -2026,7 +2070,7 @@ with tab_chat:
                 st.rerun()
 
 # ---- ADMIN PANEL ----
-with tab_admin:
+elif selected_section == "Admin Panel":
     if role != "superintendent":
         st.warning("You do not have admin privileges.")
     else:
@@ -2064,7 +2108,7 @@ with tab_admin:
             st.info("Audit log not available (Supabase not connected).")
 
 # ---- PROFILE TAB ----
-with tab_profile:
+elif selected_section == "Profile":
     st.subheader("👤 User Profile")
     st.markdown(f"**Username:** {username}")
     st.markdown(f"**Full Name:** {full_name}")
@@ -2114,7 +2158,7 @@ with tab_profile:
                 st.error("Failed to update email.")
 
 # ---- ACTIVITY TIMELINE ----
-with tab_activity:
+elif selected_section == "Activity Timeline":
     st.subheader("⏱️ Activity Timeline")
     st.markdown("Recent actions across all tasks (last 50)")
 
