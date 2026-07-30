@@ -1,7 +1,7 @@
 {
-  "name": "Mine & Workshop Digital Tracker",
-  "short_name": "Mine Tracker",
-  "description": "Task management for mines and workshops.",
+  "name": "Mine & Electrical Workshop Digital Tracker",
+  "short_name": "Mine & Electrical Workshop Tracker",
+  "description": "Task management for mines and Electrical workshops.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
