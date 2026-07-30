@@ -6,7 +6,16 @@ import base64
 import os
 import json
 import time
+import html as html_lib
 from io import BytesIO
+
+def esc(text):
+    """Escape user-supplied text before it goes into any unsafe_allow_html=True block.
+    Prevents stored XSS via chat messages, comments, task titles/locations, filenames, etc.
+    Always wrap raw user input with this before interpolating it into an HTML string."""
+    if text is None:
+        return ""
+    return html_lib.escape(str(text), quote=True)
 
 # Icon-based navigation (replaces Font Awesome text-in-st.tabs, which doesn't render)
 # pip install streamlit-option-menu
@@ -621,6 +630,25 @@ def validate_image(file_bytes, filename):
             return False, "Invalid or corrupt image file."
     return True, "Valid image."
 
+# Allowlist of extensions permitted for general task attachments (documents/records only).
+# Deliberately excludes executables, scripts, and archives to reduce malware upload risk.
+ALLOWED_ATTACHMENT_EXTENSIONS = [
+    'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'txt',
+    'jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'
+]
+
+def validate_attachment(file_bytes, filename):
+    """Validate a general task attachment: extension allowlist + size cap.
+    Mirrors validate_image() but for non-image document types."""
+    if not filename or '.' not in filename:
+        return False, "File must have a valid extension."
+    ext = filename.split('.')[-1].lower()
+    if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
+        return False, f"File type '.{ext}' is not allowed. Allowed types: {', '.join(ALLOWED_ATTACHMENT_EXTENSIONS)}."
+    if len(file_bytes) > MAX_UPLOAD_BYTES:
+        return False, f"File size exceeds {MAX_UPLOAD_SIZE_MB} MB."
+    return True, "Valid attachment."
+
 # -------------------------------
 # 6. USER FUNCTIONS (with admin approval) - FIXED FOR FALLBACK
 # -------------------------------
@@ -921,6 +949,11 @@ def fetch_photos(task_id):
 # 11. FILE ATTACHMENTS
 # -------------------------------
 def upload_attachment(task_id, file_bytes, filename, uploaded_by):
+    valid, msg = validate_attachment(file_bytes, filename)
+    if not valid:
+        st.error(msg)
+        return False
+
     if not SUPABASE_AVAILABLE:
         st.session_state.setdefault("attachments_memory", []).append({
             "task_id": task_id,
@@ -1350,7 +1383,7 @@ with st.sidebar:
     st.markdown(f"""
     <div class="sidebar-user">
         <i class="fas fa-user-circle user-icon"></i>
-        <div class="user-name">{full_name}</div>
+        <div class="user-name">{esc(full_name)}</div>
         <div class="user-role">
             <i class="fas fa-id-badge"></i> {user['role']}
             <span class="verified-badge">VERIFIED</span>
@@ -1501,9 +1534,9 @@ if selected_section == "Task Dashboard":
                     <div class="task-card" style="border-top: 4px solid #0f3460;">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                             <div>
-                                <div class="task-title">#{task['id']} {task['title']}</div>
+                                <div class="task-title">#{task['id']} {esc(task['title'])}</div>
                                 <div class="task-meta">
-                                    <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
+                                    <span><i class="fas fa-map-marker-alt"></i> {esc(task['location'])}</span>
                                     <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
                                     <span><i class="fas fa-circle" style="color: #3b82f6;"></i> <span class="status-badge {status_class}">{task['status']}</span></span>
                                 </div>
@@ -1552,7 +1585,7 @@ if selected_section == "Task Dashboard":
                                 st.markdown(f"[{a['file_name']}]({a['file_url']}) (uploaded by {a['uploaded_by']})")
                         else:
                             st.caption("No attachments.")
-                        uploaded_file = st.file_uploader("Upload attachment (PDF, DOC, etc.)", key=f"attach_{task['id']}_{idx}")
+                        uploaded_file = st.file_uploader("Upload attachment (PDF, DOC, etc.)", type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_{task['id']}_{idx}")
                         if uploaded_file is not None:
                             if st.button("Upload Attachment", key=f"attach_btn_{task['id']}_{idx}"):
                                 bytes_data = uploaded_file.getvalue()
@@ -1597,9 +1630,9 @@ if selected_section == "Task Dashboard":
                     <div class="task-card" style="border-top: 4px solid #0f3460;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div>
-                                <div class="task-title">#{task['id']} {task['title']}</div>
+                                <div class="task-title">#{task['id']} {esc(task['title'])}</div>
                                 <div class="task-meta">
-                                    <span><i class="fas fa-map-marker-alt"></i> {task['location']}</span>
+                                    <span><i class="fas fa-map-marker-alt"></i> {esc(task['location'])}</span>
                                     <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
                                 </div>
                             </div>
@@ -1633,8 +1666,8 @@ if selected_section == "Task Dashboard":
                 <div class="custom-card" style="border-left-color: #0f3460;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong>#{task['id']}: {task['title']}</strong><br>
-                            <i class="fas fa-map-marker-alt"></i> {task['location']}
+                            <strong>#{task['id']}: {esc(task['title'])}</strong><br>
+                            <i class="fas fa-map-marker-alt"></i> {esc(task['location'])}
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
                         </div>
@@ -1684,7 +1717,7 @@ if selected_section == "Task Dashboard":
                             st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
                     else:
                         st.caption("No attachments.")
-                    uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
+                    uploaded_file = st.file_uploader("Upload attachment", type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_sup_{task['id']}")
                     if uploaded_file is not None:
                         if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
                             bytes_data = uploaded_file.getvalue()
@@ -1799,8 +1832,8 @@ if selected_section == "Task Dashboard":
                 <div class="custom-card" style="border-left-color: #0f3460;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong>#{task['id']}: {task['title']}</strong><br>
-                            <i class="fas fa-map-marker-alt"></i> {task['location']}
+                            <strong>#{task['id']}: {esc(task['title'])}</strong><br>
+                            <i class="fas fa-map-marker-alt"></i> {esc(task['location'])}
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
                         </div>
@@ -1855,7 +1888,7 @@ if selected_section == "Task Dashboard":
                             st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
                     else:
                         st.caption("No attachments.")
-                    uploaded_file = st.file_uploader("Upload attachment", key=f"attach_sup_{task['id']}")
+                    uploaded_file = st.file_uploader("Upload attachment", type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_sup_{task['id']}")
                     if uploaded_file is not None:
                         if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
                             bytes_data = uploaded_file.getvalue()
@@ -2019,9 +2052,9 @@ elif selected_section == "Chat Room":
             col_text, col_delete = st.columns([5, 1])
             with col_text:
                 if sender == full_name:
-                    st.markdown(f"<div class='chat-message self'><span class='sender'>You</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='chat-message self'><span class='sender'>You</span> <span class='timestamp'>{timestamp}</span><br>{esc(content)}</div>", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"<div class='chat-message'><span class='sender'>{sender}</span> <span class='timestamp'>{timestamp}</span><br>{content}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='chat-message'><span class='sender'>{esc(sender)}</span> <span class='timestamp'>{timestamp}</span><br>{esc(content)}</div>", unsafe_allow_html=True)
             with col_delete:
                 if sender == full_name:
                     if st.button("🗑️", key=f"del_msg_{msg['id']}"):
