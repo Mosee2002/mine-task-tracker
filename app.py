@@ -7,6 +7,7 @@ import os
 import json
 import time
 import html as html_lib
+import re
 import secrets
 from io import BytesIO
 
@@ -193,9 +194,7 @@ DARK_TOKENS = """
 
 _tokens = DARK_TOKENS if st.session_state.dark_mode else LIGHT_TOKENS
 
-st.markdown(
-    '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">'
-    "<style>\n:root {" + _tokens + "}\n" + """
+_CSS_BODY = """
 
 /* ---------- Base ---------- */
 .stApp { background-color: var(--bg-app); }
@@ -538,7 +537,37 @@ st.markdown(
     }
     .task-meta { gap: 0.5rem; font-size: 0.85rem; }
 }
-</style>""",
+"""
+
+
+def _inline_css(tokens, body):
+    """Emit the stylesheet as a SINGLE line of HTML.
+
+    This is not cosmetic. st.markdown() runs the string through a
+    markdown parser before treating it as HTML, and in markdown a
+    BLANK LINE closes the current block. A <style> block containing
+    blank lines therefore gets cut short: everything after the first
+    blank line is re-parsed as markdown, so indented CSS renders as
+    code blocks and the rest as paragraphs — the stylesheet appears
+    on screen as literal text instead of being applied.
+
+    Stripping comments and joining to one line keeps the source above
+    readable while emitting markdown-safe HTML.
+    """
+    combined = ":root {" + tokens + "}" + body
+    combined = re.sub(r"/\*.*?\*/", "", combined, flags=re.S)  # drop comments
+    parts = [ln.strip() for ln in combined.splitlines()]
+    result = " ".join(p for p in parts if p)
+    # Guard against regression: if a newline ever survives into the output,
+    # markdown will truncate the <style> block and dump the remaining CSS
+    # on screen as text. Fail loudly here instead.
+    assert "\n" not in result, "CSS must be emitted as a single line"
+    return result
+
+
+st.markdown(
+    '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">'
+    "<style>" + _inline_css(_tokens, _CSS_BODY) + "</style>",
     unsafe_allow_html=True,
 )
 
