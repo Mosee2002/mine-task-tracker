@@ -59,64 +59,118 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # -------------------------------
-# 0. SECRETS AND CONFIG
+# 0. PAGE CONFIG  (must be the very first Streamlit command)
 # -------------------------------
-if 'SUPABASE_URL' in st.secrets and 'SUPABASE_KEY' in st.secrets:
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-    USING_HARDCODED = False
-else:
-    # No secrets.toml configured. We deliberately do NOT embed real
-    # credentials in source control. The app still runs in local
-    # in-memory demo mode (every feature has a session-state fallback),
-    # but nothing persists across restarts until secrets are set.
-    SUPABASE_URL = None
-    SUPABASE_KEY = None
-    USING_HARDCODED = True
-    st.warning("⚠️ No Supabase credentials found — running in local demo mode (data will not persist). "
-               "Create .streamlit/secrets.toml with SUPABASE_URL and SUPABASE_KEY, and enable RLS on all tables, before deploying.")
-
-
-SESSION_TIMEOUT_MINUTES = st.secrets.get("SESSION_TIMEOUT_MINUTES", 60) if 'SESSION_TIMEOUT_MINUTES' in st.secrets else 60
-MAX_UPLOAD_SIZE_MB = st.secrets.get("MAX_UPLOAD_SIZE_MB", 5) if 'MAX_UPLOAD_SIZE_MB' in st.secrets else 5
-MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
-
-# Slack / Teams webhook URLs (optional)
-SLACK_WEBHOOK = st.secrets.get("SLACK_WEBHOOK", "")
-TEAMS_WEBHOOK = st.secrets.get("TEAMS_WEBHOOK", "")
-
-# OAuth config (Google)
-GOOGLE_CLIENT_ID = st.secrets.get("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = st.secrets.get("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = st.secrets.get("GOOGLE_REDIRECT_URI", "https://yourapp.streamlit.app/oauth_callback")
-
-# App URL for password reset links
-APP_URL = st.secrets.get("APP_URL", "https://yourapp.streamlit.app")
-
-# Use Supabase client
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        from supabase import create_client, Client
-        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        SUPABASE_AVAILABLE = True
-    except ImportError:
-        SUPABASE_AVAILABLE = False
-        st.warning("Supabase library not installed. Install with: pip install supabase")
-    except Exception as e:
-        SUPABASE_AVAILABLE = False
-        st.warning(f"Could not connect to Supabase: {e}. Running in local demo mode.")
-else:
-    SUPABASE_AVAILABLE = False
-
-# -------------------------------
-# 1. CUSTOM CSS + FONT AWESOME
-# -------------------------------
+# This MUST run before any other st.* call. Previously the credential
+# warnings fired first, which raises StreamlitAPIException and can
+# swallow the real connection error, making every failure look
+# identical ("demo mode") regardless of its actual cause.
 st.set_page_config(
     page_title="Mine & Workshop Tracker",
-    page_icon="🛠️",
+    page_icon="\U0001F6E0\uFE0F",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# -------------------------------
+# 0B. SECRETS AND CONFIG
+# -------------------------------
+# Startup notices are COLLECTED here and rendered later, so nothing
+# competes with set_page_config and no error gets hidden.
+_startup_notices = []          # list of (level, message)
+_diag = {}                     # structured facts for the diagnostics panel
+
+
+def _secret_get(key, default=None):
+    """Read a secret without exploding when no secrets.toml exists."""
+    try:
+        return st.secrets[key]
+    except Exception:
+        return default
+
+
+# Can st.secrets be read at all?
+try:
+    _all_secret_keys = list(st.secrets.keys())
+    _diag["secrets_readable"] = True
+    _diag["secrets_error"] = None
+except Exception as _e:
+    _all_secret_keys = []
+    _diag["secrets_readable"] = False
+    _diag["secrets_error"] = f"{type(_e).__name__}: {_e}"
+_diag["secret_keys_found"] = sorted(_all_secret_keys)   # NAMES only, never values
+
+SUPABASE_URL = _secret_get("SUPABASE_URL")
+SUPABASE_KEY = _secret_get("SUPABASE_KEY")
+USING_HARDCODED = not (SUPABASE_URL and SUPABASE_KEY)
+
+_diag["has_url"] = bool(SUPABASE_URL)
+_diag["has_key"] = bool(SUPABASE_KEY)
+
+if USING_HARDCODED:
+    _missing = [k for k in ("SUPABASE_URL", "SUPABASE_KEY") if not _secret_get(k)]
+    _startup_notices.append((
+        "warning",
+        "No Supabase credentials found - running in local demo mode "
+        f"(data will not persist). Missing: {', '.join(_missing) or 'unknown'}. "
+        "Expand **Connection diagnostics** below to see exactly why."
+    ))
+
+SESSION_TIMEOUT_MINUTES = _secret_get("SESSION_TIMEOUT_MINUTES", 60)
+MAX_UPLOAD_SIZE_MB = _secret_get("MAX_UPLOAD_SIZE_MB", 5)
+try:
+    SESSION_TIMEOUT_MINUTES = int(SESSION_TIMEOUT_MINUTES)
+    MAX_UPLOAD_SIZE_MB = int(MAX_UPLOAD_SIZE_MB)
+except (TypeError, ValueError):
+    SESSION_TIMEOUT_MINUTES, MAX_UPLOAD_SIZE_MB = 60, 5
+    _startup_notices.append(("warning",
+        "SESSION_TIMEOUT_MINUTES / MAX_UPLOAD_SIZE_MB must be numbers "
+        "(no quotes in secrets.toml). Falling back to defaults."))
+MAX_UPLOAD_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+SLACK_WEBHOOK = _secret_get("SLACK_WEBHOOK", "")
+TEAMS_WEBHOOK = _secret_get("TEAMS_WEBHOOK", "")
+GOOGLE_CLIENT_ID = _secret_get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = _secret_get("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = _secret_get("GOOGLE_REDIRECT_URI", "")
+APP_URL = _secret_get("APP_URL", "")
+
+# -------------------------------
+# 0C. SUPABASE CLIENT
+# -------------------------------
+supabase = None
+SUPABASE_AVAILABLE = False
+
+try:
+    import supabase as _supabase_pkg
+    from supabase import create_client, Client
+    _diag["library_installed"] = True
+    _diag["library_version"] = getattr(_supabase_pkg, "__version__", "unknown")
+    _diag["library_error"] = None
+except ImportError as _e:
+    _diag["library_installed"] = False
+    _diag["library_version"] = None
+    _diag["library_error"] = str(_e)
+    _startup_notices.append(("error",
+        "The `supabase` package is NOT installed. Even with correct "
+        "credentials the app cannot connect. Fix: pip install supabase"))
+
+if _diag.get("library_installed") and SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        SUPABASE_AVAILABLE = True
+        _diag["client_created"] = True
+        _diag["client_error"] = None
+    except Exception as _e:
+        SUPABASE_AVAILABLE = False
+        _diag["client_created"] = False
+        _diag["client_error"] = f"{type(_e).__name__}: {_e}"
+        _startup_notices.append(("error",
+            f"Credentials were found but the Supabase client failed to "
+            f"build: {type(_e).__name__}: {_e}"))
+else:
+    _diag["client_created"] = False
+    _diag.setdefault("client_error", "not attempted")
 
 # Theme toggle
 if 'dark_mode' not in st.session_state:
@@ -570,6 +624,110 @@ st.markdown(
     "<style>" + _inline_css(_tokens, _CSS_BODY) + "</style>",
     unsafe_allow_html=True,
 )
+
+# -------------------------------
+# 1B. STARTUP NOTICES + CONNECTION DIAGNOSTICS
+# -------------------------------
+# Notices are rendered here (after set_page_config and the stylesheet)
+# rather than at the point of failure, so nothing runs before
+# set_page_config and no error gets swallowed.
+for _level, _msg in _startup_notices:
+    getattr(st, _level)(_msg)
+
+if not SUPABASE_AVAILABLE:
+    with st.expander("🔎 Connection diagnostics — click to see why", expanded=False):
+        st.caption("Shows key NAMES and error types only. Never displays secret values.")
+
+        import os as _os
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        _cwd = _Path.cwd()
+        _expected = _cwd / ".streamlit" / "secrets.toml"
+
+        st.markdown("**Step 1 — Is Streamlit finding a secrets file?**")
+        st.code(f"Working directory : {_cwd}\n"
+                f"Expects file at   : {_expected}\n"
+                f"File exists there : {_expected.exists()}", language="text")
+        if not _expected.exists():
+            _alt = list(_cwd.rglob(".streamlit/secrets.toml"))[:5]
+            if _alt:
+                st.error("A secrets.toml exists elsewhere. Streamlit only reads the "
+                         "path above — launch from that directory instead:")
+                for _p in _alt:
+                    st.code(f"cd {_p.parent.parent} && streamlit run app.py", language="bash")
+            else:
+                st.error("No .streamlit/secrets.toml found anywhere below this directory.")
+            st.info("On Streamlit Community Cloud a local file is IGNORED. "
+                    "Paste your TOML into: App → Settings → Secrets.")
+
+        st.markdown("**Step 2 — Can st.secrets be read?**")
+        if _diag.get("secrets_readable"):
+            _keys = _diag.get("secret_keys_found", [])
+            st.success(f"Yes. {len(_keys)} key(s) loaded.")
+            if _keys:
+                st.code("\n".join(_keys), language="text")
+            else:
+                st.warning("Readable, but EMPTY — the file parsed to zero keys. "
+                           "Check for a stray [section] header above your keys, "
+                           "which would nest them.")
+        else:
+            st.error(f"No. {_diag.get('secrets_error')}")
+
+        st.markdown("**Step 3 — Are the two required keys present?**")
+        _c1, _c2 = st.columns(2)
+        _c1.metric("SUPABASE_URL", "found" if _diag.get("has_url") else "MISSING")
+        _c2.metric("SUPABASE_KEY", "found" if _diag.get("has_key") else "MISSING")
+
+        st.markdown("**Step 4 — Is the supabase library installed?**")
+        if _diag.get("library_installed"):
+            st.success(f"Yes — version {_diag.get('library_version')}")
+        else:
+            st.error(f"No. {_diag.get('library_error')}")
+            st.code(f"{_sys.executable} -m pip install supabase", language="bash")
+            st.caption("Use the exact interpreter above — installing into a different "
+                       "environment than the one running Streamlit is a common trap.")
+
+        st.markdown("**Step 5 — Did the client build?**")
+        if _diag.get("client_created"):
+            st.success("Yes.")
+        else:
+            st.error(f"No. {_diag.get('client_error')}")
+
+        st.markdown("---")
+        st.markdown("**Environment**")
+        st.code(f"Python     : {_sys.version.split()[0]}\n"
+                f"Executable : {_sys.executable}\n"
+                f"Streamlit  : {getattr(st, '__version__', 'unknown')}", language="text")
+
+        st.markdown("**Live connection test**")
+        if st.button("▶️ Test the Supabase connection now"):
+            if not _diag.get("library_installed"):
+                st.error("Cannot test — the supabase library is not installed.")
+            elif not (SUPABASE_URL and SUPABASE_KEY):
+                st.error("Cannot test — credentials are missing.")
+            else:
+                try:
+                    _c = create_client(SUPABASE_URL, SUPABASE_KEY)
+                    _c.table("tasks").select("id").limit(1).execute()
+                    st.success("Connected and queried the `tasks` table successfully. "
+                               "Restart the app and this banner should disappear.")
+                except Exception as _te:
+                    st.error(f"{type(_te).__name__}: {_te}")
+                    _t = str(_te).lower()
+                    if "does not exist" in _t or "relation" in _t:
+                        st.info("Connected, but the `tasks` table is missing. "
+                                "Run schema_additions.sql (and your original table setup) "
+                                "in the Supabase SQL editor.")
+                    elif "invalid" in _t and "key" in _t:
+                        st.info("The key was rejected. Confirm you copied the "
+                                "`anon` `public` key, complete and unbroken.")
+                    elif "row-level security" in _t or "rls" in _t or "policy" in _t:
+                        st.info("Connected, but RLS is blocking the query. Run the "
+                                "policy statements at the end of schema_additions.sql.")
+                    elif "name or service not known" in _t or "getaddrinfo" in _t:
+                        st.info("DNS lookup failed — check SUPABASE_URL for typos, "
+                                "and whether site network policy allows outbound HTTPS.")
 
 # -------------------------------
 # 2. SHARED STYLES FOR OPTION MENU
