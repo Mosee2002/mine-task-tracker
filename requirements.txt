@@ -14,3 +14,4 @@ pillow
 plotly
 authlib
 streamlit-option-menu
+fpdf
