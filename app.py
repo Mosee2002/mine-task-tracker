@@ -121,214 +121,471 @@ st.set_page_config(
 if 'dark_mode' not in st.session_state:
     st.session_state.dark_mode = False
 
-dark_css = """
-<style>
-    .stApp { background-color: #0f172a; color: #e2e8f0; }
-    .main-header { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #f8fafc; }
-    .sub-header { color: #94a3b8; border-bottom-color: #334155; }
-    .css-1d391kg { background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%); }
-    .css-1d391kg .stMarkdown { color: #e2e8f0; }
-    .css-1d391kg .stButton button { 
-        background-color: #4fc3f7; 
-        color: #1a1a2e; 
-        border-radius: 10px; 
-        border: none; 
-        padding: 0.6rem 1rem; 
-        transition: 0.3s; 
-        font-weight: 600; 
-    }
-    .css-1d391kg .stButton button:hover { background-color: #29b6f6; transform: scale(1.03); }
-    .custom-card { background: #1e293b; border-color: #334155; color: #e2e8f0; }
-    .task-card { background: #1e293b; border-color: #334155; color: #e2e8f0; }
-    .metric-box { background: #1e293b; border-color: #334155; color: #e2e8f0; }
-    .stFileUploader { background: #1e293b; border-color: #334155; }
-    .streamlit-expanderHeader { background: #1e293b; color: #e2e8f0; }
-    .footer { border-top-color: #334155; color: #94a3b8; }
-    .chat-message { background: #1e293b; border-left-color: #4fc3f7; color: #e2e8f0; }
-    .chat-message.self { background: #0f3460; border-left-color: #4fc3f7; }
-    .stTabs [data-baseweb="tab"] { background: #1e293b; color: #94a3b8; border-color: #334155; }
-    .stTabs [aria-selected="true"] { background: #2563eb; color: white; border-color: #2563eb; }
-    .stTabs [data-baseweb="tab"]:hover { color: #e2e8f0; }
-    .stButton button { color: white; }
-    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label { color: #e2e8f0 !important; }
-    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div { color: #e2e8f0 !important; }
-    .stMetric label { color: #e2e8f0 !important; }
-    .stMetric .value { color: #e2e8f0 !important; }
-    .stMetric .label { color: #94a3b8 !important; }
-    .stDataFrame { color: #e2e8f0 !important; }
-    .overdue-badge { background: #dc2626; color: white; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
-</style>
-"""
-light_css = """
-<style>
-    .stApp { background-color: #f0f2f5; }
-    .main-header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: white; }
-    .sub-header { color: #1a1a2e; border-bottom-color: #0f3460; }
-    .css-1d391kg { background: linear-gradient(180deg, #1a1a2e 0%, #0f3460 100%); }
-    .css-1d391kg .stMarkdown { color: #e2e8f0; }
-    .css-1d391kg .stButton button { 
-        background-color: #4fc3f7; 
-        color: #1a1a2e; 
-        border-radius: 10px; 
-        border: none; 
-        padding: 0.6rem 1rem; 
-        transition: 0.3s; 
-        font-weight: 600; 
-    }
-    .css-1d391kg .stButton button:hover { background-color: #29b6f6; transform: scale(1.03); }
-    .custom-card { background: white; border-color: #e8ecf0; color: #1e293b; }
-    .task-card { background: white; border-color: #e8ecf0; color: #1e293b; }
-    .metric-box { background: white; border-color: #e2e8f0; color: #1e293b; }
-    .stFileUploader { background: #f8fafc; border-color: #cbd5e1; }
-    .streamlit-expanderHeader { background: #f1f5f9; color: #1e293b; }
-    .footer { border-top-color: #e2e8f0; color: #94a3b8; }
-    .chat-message { background: #f1f5f9; border-left-color: #0f3460; color: #1e293b; }
-    .chat-message.self { background: #e3f2fd; border-left-color: #0f3460; }
-    .stTabs [data-baseweb="tab"] { background: white; color: #64748b; border: 1px solid #e2e8f0; border-bottom: none; }
-    .stTabs [aria-selected="true"] { background: #0f3460; color: white; border-color: #0f3460; }
-    .stTabs [data-baseweb="tab"]:hover { color: #1a1a2e; }
-    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label { color: #1e293b !important; }
-    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div { color: #1e293b !important; }
-    .stMetric label { color: #1e293b !important; }
-    .stMetric .value { color: #1e293b !important; }
-    .stMetric .label { color: #64748b !important; }
-    .stDataFrame { color: #1e293b !important; }
-    .overdue-badge { background: #dc2626; color: white; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
-</style>
+# =========================================================================
+# THEME SYSTEM
+# =========================================================================
+# Rewritten to fix three real bugs in the previous version:
+#
+#  1. Metric values were invisible. The old CSS targeted `.stMetric .value`,
+#     which does not exist in current Streamlit — metrics render as
+#     [data-testid="stMetricValue"]. The rule silently never applied, so the
+#     big numbers fell back to a washed-out default.
+#  2. Sidebar styling was dead code. It targeted `.css-1d391kg`, an
+#     auto-generated hash class that changes on every Streamlit release.
+#     Now uses the stable [data-testid="stSidebar"].
+#  3. Dark mode was overridden. A third <style> block hardcoded light
+#     colours *after* the theme was chosen. There is now ONE injection.
+#
+# Colours are defined once as CSS custom properties, so every rule below
+# is theme-agnostic. All body text meets WCAG AA (>= 4.5:1) and large text
+# meets AA Large (>= 3:1) against its background.
+# =========================================================================
+
+LIGHT_TOKENS = """
+    --bg-app: #eef1f6;
+    --bg-surface: #ffffff;
+    --bg-surface-2: #f6f8fb;
+    --bg-sidebar: #16213e;
+    --border: #d3dae6;
+    --border-strong: #b6c0d1;
+
+    --text-primary: #101828;      /* 16.9:1 on white */
+    --text-secondary: #475569;    /*  7.5:1 on white */
+    --text-muted: #5b6879;        /*  5.6:1 on white - still AA */
+    --text-on-dark: #f1f5f9;
+    --text-on-dark-muted: #c3cddc;
+
+    --accent: #1d4ed8;            /*  6.3:1 on white */
+    --accent-hover: #1740ad;
+    --accent-contrast: #ffffff;
+    --accent-soft: #e6ecfb;
+
+    --focus-ring: #1d4ed8;
+    --shadow-sm: 0 1px 3px rgba(16,24,40,.08);
+    --shadow-md: 0 4px 12px rgba(16,24,40,.10);
+    --shadow-lg: 0 10px 28px rgba(16,24,40,.14);
 """
 
-theme_css = dark_css if st.session_state.dark_mode else light_css
+DARK_TOKENS = """
+    --bg-app: #0b1220;
+    --bg-surface: #151d2e;
+    --bg-surface-2: #1b2536;
+    --bg-sidebar: #080d18;
+    --border: #2b3648;
+    --border-strong: #3d4c66;
 
-st.markdown("""
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-""" + theme_css + """
-<style>
-    .stApp { background-color: #f0f2f5; }
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: 700;
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-        padding: 1.5rem 2rem;
-        border-radius: 16px;
-        color: white;
-        margin-bottom: 1rem;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    --text-primary: #f3f6fb;      /* 15.8:1 on --bg-surface */
+    --text-secondary: #c8d3e3;    /*  9.7:1 */
+    --text-muted: #a6b3c6;        /*  6.8:1 */
+    --text-on-dark: #f3f6fb;
+    --text-on-dark-muted: #c8d3e3;
+
+    --accent: #7cb3ff;            /*  7.9:1 on --bg-surface */
+    --accent-hover: #a3caff;
+    --accent-contrast: #0b1220;
+    --accent-soft: #1e2f4d;
+
+    --focus-ring: #7cb3ff;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.4);
+    --shadow-md: 0 4px 12px rgba(0,0,0,.45);
+    --shadow-lg: 0 10px 28px rgba(0,0,0,.55);
+"""
+
+_tokens = DARK_TOKENS if st.session_state.dark_mode else LIGHT_TOKENS
+
+st.markdown(
+    '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">'
+    "<style>\n:root {" + _tokens + "}\n" + """
+
+/* ---------- Base ---------- */
+.stApp { background-color: var(--bg-app); }
+
+/* Raise default text contrast across the whole app. Streamlit's own
+   defaults are too light for a screen viewed in bright light or through
+   a dusty visor, which is the actual use case here. */
+.stApp, .stApp p, .stApp li, .stApp span, .stApp label,
+.stApp div[data-testid="stMarkdownContainer"] {
+    color: var(--text-primary);
+}
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
+    color: var(--text-primary);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+.stApp small, .stCaption, [data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] p {
+    color: var(--text-secondary) !important;
+}
+
+/* ---------- METRICS (the invisible-numbers fix) ---------- */
+[data-testid="stMetric"] {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    box-shadow: var(--shadow-sm);
+}
+[data-testid="stMetricLabel"],
+[data-testid="stMetricLabel"] p {
+    color: var(--text-secondary) !important;
+    font-size: 0.85rem !important;
+    font-weight: 600 !important;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+[data-testid="stMetricValue"] {
+    color: var(--text-primary) !important;
+    font-size: 2.1rem !important;
+    font-weight: 800 !important;
+    line-height: 1.15 !important;
+}
+[data-testid="stMetricDelta"] { font-weight: 700 !important; }
+
+/* ---------- Sidebar (stable selector) ---------- */
+[data-testid="stSidebar"] { background: var(--bg-sidebar); }
+[data-testid="stSidebar"] * { color: var(--text-on-dark); }
+[data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3, [data-testid="stSidebar"] strong {
+    color: #ffffff;
+}
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
+[data-testid="stSidebar"] small {
+    color: var(--text-on-dark-muted) !important;
+}
+[data-testid="stSidebar"] .stButton button {
+    background: var(--accent);
+    color: var(--accent-contrast);
+    border: none;
+    border-radius: 8px;
+    padding: 0.55rem 0.9rem;
+    font-weight: 700;
+    width: 100%;
+}
+[data-testid="stSidebar"] .stButton button:hover {
+    background: var(--accent-hover);
+    color: var(--accent-contrast);
+}
+/* Sidebar inputs need a light field with dark text, or they vanish
+   against the dark sidebar background. */
+[data-testid="stSidebar"] input,
+[data-testid="stSidebar"] textarea,
+[data-testid="stSidebar"] [data-baseweb="select"] > div {
+    background: #ffffff !important;
+    color: #101828 !important;
+    border: 1px solid var(--border-strong) !important;
+}
+[data-testid="stSidebar"] input::placeholder,
+[data-testid="stSidebar"] textarea::placeholder {
+    color: #5b6879 !important;
+}
+
+/* ---------- Form controls ---------- */
+.stTextInput label, .stTextArea label, .stSelectbox label,
+.stNumberInput label, .stDateInput label, .stCheckbox label,
+.stFileUploader label, .stRadio label, .stMultiSelect label {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+    font-size: 0.92rem !important;
+}
+.stTextInput input, .stTextArea textarea, .stNumberInput input,
+.stDateInput input {
+    background: var(--bg-surface) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border-strong) !important;
+    border-radius: 8px !important;
+}
+.stTextInput input::placeholder, .stTextArea textarea::placeholder {
+    color: var(--text-muted) !important;
+    opacity: 1 !important;
+}
+[data-baseweb="select"] > div {
+    background: var(--bg-surface) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border-strong) !important;
+}
+[data-baseweb="popover"] li { color: var(--text-primary) !important; }
+
+/* Visible keyboard focus — needed for accessibility and for gloved
+   tab-navigation on shared terminals. */
+.stApp *:focus-visible {
+    outline: 3px solid var(--focus-ring) !important;
+    outline-offset: 2px !important;
+}
+
+/* ---------- Buttons ---------- */
+.stButton button, .stDownloadButton button, .stFormSubmitButton button {
+    background: var(--accent);
+    color: var(--accent-contrast);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-weight: 700;
+    padding: 0.5rem 1rem;
+}
+.stButton button:hover, .stDownloadButton button:hover,
+.stFormSubmitButton button:hover {
+    background: var(--accent-hover);
+    color: var(--accent-contrast);
+}
+
+/* ---------- Header ---------- */
+.main-header {
+    background: linear-gradient(135deg, #16213e 0%, #1b2b52 55%, #143a63 100%);
+    color: #ffffff;
+    padding: 1.25rem 1.6rem;
+    border-radius: 14px;
+    margin-bottom: 1.1rem;
+    box-shadow: var(--shadow-md);
+    font-size: 1.75rem;      /* was 2.5rem, which clipped its own text */
+    font-weight: 800;
+    line-height: 1.25;       /* the actual cause of the clipped title */
+    letter-spacing: -0.01em;
+}
+.main-header i { color: #7cb3ff; margin-right: 10px; }
+.main-header small {
+    display: block;
+    margin-top: 6px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    line-height: 1.4;
+    color: #d7e2f2;          /* 9.4:1 on the header gradient */
+    opacity: 1;              /* opacity dimming was hurting contrast */
+}
+.sub-header {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0.4rem 0 1.1rem 0;
+    padding-bottom: 0.45rem;
+    border-bottom: 2px solid var(--accent);
+}
+
+/* ---------- Cards ---------- */
+.custom-card, .task-card, .metric-box {
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.85rem;
+    box-shadow: var(--shadow-sm);
+    line-height: 1.55;
+}
+.custom-card { border-left: 4px solid var(--accent); }
+.custom-card:hover, .task-card:hover { box-shadow: var(--shadow-md); }
+.custom-card strong, .task-card strong { color: var(--text-primary); }
+.custom-card small, .task-card small { color: var(--text-secondary); }
+.custom-card i, .task-card i { color: var(--text-secondary); }
+.task-title { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); }
+.task-meta {
+    display: flex; gap: 0.9rem; flex-wrap: wrap;
+    margin: 0.35rem 0 0.6rem 0;
+    font-size: 0.88rem; color: var(--text-secondary);
+}
+.metric-box { text-align: center; }
+.metric-box .value { font-size: 2rem; font-weight: 800; color: var(--text-primary); }
+.metric-box .label { font-size: 0.85rem; color: var(--text-secondary); }
+
+/* ---------- Badges ----------
+   All badge text is white on a colour dark enough to clear 4.5:1.
+   The old Medium/Low priority colours were too light for white text. */
+.priority-badge, .status-badge, .severity-badge, .asset-status-badge {
+    display: inline-block;
+    padding: 0.2rem 0.65rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    color: #ffffff;
+    white-space: nowrap;
+}
+.priority-Critical  { background: #a4161a; }
+.priority-High      { background: #b45309; }
+.priority-Medium    { background: #1d4ed8; }
+.priority-Low       { background: #15803d; }
+
+.status-Unassigned  { background: #4b5563; }
+.status-InProgress  { background: #1d4ed8; }
+.status-PendingQA   { background: #b45309; }
+.status-Blocked     { background: #a4161a; }
+.status-Complete    { background: #15803d; }
+.status-Open        { background: #b45309; }
+.status-Investigating { background: #1d4ed8; }
+.status-Resolved    { background: #15803d; }
+.status-Closed      { background: #4b5563; }
+
+.severity-Critical  { background: #7f1d1d; }
+.severity-High      { background: #a4161a; }
+.severity-Medium    { background: #b45309; }
+.severity-Low       { background: #1d4ed8; }
+
+.asset-status-Operational { background: #15803d; }
+.asset-status-Down        { background: #a4161a; }
+.asset-status-Maintenance { background: #b45309; }
+.asset-status-Retired     { background: #4b5563; }
+
+.overdue-badge, .verified-badge, .pending-badge, .stock-badge {
+    display: inline-block;
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: #ffffff;
+    margin-left: 0.4rem;
+    white-space: nowrap;
+}
+.overdue-badge  { background: #a4161a; }
+.verified-badge { background: #15803d; }
+.pending-badge  { background: #b45309; }
+.stock-ok       { background: #15803d; }
+.stock-low      { background: #a4161a; }
+
+/* ---------- Tabs ---------- */
+.stTabs [data-baseweb="tab-list"] { gap: 0.25rem; }
+.stTabs [data-baseweb="tab"] {
+    background: var(--bg-surface-2);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 10px 10px 0 0;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+}
+.stTabs [aria-selected="true"] {
+    background: var(--accent);
+    color: var(--accent-contrast);
+    border-color: var(--accent);
+}
+
+/* ---------- Expanders ---------- */
+[data-testid="stExpander"] {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary p {
+    color: var(--text-primary) !important;
+    font-weight: 650 !important;
+}
+
+/* ---------- Alerts: keep Streamlit's semantic tints but force
+   readable text, since the defaults wash out in dark mode. ---------- */
+[data-testid="stAlert"] { border-radius: 10px; }
+[data-testid="stAlert"] p, [data-testid="stAlert"] div { color: #101828 !important; }
+
+/* ---------- Tables ---------- */
+[data-testid="stDataFrame"], [data-testid="stTable"] {
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+}
+
+/* ---------- Chat ---------- */
+.chat-message {
+    background: var(--bg-surface-2);
+    color: var(--text-primary);
+    border-left: 4px solid var(--accent);
+    border-radius: 10px;
+    padding: 0.55rem 0.9rem;
+    margin: 0.25rem 0;
+    line-height: 1.5;
+}
+.chat-message.self { background: var(--accent-soft); }
+.chat-message .sender { font-weight: 800; color: var(--text-primary); }
+.chat-message .timestamp {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    margin-left: 0.4rem;
+}
+
+/* ---------- File uploader ---------- */
+[data-testid="stFileUploader"] {
+    background: var(--bg-surface-2);
+    border: 2px dashed var(--border-strong);
+    border-radius: 10px;
+    padding: 0.5rem;
+}
+[data-testid="stFileUploader"] * { color: var(--text-primary) !important; }
+
+/* ---------- Sidebar user block ---------- */
+.sidebar-user { text-align: center; padding: 0.4rem 0 0.2rem; }
+.sidebar-user .user-icon { font-size: 2.6rem; color: #7cb3ff; }
+.sidebar-user .user-name {
+    font-weight: 800; font-size: 1.1rem; margin-top: 0.25rem; color: #ffffff;
+}
+.sidebar-user .user-role { font-size: 0.85rem; color: var(--text-on-dark-muted); }
+
+/* ---------- Footer ---------- */
+.footer {
+    text-align: center;
+    margin-top: 2rem;
+    padding: 0.9rem;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.6;
+    border-top: 1px solid var(--border);
+}
+
+/* ---------- Field-condition affordances ----------
+   Larger tap targets and text on small screens: this gets used on
+   phones, in gloves, in bad light. */
+@media (max-width: 900px) {
+    .main-header { font-size: 1.4rem; padding: 1rem 1.1rem; }
+    [data-testid="stMetricValue"] { font-size: 1.8rem !important; }
+    .stButton button, .stFormSubmitButton button {
+        padding: 0.7rem 1rem;
+        font-size: 1rem;
     }
-    .main-header i { color: #4fc3f7; margin-right: 12px; }
-    .main-header small { font-size: 0.9rem; font-weight: 300; opacity: 0.8; display: block; margin-top: 4px; }
-    .sub-header { font-size: 1.3rem; font-weight: 600; margin-bottom: 1.5rem; padding-bottom: 0.5rem; border-bottom: 3px solid #0f3460; }
-    .css-1d391kg { background: linear-gradient(180deg, #1a1a2e 0%, #0f3460 100%); }
-    .css-1d391kg .stMarkdown { color: #e2e8f0; }
-    .css-1d391kg .stButton button {
-        background-color: #4fc3f7;
-        color: #1a1a2e;
-        border-radius: 10px;
-        border: none;
-        padding: 0.6rem 1rem;
-        transition: 0.3s;
-        font-weight: 600;
-        width: 100%;
-    }
-    .css-1d391kg .stButton button:hover { background-color: #29b6f6; transform: scale(1.03); }
-    .css-1d391kg .stButton button i { margin-right: 8px; }
-    .css-1d391kg .stSelectbox label, 
-    .css-1d391kg .stTextInput label, 
-    .css-1d391kg .stTextArea label,
-    .css-1d391kg .stCheckbox label { color: #e2e8f0 !important; }
-    .custom-card { background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 1.2rem; margin-bottom: 1rem; border-left: 5px solid #0f3460; transition: 0.3s; }
-    .custom-card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.12); transform: translateY(-2px); }
-    .task-card { background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 1.2rem; margin-bottom: 1rem; border: 1px solid #e8ecf0; transition: 0.3s; }
-    .task-card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.12); transform: translateY(-2px); }
-    .task-title { font-size: 1.1rem; font-weight: 700; color: #1a1a2e; }
-    .task-meta { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.3rem 0 0.8rem 0; font-size: 0.9rem; color: #475569; }
-    .task-meta i { margin-right: 0.3rem; }
-    .priority-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .priority-Critical { background: #dc2626; }
-    .priority-High { background: #f59e0b; }
-    .priority-Medium { background: #0f3460; }
-    .priority-Low { background: #10b981; }
-    .status-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .status-Unassigned { background: #94a3b8; }
-    .status-InProgress { background: #3b82f6; }
-    .status-PendingQA { background: #f59e0b; }
-    .status-Blocked { background: #dc2626; }
-    .status-Complete { background: #10b981; }
-    .overdue-badge { display: inline-block; background: #dc2626; color: white; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
-    .metric-box { background: white; border-radius: 16px; padding: 1.2rem; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e8ecf0; }
-    .metric-box .value { font-size: 2.2rem; font-weight: 700; color: #1a1a2e; }
-    .metric-box .label { font-size: 0.9rem; color: #64748b; }
-    .metric-box .label i { margin-right: 0.3rem; }
-    .chat-message { padding: 0.5rem 1rem; border-radius: 12px; margin: 0.2rem 0; background: #f1f5f9; border-left: 4px solid #0f3460; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
-    .chat-message.self { background: #e3f2fd; border-left-color: #0f3460; }
-    .chat-message .sender { font-weight: 700; color: #1a1a2e; }
-    .chat-message .timestamp { font-size: 0.7rem; color: #64748b; margin-left: 0.5rem; }
-    .stTabs [data-baseweb="tab-list"] { gap: 0.3rem; }
-    .stTabs [data-baseweb="tab"] { border-radius: 12px 12px 0 0; padding: 0.6rem 1.2rem; font-weight: 600; border: 1px solid #e2e8f0; border-bottom: none; background: white; color: #64748b; }
-    .stTabs [aria-selected="true"] { background: #0f3460; color: white; border-color: #0f3460; }
-    .stTabs [data-baseweb="tab"]:hover { color: #1a1a2e; }
-    .stTabs [data-baseweb="tab"] i { margin-right: 8px; }
-    .stFileUploader { border: 2px dashed #94a3b8; border-radius: 12px; padding: 0.5rem; background: #f8fafc; }
-    .streamlit-expanderHeader { background: #f1f5f9; border-radius: 12px; font-weight: 600; }
-    .footer { text-align: center; margin-top: 2rem; padding: 1rem; color: #94a3b8; font-size: 0.8rem; border-top: 1px solid #e2e8f0; }
-    .stButton button { font-weight: 600; border-radius: 10px; }
-    .stButton button i { margin-right: 0.5rem; }
-    .verified-badge { display: inline-block; background: #10b981; color: white; padding: 0.15rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
-    .pending-badge { display: inline-block; background: #f59e0b; color: white; padding: 0.15rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
-    .severity-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .severity-Critical { background: #7f1d1d; }
-    .severity-High { background: #dc2626; }
-    .severity-Medium { background: #f59e0b; }
-    .severity-Low { background: #0f3460; }
-    .asset-status-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .asset-status-Operational { background: #10b981; }
-    .asset-status-Down { background: #dc2626; }
-    .asset-status-Maintenance { background: #f59e0b; }
-    .asset-status-Retired { background: #94a3b8; }
-    .stock-badge { display: inline-block; padding: 0.15rem 0.7rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; color: white; margin-left: 0.5rem; }
-    .stock-ok { background: #10b981; }
-    .stock-low { background: #dc2626; }
-    .sidebar-user { padding: 0.5rem 0; text-align: center; color: #e2e8f0; }
-    .sidebar-user .user-name { font-weight: 700; font-size: 1.2rem; margin-top: 0.3rem; color: #e2e8f0; }
-    .sidebar-user .user-role { font-size: 0.9rem; color: #94a3b8; }
-    .sidebar-user .user-role i { margin-right: 0.3rem; }
-    .sidebar-user .user-icon { font-size: 3rem; color: #4fc3f7; }
-    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label { font-weight: 600; color: #1e293b !important; }
-    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div { color: #1e293b !important; }
-    .stMetric label { color: #1e293b !important; }
-    .stMetric .value { color: #1e293b !important; }
-    .stMetric .label { color: #64748b !important; }
-    .stDataFrame { color: #1e293b !important; }
-    .stAlert { border-radius: 12px; }
-    .stSuccess, .stInfo, .stWarning, .stError { border-radius: 12px; }
-</style>
-""", unsafe_allow_html=True)
+    .task-meta { gap: 0.5rem; font-size: 0.85rem; }
+}
+</style>""",
+    unsafe_allow_html=True,
+)
 
 # -------------------------------
 # 2. SHARED STYLES FOR OPTION MENU
 # -------------------------------
 def menu_styles():
+    """Styling for streamlit-option-menu.
+
+    This component takes inline styles rather than CSS classes, so the
+    theme tokens have to be mirrored here as literal values. Keep these
+    in sync with LIGHT_TOKENS / DARK_TOKENS above.
+
+    Note the icon colour: the old value (#4fc3f7) was a pale cyan that
+    sat at roughly 1.9:1 against a white container — effectively
+    invisible in light mode. Each theme now gets an icon colour that
+    contrasts with its own container.
+    """
     dark = st.session_state.dark_mode
     return {
         "container": {
-            "padding": "6px",
-            "background-color": "#1e293b" if dark else "white",
-            "border-radius": "14px",
-            "box-shadow": "0 2px 12px rgba(0,0,0,0.08)",
+            "padding": "5px",
+            "background-color": "#151d2e" if dark else "#ffffff",
+            "border": f"1px solid {'#2b3648' if dark else '#d3dae6'}",
+            "border-radius": "12px",
+            "box-shadow": "0 1px 3px rgba(16,24,40,.08)",
             "margin-bottom": "1rem",
         },
-        "icon": {"color": "#4fc3f7", "font-size": "16px"},
+        "icon": {
+            # 7.9:1 on dark surface / 6.3:1 on white
+            "color": "#7cb3ff" if dark else "#1d4ed8",
+            "font-size": "15px",
+        },
         "nav-link": {
-            "font-size": "14px",
-            "font-weight": "600",
+            "font-size": "13.5px",
+            "font-weight": "650",
             "text-align": "center",
-            "margin": "0px 2px",
-            "border-radius": "10px",
-            "color": "#e2e8f0" if dark else "#1e293b",
-            "--hover-color": "#334155" if dark else "#f1f5f9",
+            "margin": "2px 2px",
+            "padding": "0.5rem 0.6rem",
+            "border-radius": "9px",
+            "color": "#f3f6fb" if dark else "#101828",
+            "--hover-color": "#1b2536" if dark else "#e6ecfb",
         },
         "nav-link-selected": {
-            "background-color": "#0f3460",
-            "color": "white",
+            "background-color": "#7cb3ff" if dark else "#1d4ed8",
+            "color": "#0b1220" if dark else "#ffffff",
+            "font-weight": "800",
         },
     }
 
