@@ -830,6 +830,17 @@ ROLE_PERMISSIONS = {
     },
 }
 
+# The owner tier is NOT a role in this table. Owner status is resolved
+# from OWNER_USERNAME in secrets (see is_owner), and owner-only screens
+# check is_owner() directly rather than can(). Keeping it out of the
+# role matrix means it cannot be granted by editing a user's role.
+OWNER_CAPABILITIES = {
+    "access.view_requests", "access.approve", "access.deny",
+    "access.set_role", "access.suspend", "access.remove",
+    "access.view_history",
+}
+
+
 def can(user_role, capability):
     """Single authorization entry point. Unknown roles get nothing."""
     if not user_role:
@@ -1103,6 +1114,218 @@ def fetch_all_users_from_db():
         return []
 
 
+# =====================================================================
+# OWNER / ACCESS CONTROL
+# =====================================================================
+# The owner is the person who runs this deployment. Owner status is
+# resolved from OWNER_USERNAME in secrets.toml — NOT from a database
+# column and NOT from anything settable in the UI.
+#
+# Why: if "owner" were a role stored in facility_users, then anyone who
+# could write that table (directly via the anon key, or through any bug
+# in the role-editing screens) could make themselves owner. Anchoring it
+# to a secret means seizing it requires access to the deployment
+# configuration, which is a much higher bar than access to the app.
+#
+# Consequence to be aware of: if you lose OWNER_USERNAME you must edit
+# secrets.toml to recover. There is deliberately no in-app path.
+# =====================================================================
+
+OWNER_USERNAME = str(_secret_get("OWNER_USERNAME", "") or "").strip().lower()
+
+
+def is_owner(username):
+    """True only for the single configured owner account."""
+    if not OWNER_USERNAME or not username:
+        return False
+    return str(username).strip().lower() == OWNER_USERNAME
+
+
+def owner_is_configured():
+    return bool(OWNER_USERNAME)
+
+
+def log_access_decision(target_username, target_full_name, action,
+                        decided_by, old_role=None, new_role=None, reason=None):
+    """Append-only record of an access decision."""
+    payload = {
+        "target_username": target_username,
+        "target_full_name": target_full_name,
+        "action": action,
+        "old_role": old_role,
+        "new_role": new_role,
+        "reason": reason,
+        "decided_by": decided_by,
+    }
+    if not SUPABASE_AVAILABLE:
+        st.session_state.setdefault("access_decisions_memory", []).append(
+            {**payload, "decided_at": datetime.now().isoformat()})
+        return
+    try:
+        supabase.table("access_decisions").insert(payload).execute()
+    except Exception as e:
+        log_error(str(e), details=payload, endpoint="log_access_decision")
+
+
+def fetch_access_decisions(limit=100):
+    if not SUPABASE_AVAILABLE:
+        rows = st.session_state.get("access_decisions_memory", [])
+        return sorted(rows, key=lambda r: r.get("decided_at", ""), reverse=True)[:limit]
+    try:
+        res = (supabase.table("access_decisions").select("*")
+               .order("decided_at", desc=True).limit(limit).execute())
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_access_decisions")
+        return []
+
+
+def approve_access(username, granted_role, decided_by, reason=None):
+    """Approve a pending request AND set the granted role.
+
+    The role granted here is authoritative — it deliberately overrides
+    whatever the applicant selected at registration, so signing up as
+    'Superintendent' confers nothing by itself.
+    """
+    if not SUPABASE_AVAILABLE:
+        return False, "No database connected."
+    if granted_role not in ("Worker", "Supervisor", "Superintendent"):
+        return False, f"Invalid role: {granted_role}"
+    try:
+        target = supabase.table("facility_users").select("*").eq("username", username).execute()
+        if not target.data:
+            return False, "User not found."
+        old_role = target.data[0].get("role")
+        full_name = target.data[0].get("full_name")
+        supabase.table("facility_users").update({
+            "is_approved": True,
+            "is_suspended": False,
+            "role": granted_role,
+            "decision_by": decided_by,
+            "decision_at": datetime.now().isoformat(),
+            "denial_reason": None,
+        }).eq("username", username).execute()
+        log_access_decision(username, full_name, "approved", decided_by,
+                            old_role=old_role, new_role=granted_role, reason=reason)
+        log_audit(decided_by, "access_approve",
+                  {"username": username, "granted_role": granted_role})
+        send_notification(full_name, "Access approved",
+                          f"Your access has been approved with the role: {granted_role}.")
+        return True, ""
+    except Exception as e:
+        log_error(str(e), details={"username": username}, endpoint="approve_access")
+        return False, str(e)
+
+
+def deny_access(username, decided_by, reason=None):
+    """Deny a pending request. The record is KEPT (not deleted) so the
+    decision remains auditable and the same person cannot silently
+    re-apply without it being visible."""
+    if not SUPABASE_AVAILABLE:
+        return False, "No database connected."
+    try:
+        target = supabase.table("facility_users").select("*").eq("username", username).execute()
+        if not target.data:
+            return False, "User not found."
+        full_name = target.data[0].get("full_name")
+        supabase.table("facility_users").update({
+            "is_approved": False,
+            "is_suspended": True,
+            "decision_by": decided_by,
+            "decision_at": datetime.now().isoformat(),
+            "denial_reason": reason,
+        }).eq("username", username).execute()
+        log_access_decision(username, full_name, "denied", decided_by, reason=reason)
+        log_audit(decided_by, "access_deny", {"username": username, "reason": reason})
+        return True, ""
+    except Exception as e:
+        log_error(str(e), details={"username": username}, endpoint="deny_access")
+        return False, str(e)
+
+
+def set_user_role(username, new_role, decided_by, reason=None):
+    if not SUPABASE_AVAILABLE:
+        return False, "No database connected."
+    if new_role not in ("Worker", "Supervisor", "Superintendent"):
+        return False, f"Invalid role: {new_role}"
+    if is_owner(username) and new_role != "Superintendent":
+        return False, ("The owner account cannot be demoted — that would lock you "
+                       "out of access management. Change OWNER_USERNAME in "
+                       "secrets.toml first if you intend to hand over.")
+    try:
+        target = supabase.table("facility_users").select("*").eq("username", username).execute()
+        if not target.data:
+            return False, "User not found."
+        old_role = target.data[0].get("role")
+        full_name = target.data[0].get("full_name")
+        if old_role == new_role:
+            return False, f"Already {new_role}."
+        supabase.table("facility_users").update({
+            "role": new_role,
+            "decision_by": decided_by,
+            "decision_at": datetime.now().isoformat(),
+        }).eq("username", username).execute()
+        log_access_decision(username, full_name, "role_changed", decided_by,
+                            old_role=old_role, new_role=new_role, reason=reason)
+        log_audit(decided_by, "role_change",
+                  {"username": username, "from": old_role, "to": new_role})
+        send_notification(full_name, "Role changed",
+                          f"Your role changed from {old_role} to {new_role}.")
+        return True, ""
+    except Exception as e:
+        log_error(str(e), details={"username": username}, endpoint="set_user_role")
+        return False, str(e)
+
+
+def set_user_suspended(username, suspended, decided_by, reason=None):
+    """Suspend or reinstate. Suspension blocks login but keeps the
+    account and its history, which is what you want when someone leaves
+    or is under investigation — deleting them would orphan their audit
+    trail."""
+    if not SUPABASE_AVAILABLE:
+        return False, "No database connected."
+    if is_owner(username) and suspended:
+        return False, ("You cannot suspend the owner account — it is the only "
+                       "route into access management.")
+    try:
+        target = supabase.table("facility_users").select("*").eq("username", username).execute()
+        if not target.data:
+            return False, "User not found."
+        full_name = target.data[0].get("full_name")
+        supabase.table("facility_users").update({
+            "is_suspended": suspended,
+            "is_approved": (not suspended) and target.data[0].get("is_approved", False),
+            "decision_by": decided_by,
+            "decision_at": datetime.now().isoformat(),
+        }).eq("username", username).execute()
+        action = "suspended" if suspended else "reinstated"
+        log_access_decision(username, full_name, action, decided_by, reason=reason)
+        log_audit(decided_by, f"access_{action}", {"username": username})
+        return True, ""
+    except Exception as e:
+        log_error(str(e), endpoint="set_user_suspended")
+        return False, str(e)
+
+
+def remove_user(username, decided_by, reason=None):
+    if not SUPABASE_AVAILABLE:
+        return False, "No database connected."
+    if is_owner(username):
+        return False, "The owner account cannot be removed from inside the app."
+    try:
+        target = supabase.table("facility_users").select("*").eq("username", username).execute()
+        full_name = target.data[0].get("full_name") if target.data else None
+        old_role = target.data[0].get("role") if target.data else None
+        supabase.table("facility_users").delete().eq("username", username).execute()
+        log_access_decision(username, full_name, "removed", decided_by,
+                            old_role=old_role, reason=reason)
+        log_audit(decided_by, "access_remove", {"username": username})
+        return True, ""
+    except Exception as e:
+        log_error(str(e), endpoint="remove_user")
+        return False, str(e)
+
+
 def has_any_admin():
     """True if at least one approved Superintendent exists in the DB.
     Used to gate first-run setup."""
@@ -1146,38 +1369,67 @@ def create_first_admin(username, full_name, password, email=None):
         log_error(str(e), endpoint="create_first_admin")
         return False, str(e)
 
-def register_user_to_db(username, name, role, password, email=None):
+def register_user_to_db(username, name, requested_role, password, email=None,
+                        job_title=None, department=None, employee_id=None):
+    """Create an ACCESS REQUEST — not an account with the requested role.
+
+    SECURITY: the applicant's choice is stored in `requested_role` only.
+    The live `role` column is always seeded to the lowest privilege
+    (Worker) and is set for real by the owner at approval time. Before
+    this, someone could select "Superintendent" on the signup form and
+    an inattentive approver would grant it with one click.
+    """
     if not SUPABASE_AVAILABLE:
-        return False
+        return False, "No database connected — cannot register in demo mode."
     strong, msg = is_strong_password(password)
     if not strong:
-        st.error(msg)
-        return False
+        return False, msg
     try:
-        hashed = hash_password(password)
         payload = {
             "username": username,
             "full_name": name,
-            "role": role,
-            "password_hash": hashed,
+            "role": "Worker",                 # lowest privilege until granted
+            "requested_role": requested_role,  # what they asked for
+            "password_hash": hash_password(password),
             "email": email,
-            "is_approved": False
+            "job_title": job_title,
+            "department": department,
+            "employee_id": employee_id,
+            "is_approved": False,
+            "is_suspended": False,
+            "requested_at": datetime.now().isoformat(),
         }
         supabase.table("facility_users").insert(payload).execute()
-        log_audit(name, "user_register", {"username": username, "role": role, "status": "pending_approval"})
-        return True
+        log_audit(name, "access_request",
+                  {"username": username, "requested_role": requested_role})
+        # Tell the owner there is something to review.
+        if OWNER_USERNAME:
+            send_notification(OWNER_USERNAME, "New access request",
+                              f"{name} ({username}) requested access as {requested_role}.")
+        return True, ""
     except Exception as e:
         log_error(str(e), details={"username": username}, endpoint="register_user")
-        return False
+        return False, str(e)
 
 def authenticate_user(username, password):
+    """Authenticate and return (user, status).
+
+    Order matters: the password is verified BEFORE reporting suspension
+    or denial, so the login form cannot be used to enumerate which
+    usernames exist or what state they are in.
+    """
     users = fetch_all_users_from_db()
     for u in users:
         if u["username"].lower() == username.lower():
+            if not verify_password(password, u["password_hash"]):
+                return None, None                       # wrong password
+            if u.get("is_suspended", False):
+                return None, "suspended"
             if not u.get("is_approved", False):
+                if u.get("denial_reason"):
+                    return None, "denied"
                 return None, "pending_approval"
-            if verify_password(password, u["password_hash"]):
-                return u, "approved"
+            return u, "approved"
     return None, None
 
 def update_user_profile(username, updates):
@@ -1190,27 +1442,13 @@ def update_user_profile(username, updates):
         log_error(str(e), details={"username": username, "updates": updates}, endpoint="update_user")
         return False
 
-def approve_user(username):
-    if not SUPABASE_AVAILABLE:
-        return False
-    try:
-        supabase.table("facility_users").update({"is_approved": True}).eq("username", username).execute()
-        log_audit("admin", "approve_user", {"username": username})
-        return True
-    except Exception as e:
-        log_error(str(e), details={"username": username}, endpoint="approve_user")
-        return False
-
-def reject_user(username):
-    if not SUPABASE_AVAILABLE:
-        return False
-    try:
-        supabase.table("facility_users").delete().eq("username", username).execute()
-        log_audit("admin", "reject_user", {"username": username})
-        return True
-    except Exception as e:
-        log_error(str(e), details={"username": username}, endpoint="reject_user")
-        return False
+# REMOVED: approve_user() / reject_user().
+# They granted or destroyed access with no role assignment, no reason
+# captured, and an audit entry attributed to the literal string "admin"
+# rather than to whoever clicked. Access changes now go through
+# approve_access() / deny_access() / remove_user() in the owner section,
+# which record the actual decision-maker in the append-only
+# access_decisions table.
 
 def generate_reset_token(username, email):
     if not SUPABASE_AVAILABLE:
@@ -2697,6 +2935,14 @@ if not st.session_state.authenticated:
     ''', unsafe_allow_html=True)
     st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
 
+    # --- Owner not configured -------------------------------------------
+    if SUPABASE_AVAILABLE and not owner_is_configured():
+        st.error(
+            "⚠️ **No owner configured.** Add `OWNER_USERNAME = \"your-username\"` to "
+            "`.streamlit/secrets.toml` and restart. Until then the Owner Console is "
+            "unreachable and nobody can approve access requests."
+        )
+
     # --- Demo mode notice -------------------------------------------------
     if not SUPABASE_AVAILABLE:
         st.info(
@@ -2798,7 +3044,14 @@ if not st.session_state.authenticated:
                 log_audit(matched_user.get("full_name"), "login")
                 st.rerun()
             elif status == "pending_approval":
-                st.error("Your account is pending admin approval. Please wait for a superintendent to approve your account.")
+                st.info("⏳ **Your access request is pending.** The administrator has "
+                        "not yet reviewed it. You'll be able to sign in once approved.")
+            elif status == "suspended":
+                st.error("🚫 **This account is suspended.** Contact the administrator "
+                         "if you believe this is a mistake.")
+            elif status == "denied":
+                st.error("🚫 **Your access request was declined.** Contact the "
+                         "administrator for details.")
             else:
                 record_login_failure(user_in)
                 attempts = _login_state().get(str(user_in).lower(), {}).get("count", 0)
@@ -2832,26 +3085,44 @@ if not st.session_state.authenticated:
     st.markdown('<div class="sub-header"><i class="fas fa-user-plus"></i> Create Account Profile</div>', unsafe_allow_html=True)
 
     with st.form("register_form"):
-        reg_user = st.text_input("Choose Username", placeholder="Pick a unique username").strip().lower()
-        reg_name = st.text_input("Full Name", placeholder="Your full name")
-        reg_email = st.text_input("Email (optional)", placeholder="email@example.com")
-        reg_role = st.selectbox("Role Access Level", ["Worker", "Supervisor", "Superintendent"])
-        reg_pass = st.text_input("Set Password", type="password", placeholder="Choose a strong password")
-        register_submitted = st.form_submit_button('✅ Register Profile', use_container_width=True)
+        st.caption("Submitting this creates an **access request**. An administrator "
+                   "reviews it and decides your role — selecting a role below is a "
+                   "request, not a grant.")
+        _rc1, _rc2 = st.columns(2)
+        with _rc1:
+            reg_user = st.text_input("Choose Username", placeholder="Pick a unique username").strip().lower()
+            reg_name = st.text_input("Full Name *", placeholder="Your full name")
+            reg_email = st.text_input("Work Email", placeholder="email@company.com")
+            reg_pass = st.text_input("Set Password *", type="password",
+                                     placeholder="8+ chars, upper, lower, digit, symbol")
+        with _rc2:
+            reg_empid = st.text_input("Employee / Contractor ID",
+                                      placeholder="Helps the admin verify you")
+            reg_title = st.text_input("Job Title", placeholder="e.g. Fitter, Electrician")
+            reg_dept = st.text_input("Department / Crew", placeholder="e.g. Fixed Plant")
+            reg_role = st.selectbox("Requested Access Level",
+                                    ["Worker", "Supervisor", "Superintendent"])
+        register_submitted = st.form_submit_button('📨 Request Access', use_container_width=True)
 
     if register_submitted:
-        if reg_user and reg_name and reg_pass:
+        if not SUPABASE_AVAILABLE:
+            st.error("Cannot register in demo mode — no database is connected.")
+        elif reg_user and reg_name and reg_pass:
             users = fetch_all_users_from_db()
             if any(u["username"].lower() == reg_user for u in users):
-                st.error("Username already taken. Please choose another.")
+                st.error("That username is taken. Please choose another.")
             else:
-                success = register_user_to_db(reg_user, reg_name, reg_role, reg_pass, reg_email)
-                if success:
-                    st.success(f"Account '{reg_user}' created! Please wait for admin approval before logging in.")
+                ok, err = register_user_to_db(
+                    reg_user, reg_name, reg_role, reg_pass, reg_email or None,
+                    job_title=reg_title or None, department=reg_dept or None,
+                    employee_id=reg_empid or None)
+                if ok:
+                    st.success("✅ Access request submitted. You'll be able to sign in "
+                               "once an administrator approves it.")
                 else:
-                    st.error("Registration failed. Database error.")
+                    st.error(err or "Registration failed.")
         else:
-            st.error("All fields are mandatory.")
+            st.error("Username, full name, and password are required.")
     st.stop()
 else:
     check_timeout()
@@ -3034,6 +3305,14 @@ _filtered = [(o, i) for o, i in zip(nav_options, nav_icons)
              if o not in _nav_caps or can(_role_lower, _nav_caps[o])]
 nav_options = [o for o, _ in _filtered]
 nav_icons = [i for _, i in _filtered]
+
+# Owner Console — visible ONLY to the configured owner account, and
+# gated again inside the section itself. Hiding a menu item is a UX
+# nicety, not a security control; the real check is is_owner() below.
+_IS_OWNER = is_owner(st.session_state.user_payload.get('username'))
+if _IS_OWNER:
+    nav_options.insert(1, "Owner Console")
+    nav_icons.insert(1, "key-fill")
 
 selected_section = option_menu(
     menu_title=None,
@@ -3602,51 +3881,50 @@ if selected_section == "Task Dashboard":
                     st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
 
         elif superintendent_sub == "User Management":
-            st.markdown("### 👥 User Management")
-            st.markdown("Approve or reject pending user registrations, and deactivate approved users.")
+            st.markdown("### 👥 User Directory")
+            # Access decisions moved to the owner-only console. Granting
+            # roles is the most privilege-sensitive action in the app, so
+            # it sits with one accountable person rather than with every
+            # Superintendent.
+            if is_owner(username):
+                st.info("You are the owner — approvals and role changes are in "
+                        "**Owner Console → Access Requests**.")
+            else:
+                st.info("This is a read-only directory. Access approvals, role "
+                        "changes, and suspensions are handled by the account owner.")
 
             all_users = fetch_all_users_from_db()
-            pending_users = [u for u in all_users if not u.get("is_approved", False)]
-            approved_users = [u for u in all_users if u.get("is_approved", False)]
+            pending_users = [u for u in all_users if not u.get("is_approved", False)
+                             and not u.get("is_suspended", False)]
+            approved_users = [u for u in all_users if u.get("is_approved", False)
+                              and not u.get("is_suspended", False)]
+            suspended_users = [u for u in all_users if u.get("is_suspended", False)]
+
+            _uc1, _uc2, _uc3 = st.columns(3)
+            _uc1.metric("Active users", len(approved_users))
+            _uc2.metric("Pending approval", len(pending_users))
+            _uc3.metric("Suspended", len(suspended_users))
 
             if pending_users:
-                st.markdown("#### ⏳ Pending Approvals")
-                for u in pending_users:
-                    with st.container(border=True):
-                        st.write(f"**Username:** {u['username']}")
-                        st.write(f"**Full Name:** {u['full_name']}")
-                        st.write(f"**Role:** {u['role']}")
-                        st.write(f"**Email:** {u.get('email', 'Not set')}")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if st.button(f"✅ Approve {u['username']}", key=f"approve_{u['username']}"):
-                                if approve_user(u['username']):
-                                    st.success(f"User {u['username']} approved!")
-                                    st.rerun()
-                                else:
-                                    st.error("Approval failed.")
-                        with col2:
-                            if st.button(f"❌ Reject {u['username']}", key=f"reject_{u['username']}"):
-                                if reject_user(u['username']):
-                                    st.success(f"User {u['username']} rejected and removed.")
-                                    st.rerun()
-                                else:
-                                    st.error("Rejection failed.")
-            else:
-                st.info("No pending approvals.")
+                st.warning(f"⏳ {len(pending_users)} request(s) awaiting the owner's decision.")
 
-            st.markdown("#### ✅ Approved Users")
+            st.markdown("#### Active users")
             if approved_users:
-                for u in approved_users:
-                    st.write(f"- **{u['full_name']}** ({u['username']}) – {u['role']}")
-                    if st.button(f"🔴 Deactivate {u['username']}", key=f"deactivate_{u['username']}"):
-                        if update_user_profile(u['username'], {"is_approved": False}):
-                            st.success(f"User {u['username']} deactivated.")
-                            st.rerun()
-                        else:
-                            st.error("Deactivation failed.")
+                st.dataframe([{
+                    "Name": u.get("full_name"),
+                    "Username": u.get("username"),
+                    "Role": u.get("role"),
+                    "Job Title": u.get("job_title") or "—",
+                    "Department": u.get("department") or "—",
+                } for u in approved_users], use_container_width=True)
             else:
-                st.info("No approved users yet.")
+                st.info("No active users yet.")
+
+            if suspended_users:
+                st.markdown("#### Suspended")
+                for u in suspended_users:
+                    st.write(f"- {esc(u.get('full_name'))} (`{esc(u.get('username'))}`)")
+
 
 # ---- ASSET REGISTER ----
 elif selected_section == "Assets":
@@ -4453,6 +4731,244 @@ elif selected_section == "Analytics":
                 c = export_incidents_csv(incidents)
                 if c:
                     st.download_button("Download", c, "incidents_export.csv", "text/csv", key="an_dl_inc")
+
+elif selected_section == "Owner Console":
+    # HARD GATE. The menu item is hidden for non-owners, but hiding a
+    # menu is not access control — this check is the actual barrier.
+    if not is_owner(username):
+        st.error("🚫 This area is restricted to the account owner.")
+        log_audit(full_name, "owner_console_denied", {"username": username})
+        st.stop()
+
+    st.subheader("🔑 Owner Console")
+    st.caption(f"Signed in as the owner (`{esc(username)}`). Owner status is set by "
+               "`OWNER_USERNAME` in secrets.toml and cannot be granted from inside "
+               "the app.")
+
+    if not SUPABASE_AVAILABLE:
+        st.warning("No database connected — access management is unavailable in demo mode.")
+        st.stop()
+
+    owner_sub = option_menu(
+        menu_title=None,
+        options=["Access Requests", "Active Users", "Decision History", "Settings"],
+        icons=["person-plus-fill", "people-fill", "journal-text", "sliders"],
+        orientation="horizontal", default_index=0, styles=menu_styles(),
+    )
+
+    _all = fetch_all_users_from_db()
+    _pending = [u for u in _all if not u.get("is_approved") and not u.get("is_suspended")]
+    _active = [u for u in _all if u.get("is_approved") and not u.get("is_suspended")]
+    _blocked = [u for u in _all if u.get("is_suspended")]
+
+    # ---------- ACCESS REQUESTS ----------
+    if owner_sub == "Access Requests":
+        _m1, _m2, _m3 = st.columns(3)
+        _m1.metric("Pending", len(_pending))
+        _m2.metric("Active", len(_active))
+        _m3.metric("Suspended / Denied", len(_blocked))
+
+        if not _pending:
+            st.success("✅ No pending access requests.")
+        else:
+            st.markdown("### Requests awaiting your decision")
+            st.caption("You choose the role that is granted. What the applicant "
+                       "selected is only a request.")
+            for u in _pending:
+                with st.container(border=True):
+                    _c1, _c2 = st.columns([3, 2])
+                    with _c1:
+                        st.markdown(f"**{esc(u.get('full_name'))}**  `{esc(u.get('username'))}`")
+                        st.markdown(
+                            f"<small>"
+                            f"<i class='fas fa-briefcase'></i> {esc(u.get('job_title') or 'No job title')} &nbsp;·&nbsp; "
+                            f"<i class='fas fa-users'></i> {esc(u.get('department') or 'No department')}<br>"
+                            f"<i class='fas fa-id-card'></i> ID: {esc(u.get('employee_id') or 'Not provided')} &nbsp;·&nbsp; "
+                            f"<i class='fas fa-envelope'></i> {esc(u.get('email') or 'No email')}<br>"
+                            f"<i class='fas fa-clock'></i> Requested {str(u.get('requested_at') or '')[:16]}"
+                            f"</small>", unsafe_allow_html=True)
+                        _req = u.get('requested_role') or 'Worker'
+                        st.markdown(f"Requested access level: "
+                                    f"<span class='priority-badge priority-"
+                                    f"{'Critical' if _req == 'Superintendent' else 'Medium' if _req == 'Supervisor' else 'Low'}'>"
+                                    f"{esc(_req)}</span>", unsafe_allow_html=True)
+                        if _req == "Superintendent":
+                            st.warning("⚠️ Superintendent grants delete rights, user "
+                                       "management, and audit access. Verify this "
+                                       "person's identity before approving.")
+                    with _c2:
+                        _grant = st.selectbox(
+                            "Grant role", ["Worker", "Supervisor", "Superintendent"],
+                            index=["Worker", "Supervisor", "Superintendent"].index(_req)
+                            if _req in ("Worker", "Supervisor", "Superintendent") else 0,
+                            key=f"grant_{u['username']}")
+                        _note = st.text_input("Note (optional)", key=f"note_{u['username']}",
+                                              placeholder="e.g. verified with HR")
+                        _b1, _b2 = st.columns(2)
+                        if _b1.button("✅ Approve", key=f"appr_{u['username']}",
+                                      use_container_width=True):
+                            ok, err = approve_access(u['username'], _grant, full_name, _note or None)
+                            if ok:
+                                st.success(f"{u.get('full_name')} approved as {_grant}.")
+                                st.rerun()
+                            else:
+                                st.error(err)
+                        if _b2.button("🚫 Decline", key=f"deny_{u['username']}",
+                                      use_container_width=True):
+                            if not _note:
+                                st.error("Please give a reason before declining — it is "
+                                         "recorded and shown in the history.")
+                            else:
+                                ok, err = deny_access(u['username'], full_name, _note)
+                                if ok:
+                                    st.success("Request declined.")
+                                    st.rerun()
+                                else:
+                                    st.error(err)
+
+    # ---------- ACTIVE USERS ----------
+    elif owner_sub == "Active Users":
+        st.markdown("### Who currently has access")
+        _q = st.text_input("🔍 Filter by name, username, or role", "")
+        _rows = _active + _blocked
+        if _q:
+            _ql = _q.lower()
+            _rows = [u for u in _rows
+                     if _ql in str(u.get('full_name', '')).lower()
+                     or _ql in str(u.get('username', '')).lower()
+                     or _ql in str(u.get('role', '')).lower()]
+        if not _rows:
+            st.info("No users match.")
+        for u in _rows:
+            _suspended = u.get("is_suspended", False)
+            _owner_row = is_owner(u.get("username"))
+            _colour = "#4b5563" if _suspended else "#15803d"
+            with st.container(border=True):
+                st.markdown(
+                    f"**{esc(u.get('full_name'))}** `{esc(u.get('username'))}` "
+                    f"<span class='status-badge' style='background:{_colour};'>"
+                    f"{'SUSPENDED' if _suspended else esc(u.get('role', 'Worker'))}</span>"
+                    f"{' <span class=\"verified-badge\">OWNER</span>' if _owner_row else ''}",
+                    unsafe_allow_html=True)
+                st.markdown(
+                    f"<small>{esc(u.get('job_title') or '—')} · "
+                    f"{esc(u.get('department') or '—')} · "
+                    f"{esc(u.get('email') or 'no email')}"
+                    f"{' · approved by ' + esc(u.get('decision_by')) if u.get('decision_by') else ''}"
+                    f"</small>", unsafe_allow_html=True)
+                if u.get("denial_reason"):
+                    st.caption(f"Reason on file: {esc(u['denial_reason'])}")
+
+                if _owner_row:
+                    st.caption("🔒 The owner account cannot be modified from here. "
+                               "Change OWNER_USERNAME in secrets.toml to hand over.")
+                    continue
+
+                with st.expander("Manage this user"):
+                    _mc1, _mc2, _mc3 = st.columns(3)
+                    _newrole = _mc1.selectbox(
+                        "Role", ["Worker", "Supervisor", "Superintendent"],
+                        index=["Worker", "Supervisor", "Superintendent"].index(u.get('role'))
+                        if u.get('role') in ("Worker", "Supervisor", "Superintendent") else 0,
+                        key=f"role_{u['username']}")
+                    _reason = _mc2.text_input("Reason", key=f"reason_{u['username']}")
+                    if _mc3.button("💾 Change role", key=f"chrole_{u['username']}"):
+                        ok, err = set_user_role(u['username'], _newrole, full_name, _reason or None)
+                        if ok:
+                            st.success("Role updated.")
+                            st.rerun()
+                        else:
+                            st.error(err)
+
+                    _sc1, _sc2 = st.columns(2)
+                    if _suspended:
+                        if _sc1.button("♻️ Reinstate", key=f"reinst_{u['username']}",
+                                       use_container_width=True):
+                            ok, err = set_user_suspended(u['username'], False, full_name, _reason or None)
+                            if ok:
+                                st.success("Reinstated.")
+                                st.rerun()
+                            else:
+                                st.error(err)
+                    else:
+                        if _sc1.button("⏸️ Suspend", key=f"susp_{u['username']}",
+                                       use_container_width=True):
+                            ok, err = set_user_suspended(u['username'], True, full_name, _reason or None)
+                            if ok:
+                                st.success("Suspended. They can no longer sign in.")
+                                st.rerun()
+                            else:
+                                st.error(err)
+                    _confirm = _sc2.checkbox("I understand this is permanent",
+                                             key=f"delok_{u['username']}")
+                    if _sc2.button("🗑️ Remove permanently", key=f"del_{u['username']}",
+                                   use_container_width=True, disabled=not _confirm):
+                        ok, err = remove_user(u['username'], full_name, _reason or None)
+                        if ok:
+                            st.success("User removed.")
+                            st.rerun()
+                        else:
+                            st.error(err)
+                    st.caption("Prefer **Suspend** over Remove. Suspension blocks sign-in "
+                               "but keeps the person's history attached to the work orders "
+                               "and incidents they touched.")
+
+    # ---------- DECISION HISTORY ----------
+    elif owner_sub == "Decision History":
+        st.markdown("### Every access decision ever made")
+        st.caption("Append-only. Records survive user deletion, so you can still show "
+                   "who granted access to whom after an incident.")
+        _dec = fetch_access_decisions(200)
+        if not _dec:
+            st.info("No decisions recorded yet.")
+        else:
+            _icons = {"approved": "✅", "denied": "🚫", "suspended": "⏸️",
+                      "reinstated": "♻️", "role_changed": "🔄", "removed": "🗑️"}
+            for d in _dec:
+                _ic = _icons.get(d.get("action"), "•")
+                _detail = ""
+                if d.get("action") == "role_changed":
+                    _detail = f" ({esc(d.get('old_role'))} → {esc(d.get('new_role'))})"
+                elif d.get("new_role"):
+                    _detail = f" as {esc(d.get('new_role'))}"
+                st.markdown(
+                    f"{_ic} **{esc(d.get('target_full_name') or d.get('target_username'))}** "
+                    f"— {esc(d.get('action'))}{_detail} by **{esc(d.get('decided_by'))}** "
+                    f"<small>{str(d.get('decided_at',''))[:16]}</small>",
+                    unsafe_allow_html=True)
+                if d.get("reason"):
+                    st.caption(f"↳ {esc(d['reason'])}")
+            if PANDAS_AVAILABLE and st.button("📥 Export decision history"):
+                _df = pd.DataFrame(_dec)
+                st.download_button("Download CSV", _df.to_csv(index=False),
+                                   "access_decisions.csv", "text/csv", key="dl_decisions")
+
+    # ---------- SETTINGS ----------
+    elif owner_sub == "Settings":
+        st.markdown("### Ownership")
+        st.info(f"Owner account: **`{esc(OWNER_USERNAME)}`**\n\n"
+                "This is read from `OWNER_USERNAME` in `.streamlit/secrets.toml`. "
+                "It is deliberately **not** editable here — if it were, anyone who "
+                "reached this screen could take ownership. To hand over, edit "
+                "secrets.toml and restart the app.")
+
+        st.markdown("### Access summary")
+        _s1, _s2, _s3, _s4 = st.columns(4)
+        _s1.metric("Total accounts", len(_all))
+        _s2.metric("Active", len(_active))
+        _s3.metric("Pending", len(_pending))
+        _s4.metric("Suspended", len(_blocked))
+
+        _supers = [u for u in _active if str(u.get('role', '')).lower() == 'superintendent']
+        st.markdown(f"**Superintendents ({len(_supers)})** — these accounts can delete "
+                    "records and read the audit log:")
+        for u in _supers:
+            st.write(f"- {esc(u.get('full_name'))} (`{esc(u.get('username'))}`)"
+                     f"{' — owner' if is_owner(u.get('username')) else ''}")
+        if len(_supers) > 3:
+            st.warning("More Superintendents than most sites need. Each one can delete "
+                       "work orders and view the audit log — worth reviewing whether "
+                       "they all still require that level.")
 
 elif selected_section == "Chat":
     st.subheader("💬 Real‑time Chat")
