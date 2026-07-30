@@ -13,3 +13,4 @@ bcrypt
 pillow
 plotly
 authlib
+streamlit-option-menu
