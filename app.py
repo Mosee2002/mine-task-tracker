@@ -7,12 +7,11 @@ import os
 import json
 import time
 import html as html_lib
+import secrets
 from io import BytesIO
 
 # ----- ESCAPE FUNCTION (prevents XSS) -----
 def esc(text):
-    """Escape user‑supplied text before it goes into any unsafe_allow_html=True block.
-    Prevents stored XSS via chat messages, comments, task titles/locations, filenames, etc."""
     if text is None:
         return ""
     return html_lib.escape(str(text), quote=True)
@@ -59,7 +58,7 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # -------------------------------
-# 0. SECRETS AND CONFIG (with fallback) - HARDCODED WARNING
+# 0. SECRETS AND CONFIG
 # -------------------------------
 if 'SUPABASE_URL' in st.secrets:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -69,7 +68,6 @@ else:
     SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
     SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
     USING_HARDCODED = True
-    # CRITICAL: In production, always use secrets.toml and enable RLS on all tables.
     st.warning("⚠️ Using hardcoded Supabase credentials. For production, create .streamlit/secrets.toml and enable RLS on all tables.")
 
 SESSION_TIMEOUT_MINUTES = st.secrets.get("SESSION_TIMEOUT_MINUTES", 60) if 'SESSION_TIMEOUT_MINUTES' in st.secrets else 60
@@ -85,6 +83,9 @@ GOOGLE_CLIENT_ID = st.secrets.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = st.secrets.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = st.secrets.get("GOOGLE_REDIRECT_URI", "https://yourapp.streamlit.app/oauth_callback")
 
+# App URL for password reset links
+APP_URL = st.secrets.get("APP_URL", "https://yourapp.streamlit.app")
+
 # Use Supabase client
 try:
     from supabase import create_client, Client
@@ -95,7 +96,7 @@ except ImportError:
     st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. CUSTOM CSS + FONT AWESOME (MODERN DESIGN - IMPROVED)
+# 1. CUSTOM CSS + FONT AWESOME (SAME AS BEFORE - kept compact)
 # -------------------------------
 st.set_page_config(
     page_title="Mine & Workshop Tracker",
@@ -108,7 +109,6 @@ st.set_page_config(
 if 'dark_mode' not in st.session_state:
     st.session_state.dark_mode = False
 
-# CSS for both themes - improved font colors
 dark_css = """
 <style>
     .stApp { background-color: #0f172a; color: #e2e8f0; }
@@ -144,16 +144,7 @@ dark_css = """
     .stMetric .value { color: #e2e8f0 !important; }
     .stMetric .label { color: #94a3b8 !important; }
     .stDataFrame { color: #e2e8f0 !important; }
-    /* Overdue task badge */
-    .overdue-badge {
-        background: #dc2626;
-        color: white;
-        padding: 0.15rem 0.6rem;
-        border-radius: 20px;
-        font-size: 0.7rem;
-        font-weight: 700;
-        margin-left: 0.5rem;
-    }
+    .overdue-badge { background: #dc2626; color: white; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
 </style>
 """
 light_css = """
@@ -190,16 +181,7 @@ light_css = """
     .stMetric .value { color: #1e293b !important; }
     .stMetric .label { color: #64748b !important; }
     .stDataFrame { color: #1e293b !important; }
-    /* Overdue task badge */
-    .overdue-badge {
-        background: #dc2626;
-        color: white;
-        padding: 0.15rem 0.6rem;
-        border-radius: 20px;
-        font-size: 0.7rem;
-        font-weight: 700;
-        margin-left: 0.5rem;
-    }
+    .overdue-badge { background: #dc2626; color: white; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
 </style>
 """
 
@@ -209,7 +191,6 @@ st.markdown("""
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 """ + theme_css + """
 <style>
-    /* ----- GENERAL ----- */
     .stApp { background-color: #f0f2f5; }
     .main-header {
         font-size: 2.5rem;
@@ -221,31 +202,11 @@ st.markdown("""
         margin-bottom: 1rem;
         box-shadow: 0 4px 20px rgba(0,0,0,0.15);
     }
-    .main-header i {
-        color: #4fc3f7;
-        margin-right: 12px;
-    }
-    .main-header small {
-        font-size: 0.9rem;
-        font-weight: 300;
-        opacity: 0.8;
-        display: block;
-        margin-top: 4px;
-    }
-    .sub-header {
-        font-size: 1.3rem;
-        font-weight: 600;
-        margin-bottom: 1.5rem;
-        padding-bottom: 0.5rem;
-        border-bottom: 3px solid #0f3460;
-    }
-    /* ----- SIDEBAR MODERN ----- */
-    .css-1d391kg {
-        background: linear-gradient(180deg, #1a1a2e 0%, #0f3460 100%);
-    }
-    .css-1d391kg .stMarkdown {
-        color: #e2e8f0;
-    }
+    .main-header i { color: #4fc3f7; margin-right: 12px; }
+    .main-header small { font-size: 0.9rem; font-weight: 300; opacity: 0.8; display: block; margin-top: 4px; }
+    .sub-header { font-size: 1.3rem; font-weight: 600; margin-bottom: 1.5rem; padding-bottom: 0.5rem; border-bottom: 3px solid #0f3460; }
+    .css-1d391kg { background: linear-gradient(180deg, #1a1a2e 0%, #0f3460 100%); }
+    .css-1d391kg .stMarkdown { color: #e2e8f0; }
     .css-1d391kg .stButton button {
         background-color: #4fc3f7;
         color: #1a1a2e;
@@ -256,273 +217,69 @@ st.markdown("""
         font-weight: 600;
         width: 100%;
     }
-    .css-1d391kg .stButton button:hover {
-        background-color: #29b6f6;
-        transform: scale(1.03);
-    }
-    .css-1d391kg .stButton button i {
-        margin-right: 8px;
-    }
+    .css-1d391kg .stButton button:hover { background-color: #29b6f6; transform: scale(1.03); }
+    .css-1d391kg .stButton button i { margin-right: 8px; }
     .css-1d391kg .stSelectbox label, 
     .css-1d391kg .stTextInput label, 
     .css-1d391kg .stTextArea label,
-    .css-1d391kg .stCheckbox label {
-        color: #e2e8f0 !important;
-    }
-    /* ----- MODERN CARDS ----- */
-    .custom-card {
-        background: white;
-        border-radius: 16px;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-        padding: 1.2rem;
-        margin-bottom: 1rem;
-        border-left: 5px solid #0f3460;
-        transition: 0.3s;
-    }
-    .custom-card:hover {
-        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-        transform: translateY(-2px);
-    }
-    .task-card {
-        background: white;
-        border-radius: 16px;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-        padding: 1.2rem;
-        margin-bottom: 1rem;
-        border: 1px solid #e8ecf0;
-        transition: 0.3s;
-    }
-    .task-card:hover {
-        box-shadow: 0 8px 30px rgba(0,0,0,0.12);
-        transform: translateY(-2px);
-    }
-    .task-title {
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: #1a1a2e;
-    }
-    .task-meta {
-        display: flex;
-        gap: 1rem;
-        flex-wrap: wrap;
-        margin: 0.3rem 0 0.8rem 0;
-        font-size: 0.9rem;
-        color: #475569;
-    }
-    .task-meta i {
-        margin-right: 0.3rem;
-    }
-    /* ----- PRIORITY BADGES ----- */
-    .priority-badge {
-        display: inline-block;
-        padding: 0.2rem 0.8rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: white;
-    }
+    .css-1d391kg .stCheckbox label { color: #e2e8f0 !important; }
+    .custom-card { background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 1.2rem; margin-bottom: 1rem; border-left: 5px solid #0f3460; transition: 0.3s; }
+    .custom-card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.12); transform: translateY(-2px); }
+    .task-card { background: white; border-radius: 16px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 1.2rem; margin-bottom: 1rem; border: 1px solid #e8ecf0; transition: 0.3s; }
+    .task-card:hover { box-shadow: 0 8px 30px rgba(0,0,0,0.12); transform: translateY(-2px); }
+    .task-title { font-size: 1.1rem; font-weight: 700; color: #1a1a2e; }
+    .task-meta { display: flex; gap: 1rem; flex-wrap: wrap; margin: 0.3rem 0 0.8rem 0; font-size: 0.9rem; color: #475569; }
+    .task-meta i { margin-right: 0.3rem; }
+    .priority-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
     .priority-Critical { background: #dc2626; }
     .priority-High { background: #f59e0b; }
     .priority-Medium { background: #0f3460; }
     .priority-Low { background: #10b981; }
-    /* ----- STATUS BADGES ----- */
-    .status-badge {
-        display: inline-block;
-        padding: 0.2rem 0.8rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: white;
-    }
+    .status-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
     .status-Unassigned { background: #94a3b8; }
     .status-InProgress { background: #3b82f6; }
     .status-PendingQA { background: #f59e0b; }
     .status-Blocked { background: #dc2626; }
     .status-Complete { background: #10b981; }
-    /* ----- OVERDUE BADGE ----- */
-    .overdue-badge {
-        display: inline-block;
-        background: #dc2626;
-        color: white;
-        padding: 0.15rem 0.6rem;
-        border-radius: 20px;
-        font-size: 0.7rem;
-        font-weight: 700;
-        margin-left: 0.5rem;
-    }
-    /* ----- METRIC BOXES ----- */
-    .metric-box {
-        background: white;
-        border-radius: 16px;
-        padding: 1.2rem;
-        text-align: center;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-        border: 1px solid #e8ecf0;
-    }
-    .metric-box .value {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #1a1a2e;
-    }
-    .metric-box .label {
-        font-size: 0.9rem;
-        color: #64748b;
-    }
-    .metric-box .label i {
-        margin-right: 0.3rem;
-    }
-    /* ----- CHAT MESSAGES ----- */
-    .chat-message {
-        padding: 0.5rem 1rem;
-        border-radius: 12px;
-        margin: 0.2rem 0;
-        background: #f1f5f9;
-        border-left: 4px solid #0f3460;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-    }
-    .chat-message.self {
-        background: #e3f2fd;
-        border-left-color: #0f3460;
-    }
-    .chat-message .sender {
-        font-weight: 700;
-        color: #1a1a2e;
-    }
-    .chat-message .timestamp {
-        font-size: 0.7rem;
-        color: #64748b;
-        margin-left: 0.5rem;
-    }
-    /* ----- TABS (using st.tabs) ----- */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0.3rem;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 12px 12px 0 0;
-        padding: 0.6rem 1.2rem;
-        font-weight: 600;
-        border: 1px solid #e2e8f0;
-        border-bottom: none;
-        background: white;
-        color: #64748b;
-    }
-    .stTabs [aria-selected="true"] {
-        background: #0f3460;
-        color: white;
-        border-color: #0f3460;
-    }
-    .stTabs [data-baseweb="tab"]:hover {
-        color: #1a1a2e;
-    }
-    .stTabs [data-baseweb="tab"] i {
-        margin-right: 8px;
-    }
-    /* ----- FILE UPLOADER ----- */
-    .stFileUploader {
-        border: 2px dashed #94a3b8;
-        border-radius: 12px;
-        padding: 0.5rem;
-        background: #f8fafc;
-    }
-    /* ----- EXPANDER ----- */
-    .streamlit-expanderHeader {
-        background: #f1f5f9;
-        border-radius: 12px;
-        font-weight: 600;
-    }
-    /* ----- FOOTER ----- */
-    .footer {
-        text-align: center;
-        margin-top: 2rem;
-        padding: 1rem;
-        color: #94a3b8;
-        font-size: 0.8rem;
-        border-top: 1px solid #e2e8f0;
-    }
-    /* ----- BUTTONS WITH ICONS ----- */
-    .stButton button {
-        font-weight: 600;
-        border-radius: 10px;
-    }
-    .stButton button i {
-        margin-right: 0.5rem;
-    }
-    /* ----- VERIFIED BADGE ----- */
-    .verified-badge {
-        display: inline-block;
-        background: #10b981;
-        color: white;
-        padding: 0.15rem 0.8rem;
-        border-radius: 20px;
-        font-size: 0.7rem;
-        font-weight: 700;
-        margin-left: 0.5rem;
-    }
-    /* ----- PENDING BADGE ----- */
-    .pending-badge {
-        display: inline-block;
-        background: #f59e0b;
-        color: white;
-        padding: 0.15rem 0.8rem;
-        border-radius: 20px;
-        font-size: 0.7rem;
-        font-weight: 700;
-        margin-left: 0.5rem;
-    }
-    /* ----- SIDEBAR USER INFO ----- */
-    .sidebar-user {
-        padding: 0.5rem 0;
-        text-align: center;
-        color: #e2e8f0;
-    }
-    .sidebar-user .user-name {
-        font-weight: 700;
-        font-size: 1.2rem;
-        margin-top: 0.3rem;
-        color: #e2e8f0;
-    }
-    .sidebar-user .user-role {
-        font-size: 0.9rem;
-        color: #94a3b8;
-    }
-    .sidebar-user .user-role i {
-        margin-right: 0.3rem;
-    }
-    .sidebar-user .user-icon {
-        font-size: 3rem;
-        color: #4fc3f7;
-    }
-    /* ----- BETTER FONT COLORS ----- */
-    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label {
-        font-weight: 600;
-        color: #1e293b !important;
-    }
-    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div {
-        color: #1e293b !important;
-    }
-    .stMetric label {
-        color: #1e293b !important;
-    }
-    .stMetric .value {
-        color: #1e293b !important;
-    }
-    .stMetric .label {
-        color: #64748b !important;
-    }
-    .stDataFrame {
-        color: #1e293b !important;
-    }
-    .stAlert {
-        border-radius: 12px;
-    }
-    .stSuccess, .stInfo, .stWarning, .stError {
-        border-radius: 12px;
-    }
+    .overdue-badge { display: inline-block; background: #dc2626; color: white; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
+    .metric-box { background: white; border-radius: 16px; padding: 1.2rem; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e8ecf0; }
+    .metric-box .value { font-size: 2.2rem; font-weight: 700; color: #1a1a2e; }
+    .metric-box .label { font-size: 0.9rem; color: #64748b; }
+    .metric-box .label i { margin-right: 0.3rem; }
+    .chat-message { padding: 0.5rem 1rem; border-radius: 12px; margin: 0.2rem 0; background: #f1f5f9; border-left: 4px solid #0f3460; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
+    .chat-message.self { background: #e3f2fd; border-left-color: #0f3460; }
+    .chat-message .sender { font-weight: 700; color: #1a1a2e; }
+    .chat-message .timestamp { font-size: 0.7rem; color: #64748b; margin-left: 0.5rem; }
+    .stTabs [data-baseweb="tab-list"] { gap: 0.3rem; }
+    .stTabs [data-baseweb="tab"] { border-radius: 12px 12px 0 0; padding: 0.6rem 1.2rem; font-weight: 600; border: 1px solid #e2e8f0; border-bottom: none; background: white; color: #64748b; }
+    .stTabs [aria-selected="true"] { background: #0f3460; color: white; border-color: #0f3460; }
+    .stTabs [data-baseweb="tab"]:hover { color: #1a1a2e; }
+    .stTabs [data-baseweb="tab"] i { margin-right: 8px; }
+    .stFileUploader { border: 2px dashed #94a3b8; border-radius: 12px; padding: 0.5rem; background: #f8fafc; }
+    .streamlit-expanderHeader { background: #f1f5f9; border-radius: 12px; font-weight: 600; }
+    .footer { text-align: center; margin-top: 2rem; padding: 1rem; color: #94a3b8; font-size: 0.8rem; border-top: 1px solid #e2e8f0; }
+    .stButton button { font-weight: 600; border-radius: 10px; }
+    .stButton button i { margin-right: 0.5rem; }
+    .verified-badge { display: inline-block; background: #10b981; color: white; padding: 0.15rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
+    .pending-badge { display: inline-block; background: #f59e0b; color: white; padding: 0.15rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
+    .sidebar-user { padding: 0.5rem 0; text-align: center; color: #e2e8f0; }
+    .sidebar-user .user-name { font-weight: 700; font-size: 1.2rem; margin-top: 0.3rem; color: #e2e8f0; }
+    .sidebar-user .user-role { font-size: 0.9rem; color: #94a3b8; }
+    .sidebar-user .user-role i { margin-right: 0.3rem; }
+    .sidebar-user .user-icon { font-size: 3rem; color: #4fc3f7; }
+    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label { font-weight: 600; color: #1e293b !important; }
+    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div { color: #1e293b !important; }
+    .stMetric label { color: #1e293b !important; }
+    .stMetric .value { color: #1e293b !important; }
+    .stMetric .label { color: #64748b !important; }
+    .stDataFrame { color: #1e293b !important; }
+    .stAlert { border-radius: 12px; }
+    .stSuccess, .stInfo, .stWarning, .stError { border-radius: 12px; }
 </style>
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# Shared option_menu style dict (matches dark/light theme)
+# 2. SHARED STYLES FOR OPTION MENU
 # -------------------------------
 def menu_styles():
     dark = st.session_state.dark_mode
@@ -551,7 +308,24 @@ def menu_styles():
     }
 
 # -------------------------------
-# 2. PASSWORD HASHING & STRENGTH
+# 3. ERROR LOGGING
+# -------------------------------
+def log_error(error_message, details=None, user_name=None, endpoint=None):
+    """Log errors to the app_errors table for monitoring."""
+    if not SUPABASE_AVAILABLE:
+        return
+    try:
+        supabase.table("app_errors").insert({
+            "error_message": str(error_message)[:500],
+            "error_details": json.dumps(details) if details else None,
+            "user_name": user_name,
+            "endpoint": endpoint
+        }).execute()
+    except Exception:
+        pass  # If logging fails, we can't do much else
+
+# -------------------------------
+# 4. PASSWORD HASHING & STRENGTH
 # -------------------------------
 def hash_password(password):
     if BCRYPT_AVAILABLE:
@@ -579,7 +353,6 @@ def verify_password(password, hashed):
         return False
 
 def is_strong_password(password):
-    """Check password strength: min 8 chars, at least one uppercase, one lowercase, one digit, one special."""
     if len(password) < 8:
         return False, "Password must be at least 8 characters long."
     if not any(c.isupper() for c in password):
@@ -593,20 +366,8 @@ def is_strong_password(password):
         return False, "Password must contain at least one special character."
     return True, ""
 
-def log_audit(user_name, action, details=None):
-    if not SUPABASE_AVAILABLE:
-        return
-    try:
-        supabase.table("audit_log").insert({
-            "user_name": user_name,
-            "action": action,
-            "details": json.dumps(details) if details else None
-        }).execute()
-    except Exception:
-        pass
-
 # -------------------------------
-# 3. EMAIL NOTIFICATION (SMTP)
+# 5. EMAIL NOTIFICATION
 # -------------------------------
 def send_email_notification(recipient, subject, body):
     if not recipient:
@@ -632,11 +393,12 @@ def send_email_notification(recipient, subject, body):
             server.login(smtp_user, smtp_password)
             server.send_message(msg)
         return True
-    except Exception:
+    except Exception as e:
+        log_error(str(e), endpoint="send_email")
         return False
 
 # -------------------------------
-# 4. SLACK / TEAMS WEBHOOK INTEGRATION
+# 6. SLACK / TEAMS WEBHOOK INTEGRATION
 # -------------------------------
 def send_slack_notification(message):
     if not SLACK_WEBHOOK:
@@ -645,7 +407,8 @@ def send_slack_notification(message):
         payload = {"text": message}
         requests.post(SLACK_WEBHOOK, json=payload, timeout=5)
         return True
-    except:
+    except Exception as e:
+        log_error(str(e), endpoint="slack")
         return False
 
 def send_teams_notification(message):
@@ -655,7 +418,8 @@ def send_teams_notification(message):
         payload = {"text": message}
         requests.post(TEAMS_WEBHOOK, json=payload, timeout=5)
         return True
-    except:
+    except Exception as e:
+        log_error(str(e), endpoint="teams")
         return False
 
 def send_external_notifications(message):
@@ -663,7 +427,7 @@ def send_external_notifications(message):
     send_teams_notification(message)
 
 # -------------------------------
-# 5. IMAGE & ATTACHMENT VALIDATION
+# 7. IMAGE & ATTACHMENT VALIDATION
 # -------------------------------
 def validate_image(file_bytes, filename):
     ext = filename.split('.')[-1].lower()
@@ -681,7 +445,6 @@ def validate_image(file_bytes, filename):
     return True, "Valid image."
 
 def validate_attachment(file_bytes, filename):
-    """Validate a general task attachment: extension allowlist + size cap."""
     if not filename or '.' not in filename:
         return False, "File must have a valid extension."
     ext = filename.split('.')[-1].lower()
@@ -692,10 +455,9 @@ def validate_attachment(file_bytes, filename):
     return True, "Valid attachment."
 
 # -------------------------------
-# 6. USER FUNCTIONS (with admin approval) - FIXED FOR FALLBACK
+# 8. USER FUNCTIONS (with admin approval, deactivation, reset)
 # -------------------------------
 def get_default_users():
-    """Return the list of default (fallback) users."""
     return [
         {"username": "supervisor1", "full_name": "Sarah Connor", "role": "Supervisor", "password_hash": hash_password("super789"), "email": "supervisor1@example.com", "avatar_url": None, "is_approved": True},
         {"username": "superintendent1", "full_name": "Anaba Moses", "role": "Superintendent", "password_hash": hash_password("boss000"), "email": "superintendent1@example.com", "avatar_url": None, "is_approved": True},
@@ -703,17 +465,15 @@ def get_default_users():
     ]
 
 def fetch_all_users_from_db():
-    """Return DB users + default fallback users (merged, no duplicates)."""
     default_users = get_default_users()
     if not SUPABASE_AVAILABLE:
         return default_users
-
     try:
         res = supabase.table("facility_users").select("*").execute()
         db_users = res.data if res.data else []
-    except Exception:
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_users")
         db_users = []
-
     existing_usernames = {u["username"] for u in default_users}
     for db_user in db_users:
         if db_user["username"] not in existing_usernames:
@@ -723,7 +483,6 @@ def fetch_all_users_from_db():
 def register_user_to_db(username, name, role, password, email=None):
     if not SUPABASE_AVAILABLE:
         return False
-    # Check password strength
     strong, msg = is_strong_password(password)
     if not strong:
         st.error(msg)
@@ -741,7 +500,8 @@ def register_user_to_db(username, name, role, password, email=None):
         supabase.table("facility_users").insert(payload).execute()
         log_audit(name, "user_register", {"username": username, "role": role, "status": "pending_approval"})
         return True
-    except Exception:
+    except Exception as e:
+        log_error(str(e), details={"username": username}, endpoint="register_user")
         return False
 
 def authenticate_user(username, password):
@@ -760,7 +520,8 @@ def update_user_profile(username, updates):
     try:
         supabase.table("facility_users").update(updates).eq("username", username).execute()
         return True
-    except Exception:
+    except Exception as e:
+        log_error(str(e), details={"username": username, "updates": updates}, endpoint="update_user")
         return False
 
 def approve_user(username):
@@ -770,7 +531,8 @@ def approve_user(username):
         supabase.table("facility_users").update({"is_approved": True}).eq("username", username).execute()
         log_audit("admin", "approve_user", {"username": username})
         return True
-    except Exception:
+    except Exception as e:
+        log_error(str(e), details={"username": username}, endpoint="approve_user")
         return False
 
 def reject_user(username):
@@ -780,11 +542,30 @@ def reject_user(username):
         supabase.table("facility_users").delete().eq("username", username).execute()
         log_audit("admin", "reject_user", {"username": username})
         return True
-    except Exception:
+    except Exception as e:
+        log_error(str(e), details={"username": username}, endpoint="reject_user")
+        return False
+
+def generate_reset_token(username, email):
+    if not SUPABASE_AVAILABLE:
+        return False
+    token = secrets.token_urlsafe(32)
+    expiry = datetime.now() + timedelta(hours=1)
+    try:
+        supabase.table("facility_users").update({
+            "password_reset_token": token,
+            "reset_token_expiry": expiry.isoformat()
+        }).eq("username", username).eq("email", email).execute()
+        reset_link = f"{APP_URL}/?reset_token={token}"
+        body = f"Click the link to reset your password: <a href='{reset_link}'>Reset Password</a>"
+        send_email_notification(email, "Password Reset Request", body)
+        return True
+    except Exception as e:
+        log_error(str(e), details={"username": username}, endpoint="generate_reset_token")
         return False
 
 # -------------------------------
-# 7. TASK FUNCTIONS (with due date & recurrence)
+# 9. TASK FUNCTIONS (with optimistic locking)
 # -------------------------------
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
@@ -795,7 +576,8 @@ def fetch_all_tasks():
             return res.data
         else:
             return st.session_state.get("tasks_memory", [])
-    except Exception:
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_tasks")
         return st.session_state.get("tasks_memory", [])
 
 def create_task(title, location, priority, loto, jsa, created_by, due_date=None, is_recurring=False, recurrence_type=None, recurrence_end_date=None):
@@ -814,7 +596,8 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
             "due_date": due_date.isoformat() if due_date else None,
             "is_recurring": is_recurring,
             "recurrence_type": recurrence_type,
-            "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None
+            "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None,
+            "version": 0
         }
         tasks.append(new_task)
         st.session_state.tasks_memory = tasks
@@ -832,7 +615,8 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
             "due_date": due_date.isoformat() if due_date else None,
             "is_recurring": is_recurring,
             "recurrence_type": recurrence_type,
-            "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None
+            "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None,
+            "version": 0
         }
         res = supabase.table("tasks").insert(new_task).execute()
         if res.data:
@@ -840,7 +624,8 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
             log_audit(created_by, "task_create", {"task_id": task["id"]})
             log_task_activity(task["id"], created_by, "created", {"title": title})
             return task
-    except Exception:
+    except Exception as e:
+        log_error(str(e), details={"title": title}, endpoint="create_task")
         return None
     return None
 
@@ -854,18 +639,26 @@ def update_task(task_id, updates, updated_by):
                 return True
         return False
     try:
-        current = supabase.table("tasks").select("*").eq("id", task_id).execute()
-        if current.data:
-            old = current.data[0]
+        # Fetch current version
+        current = supabase.table("tasks").select("version").eq("id", task_id).execute()
+        if not current.data:
+            return False
+        current_version = current.data[0].get("version", 0)
+        # Increment version
+        updates["version"] = current_version + 1
+        # Perform update only if version matches
+        res = supabase.table("tasks").update(updates).eq("id", task_id).eq("version", current_version).execute()
+        if res.data:
+            log_audit(updated_by, "task_update", {"task_id": task_id, "new": updates})
+            log_task_activity(task_id, updated_by, "updated", updates)
+            if 'status' in updates:
+                send_external_notifications(f"Task #{task_id} status changed to {updates['status']} by {updated_by}")
+            return True
         else:
-            old = {}
-        supabase.table("tasks").update(updates).eq("id", task_id).execute()
-        log_audit(updated_by, "task_update", {"task_id": task_id, "old": old, "new": updates})
-        log_task_activity(task_id, updated_by, "updated", updates)
-        if 'status' in updates:
-            send_external_notifications(f"Task #{task_id} status changed to {updates['status']} by {updated_by}")
-        return True
-    except Exception:
+            st.error("This task was updated by another user. Please refresh and try again.")
+            return False
+    except Exception as e:
+        log_error(str(e), details={"task_id": task_id, "updates": updates}, user_name=updated_by, endpoint="update_task")
         return False
 
 def delete_task(task_id, deleted_by):
@@ -879,11 +672,12 @@ def delete_task(task_id, deleted_by):
         log_task_activity(task_id, deleted_by, "deleted", {})
         send_external_notifications(f"Task #{task_id} deleted by {deleted_by}")
         return True
-    except Exception:
+    except Exception as e:
+        log_error(str(e), details={"task_id": task_id}, user_name=deleted_by, endpoint="delete_task")
         return False
 
 # -------------------------------
-# 8. TASK ACTIVITY LOG
+# 10. TASK ACTIVITY LOG
 # -------------------------------
 def log_task_activity(task_id, user_name, action, details=None):
     if not SUPABASE_AVAILABLE:
@@ -895,8 +689,8 @@ def log_task_activity(task_id, user_name, action, details=None):
             "action": action,
             "details": json.dumps(details) if details else None
         }).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        log_error(str(e), endpoint="log_task_activity")
 
 def fetch_task_activity(task_id):
     if not SUPABASE_AVAILABLE:
@@ -905,12 +699,13 @@ def fetch_task_activity(task_id):
         res = supabase.table("task_activity").select("*").eq("task_id", task_id).order("created_at", asc=True).execute()
         if res.data:
             return res.data
-    except Exception:
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_task_activity")
         pass
     return []
 
 # -------------------------------
-# 9. NOTIFICATIONS
+# 11. NOTIFICATIONS
 # -------------------------------
 def send_notification(user_name, title, body):
     if not SUPABASE_AVAILABLE:
@@ -921,8 +716,8 @@ def send_notification(user_name, title, body):
             "title": title,
             "body": body
         }).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        log_error(str(e), endpoint="send_notification")
 
 def fetch_notifications(user_name):
     if not SUPABASE_AVAILABLE:
@@ -931,8 +726,9 @@ def fetch_notifications(user_name):
         res = supabase.table("notifications").select("*").eq("user_name", user_name).order("created_at", desc=True).limit(20).execute()
         if res.data:
             return res.data
-    except Exception:
-        pass
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_notifications")
+        return []
     return []
 
 def mark_notification_read(notification_id):
@@ -940,11 +736,11 @@ def mark_notification_read(notification_id):
         return
     try:
         supabase.table("notifications").update({"is_read": True}).eq("id", notification_id).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        log_error(str(e), endpoint="mark_notification_read")
 
 # -------------------------------
-# 10. PHOTO FUNCTIONS (with fallback)
+# 12. PHOTO FUNCTIONS (with fallback)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
     st.session_state.setdefault("photos_memory", []).append({
@@ -969,9 +765,10 @@ def upload_photo(task_id, file_bytes, filename, uploaded_by):
                     data = {"task_id": task_id, "photo_url": public_url, "uploaded_by": uploaded_by}
                     supabase.table("task_photos").insert(data).execute()
                     log_audit(uploaded_by, "photo_upload", {"task_id": task_id, "url": public_url})
-                except Exception:
-                    pass
-        except Exception:
+                except Exception as e:
+                    log_error(str(e), endpoint="photo_insert")
+        except Exception as e:
+            log_error(str(e), endpoint="photo_upload")
             pass
     return True
 
@@ -984,7 +781,8 @@ def fetch_photos(task_id):
         res = supabase.table("task_photos").select("*").eq("task_id", task_id).order("uploaded_at", desc=True).execute()
         if res.data:
             db_photos = res.data
-    except Exception:
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_photos")
         pass
     memory_photos = st.session_state.get("photos_memory", [])
     memory_photos = [p for p in memory_photos if p["task_id"] == task_id]
@@ -993,7 +791,7 @@ def fetch_photos(task_id):
     return all_photos
 
 # -------------------------------
-# 11. FILE ATTACHMENTS (with validation)
+# 13. FILE ATTACHMENTS (with validation)
 # -------------------------------
 def upload_attachment(task_id, file_bytes, filename, uploaded_by):
     valid, msg = validate_attachment(file_bytes, filename)
@@ -1032,6 +830,7 @@ def upload_attachment(task_id, file_bytes, filename, uploaded_by):
             return False
     except Exception as e:
         st.error(f"Upload failed: {e}")
+        log_error(str(e), details={"task_id": task_id, "filename": filename}, endpoint="attachment_upload")
         return False
 
 def fetch_attachments(task_id):
@@ -1043,11 +842,12 @@ def fetch_attachments(task_id):
             return res.data
         else:
             return []
-    except Exception:
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_attachments")
         return []
 
 # -------------------------------
-# 12. TASK COMMENTS
+# 14. TASK COMMENTS
 # -------------------------------
 def add_comment(task_id, comment, posted_by):
     if not SUPABASE_AVAILABLE:
@@ -1065,7 +865,8 @@ def add_comment(task_id, comment, posted_by):
         log_audit(posted_by, "comment_add", {"task_id": task_id, "comment": comment[:50]})
         log_task_activity(task_id, posted_by, "commented", {"comment": comment[:50]})
         return True
-    except Exception:
+    except Exception as e:
+        log_error(str(e), details={"task_id": task_id}, endpoint="add_comment")
         return False
 
 def fetch_comments(task_id):
@@ -1076,12 +877,13 @@ def fetch_comments(task_id):
         res = supabase.table("task_comments").select("*").eq("task_id", task_id).order("posted_at", asc=True).execute()
         if res.data:
             return res.data
-    except Exception:
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_comments")
         pass
     return []
 
 # -------------------------------
-# 13. CHAT FUNCTIONS (with XSS escaping in display)
+# 15. CHAT FUNCTIONS (with XSS escaping)
 # -------------------------------
 if 'next_memory_id' not in st.session_state:
     st.session_state.next_memory_id = -1
@@ -1111,7 +913,8 @@ def send_message(sender, receiver, room, message, encrypted=False):
         }
         supabase.table("chat_messages").insert(payload).execute()
         return True
-    except Exception:
+    except Exception as e:
+        log_error(str(e), endpoint="send_message")
         return False
 
 def fetch_messages(room=None, limit=100):
@@ -1127,7 +930,8 @@ def fetch_messages(room=None, limit=100):
         res = query.execute()
         if res.data:
             return res.data
-    except Exception:
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_messages")
         pass
     return []
 
@@ -1148,11 +952,12 @@ def delete_message(message_id, deleted_by):
                 log_audit(deleted_by, "message_delete", {"message_id": message_id, "content": msg.data[0]["message"][:50]})
             supabase.table("chat_messages").delete().eq("id", message_id).execute()
             return True
-        except Exception:
+        except Exception as e:
+            log_error(str(e), details={"message_id": message_id}, endpoint="delete_message")
             return False
 
 # -------------------------------
-# 14. ENCRYPTION HELPERS (Note: this is obfuscation, not true encryption)
+# 16. ENCRYPTION HELPERS (obfuscation)
 # -------------------------------
 try:
     from cryptography.fernet import Fernet
@@ -1163,7 +968,7 @@ except ImportError:
     CRYPTO_AVAILABLE = False
 
 def derive_key(name1, name2):
-    # WARNING: This uses a fixed salt and username-derived key – it is obfuscation, not secure encryption.
+    # WARNING: fixed salt – this is obfuscation, not secure encryption
     sorted_names = sorted([name1.lower(), name2.lower()])
     combined = sorted_names[0] + sorted_names[1]
     salt = b"fixed_salt_for_demo"
@@ -1194,7 +999,7 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 15. EXPORT REPORTS (CSV)
+# 17. EXPORT REPORTS (CSV)
 # -------------------------------
 def export_tasks_csv(tasks):
     if not tasks or not PANDAS_AVAILABLE:
@@ -1206,7 +1011,7 @@ def export_tasks_csv(tasks):
     return df.to_csv(index=False)
 
 # -------------------------------
-# 16. PUSH NOTIFICATIONS (toast)
+# 18. PUSH NOTIFICATIONS (toast)
 # -------------------------------
 def send_push_notification(title, body):
     try:
@@ -1215,7 +1020,7 @@ def send_push_notification(title, body):
         pass
 
 # -------------------------------
-# 17. RECURRING TASK HANDLER
+# 19. RECURRING TASK HANDLER
 # -------------------------------
 def handle_recurring_tasks():
     if not SUPABASE_AVAILABLE:
@@ -1258,11 +1063,11 @@ def handle_recurring_tasks():
                 }
                 supabase.table("tasks").insert(new_task).execute()
                 supabase.table("tasks").update({"due_date": next_due.isoformat()}).eq("id", task["id"]).execute()
-    except Exception:
-        pass
+    except Exception as e:
+        log_error(str(e), endpoint="handle_recurring_tasks")
 
 # -------------------------------
-# 18. SESSION STATE INIT
+# 20. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
@@ -1300,7 +1105,7 @@ if 'oauth_token' not in st.session_state:
     st.session_state.oauth_token = None
 
 # -------------------------------
-# 19. SESSION TIMEOUT CHECK
+# 21. SESSION TIMEOUT CHECK
 # -------------------------------
 def check_timeout():
     if st.session_state.authenticated:
@@ -1313,7 +1118,7 @@ def check_timeout():
             st.session_state.last_activity = datetime.now()
 
 # -------------------------------
-# 20. OAUTH LOGIN (Google) - placeholder
+# 22. OAUTH LOGIN (Google) - placeholder
 # -------------------------------
 def google_oauth():
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
@@ -1323,7 +1128,7 @@ def google_oauth():
     return None
 
 # -------------------------------
-# 21. AUTHENTICATION GATEWAY (with forms + OAuth button + modern header)
+# 23. AUTHENTICATION GATEWAY (with forms + OAuth button + modern header)
 # -------------------------------
 if not st.session_state.authenticated:
     st.markdown('''
@@ -1334,6 +1139,42 @@ if not st.session_state.authenticated:
     ''', unsafe_allow_html=True)
     st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
 
+    # Check for reset token
+    reset_token = st.query_params.get("reset_token")
+    if reset_token:
+        users = fetch_all_users_from_db()
+        found = False
+        for u in users:
+            if u.get("password_reset_token") == reset_token:
+                expiry = datetime.fromisoformat(u["reset_token_expiry"]) if u.get("reset_token_expiry") else datetime.now()
+                if expiry > datetime.now():
+                    with st.form("reset_password_form"):
+                        st.markdown("### Reset Your Password")
+                        new_pass = st.text_input("New Password", type="password")
+                        if st.form_submit_button("Reset Password"):
+                            strong, msg = is_strong_password(new_pass)
+                            if strong:
+                                hashed = hash_password(new_pass)
+                                if update_user_profile(u["username"], {
+                                    "password_hash": hashed,
+                                    "password_reset_token": None,
+                                    "reset_token_expiry": None
+                                }):
+                                    st.success("Password updated! Please log in.")
+                                    st.query_params.clear()
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to update password.")
+                            else:
+                                st.error(msg)
+                else:
+                    st.error("Reset link expired.")
+                found = True
+                break
+        if not found:
+            st.error("Invalid reset token.")
+
+    # Normal login form
     with st.form("login_form"):
         user_in = st.text_input("Username", placeholder="Enter your username").strip().lower()
         pass_in = st.text_input("Password", type="password", placeholder="Enter your password")
@@ -1357,6 +1198,22 @@ if not st.session_state.authenticated:
             st.error("Your account is pending admin approval. Please wait for a superintendent to approve your account.")
         else:
             st.error("Invalid credentials or database unreachable.")
+
+    # Forgot password link
+    with st.expander("Forgot Password?"):
+        with st.form("reset_form"):
+            reset_email = st.text_input("Enter your registered email", placeholder="email@example.com")
+            if st.form_submit_button("Send Reset Link"):
+                users = fetch_all_users_from_db()
+                for u in users:
+                    if u.get("email") == reset_email:
+                        if generate_reset_token(u["username"], reset_email):
+                            st.success("Reset link sent to your email.")
+                        else:
+                            st.error("Failed to send reset link.")
+                        break
+                else:
+                    st.error("Email not found.")
 
     if AUTH_AVAILABLE and GOOGLE_CLIENT_ID:
         if st.button("🔑 Login with Google", use_container_width=True):
@@ -1391,7 +1248,7 @@ else:
     check_timeout()
 
 # -------------------------------
-# 22. PWA MANIFEST & SERVICE WORKER (OFFLINE MODE)
+# 24. PWA MANIFEST & SERVICE WORKER
 # -------------------------------
 st.markdown("""
 <link rel="manifest" href="/static/manifest.json">
@@ -1403,12 +1260,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------
-# 23. HANDLE RECURRING TASKS
+# 25. HANDLE RECURRING TASKS
 # -------------------------------
 handle_recurring_tasks()
 
 # -------------------------------
-# 24. MAIN APP (with updated header and sidebar)
+# 26. MAIN APP
 # -------------------------------
 user = st.session_state.user_payload
 full_name = user['name']
@@ -1417,7 +1274,7 @@ role = user['role'].strip().lower()
 user_email = user.get('email', None)
 avatar_url = user.get('avatar_url', None)
 
-# Modern header in main app
+# Modern header
 st.markdown('''
 <div class="main-header">
     <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
@@ -1427,7 +1284,6 @@ st.markdown('''
 
 # Sidebar
 with st.sidebar:
-    # Modern user display with verified badge
     st.markdown(f"""
     <div class="sidebar-user">
         <i class="fas fa-user-circle user-icon"></i>
@@ -1539,9 +1395,8 @@ else:
     st.session_state.tasks = st.session_state.tasks_memory
 
 # -------------------------------
-# 25. TOP-LEVEL NAVIGATION (icon menu) - Using option_menu with Bootstrap icons
+# 27. TOP-LEVEL NAVIGATION (icon menu)
 # -------------------------------
-# We need to include Bootstrap icons CDN for option_menu to work.
 st.markdown('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">', unsafe_allow_html=True)
 
 try:
@@ -1585,7 +1440,6 @@ if selected_section == "Task Dashboard":
                 for idx, task in enumerate(my_tasks):
                     priority_class = f"priority-{task['priority']}"
                     status_class = f"status-{task['status'].replace(' ', '')}"
-                    # Overdue check
                     overdue = False
                     if task.get('due_date'):
                         due = datetime.fromisoformat(task['due_date'])
@@ -2025,7 +1879,7 @@ if selected_section == "Task Dashboard":
 
         elif superintendent_sub == "User Management":
             st.markdown("### 👥 User Management")
-            st.markdown("Approve or reject pending user registrations.")
+            st.markdown("Approve or reject pending user registrations, and deactivate approved users.")
 
             all_users = fetch_all_users_from_db()
             pending_users = [u for u in all_users if not u.get("is_approved", False)]
@@ -2061,6 +1915,12 @@ if selected_section == "Task Dashboard":
             if approved_users:
                 for u in approved_users:
                     st.write(f"- **{u['full_name']}** ({u['username']}) – {u['role']}")
+                    if st.button(f"🔴 Deactivate {u['username']}", key=f"deactivate_{u['username']}"):
+                        if update_user_profile(u['username'], {"is_approved": False}):
+                            st.success(f"User {u['username']} deactivated.")
+                            st.rerun()
+                        else:
+                            st.error("Deactivation failed.")
             else:
                 st.info("No approved users yet.")
 
