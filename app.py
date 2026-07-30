@@ -9,7 +9,6 @@ import time
 import html as html_lib
 import secrets
 from io import BytesIO
-from fpdf import FPDF   # NEW: for PDF work orders (pip install fpdf)
 
 # ----- ESCAPE FUNCTION (prevents XSS) -----
 def esc(text):
@@ -59,24 +58,23 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # -------------------------------
-# 0. SECRETS AND CONFIG (with STRONG SECURITY WARNING)
+# 0. SECRETS AND CONFIG
 # -------------------------------
-if 'SUPABASE_URL' in st.secrets:
+if 'SUPABASE_URL' in st.secrets and 'SUPABASE_KEY' in st.secrets:
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
     USING_HARDCODED = False
 else:
-    SUPABASE_URL = "https://xvfbxogzefhmitrtykce.supabase.co"
-    SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2ZmJ4b2d6ZWZobWl0cnR5a2NlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4MDMxMjEsImV4cCI6MjEwMDM3OTEyMX0.OP6VM6dIcCJGDetAdP53nrElhSLnZXg3m16t9dy6nE0"
+    # No secrets.toml configured. We deliberately do NOT embed real
+    # credentials in source control. The app still runs in local
+    # in-memory demo mode (every feature has a session-state fallback),
+    # but nothing persists across restarts until secrets are set.
+    SUPABASE_URL = None
+    SUPABASE_KEY = None
     USING_HARDCODED = True
-    # CRITICAL SECURITY WARNING
-    st.error("""
-    🛑 **CRITICAL SECURITY WARNING**  
-    You are using hardcoded Supabase credentials.  
-    **DO NOT use this in production.**  
-    Create `.streamlit/secrets.toml` and enable RLS on all tables.  
-    See the documentation for more details.
-    """)
+    st.warning("⚠️ No Supabase credentials found — running in local demo mode (data will not persist). "
+               "Create .streamlit/secrets.toml with SUPABASE_URL and SUPABASE_KEY, and enable RLS on all tables, before deploying.")
+
 
 SESSION_TIMEOUT_MINUTES = st.secrets.get("SESSION_TIMEOUT_MINUTES", 60) if 'SESSION_TIMEOUT_MINUTES' in st.secrets else 60
 MAX_UPLOAD_SIZE_MB = st.secrets.get("MAX_UPLOAD_SIZE_MB", 5) if 'MAX_UPLOAD_SIZE_MB' in st.secrets else 5
@@ -95,16 +93,22 @@ GOOGLE_REDIRECT_URI = st.secrets.get("GOOGLE_REDIRECT_URI", "https://yourapp.str
 APP_URL = st.secrets.get("APP_URL", "https://yourapp.streamlit.app")
 
 # Use Supabase client
-try:
-    from supabase import create_client, Client
-    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    SUPABASE_AVAILABLE = True
-except ImportError:
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        from supabase import create_client, Client
+        supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        SUPABASE_AVAILABLE = True
+    except ImportError:
+        SUPABASE_AVAILABLE = False
+        st.warning("Supabase library not installed. Install with: pip install supabase")
+    except Exception as e:
+        SUPABASE_AVAILABLE = False
+        st.warning(f"Could not connect to Supabase: {e}. Running in local demo mode.")
+else:
     SUPABASE_AVAILABLE = False
-    st.warning("Supabase library not installed. Install with: pip install supabase")
 
 # -------------------------------
-# 1. CUSTOM CSS + FONT AWESOME (SAME AS PROVIDED)
+# 1. CUSTOM CSS + FONT AWESOME
 # -------------------------------
 st.set_page_config(
     page_title="Mine & Workshop Tracker",
@@ -153,32 +157,6 @@ dark_css = """
     .stMetric .label { color: #94a3b8 !important; }
     .stDataFrame { color: #e2e8f0 !important; }
     .overdue-badge { background: #dc2626; color: white; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
-    .severity-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .severity-Critical { background: #7f1d1d; }
-    .severity-High { background: #dc2626; }
-    .severity-Medium { background: #f59e0b; }
-    .severity-Low { background: #0f3460; }
-    .asset-status-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .asset-status-Operational { background: #10b981; }
-    .asset-status-Down { background: #dc2626; }
-    .asset-status-Maintenance { background: #f59e0b; }
-    .asset-status-Retired { background: #94a3b8; }
-    .stock-badge { display: inline-block; padding: 0.15rem 0.7rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; color: white; margin-left: 0.5rem; }
-    .stock-ok { background: #10b981; }
-    .stock-low { background: #dc2626; }
-    .sidebar-user { padding: 0.5rem 0; text-align: center; color: #e2e8f0; }
-    .sidebar-user .user-name { font-weight: 700; font-size: 1.2rem; margin-top: 0.3rem; color: #e2e8f0; }
-    .sidebar-user .user-role { font-size: 0.9rem; color: #94a3b8; }
-    .sidebar-user .user-role i { margin-right: 0.3rem; }
-    .sidebar-user .user-icon { font-size: 3rem; color: #4fc3f7; }
-    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label { font-weight: 600; color: #1e293b !important; }
-    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div { color: #1e293b !important; }
-    .stMetric label { color: #1e293b !important; }
-    .stMetric .value { color: #1e293b !important; }
-    .stMetric .label { color: #64748b !important; }
-    .stDataFrame { color: #1e293b !important; }
-    .stAlert { border-radius: 12px; }
-    .stSuccess, .stInfo, .stWarning, .stError { border-radius: 12px; }
 </style>
 """
 light_css = """
@@ -216,32 +194,6 @@ light_css = """
     .stMetric .label { color: #64748b !important; }
     .stDataFrame { color: #1e293b !important; }
     .overdue-badge { background: #dc2626; color: white; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
-    .severity-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .severity-Critical { background: #7f1d1d; }
-    .severity-High { background: #dc2626; }
-    .severity-Medium { background: #f59e0b; }
-    .severity-Low { background: #0f3460; }
-    .asset-status-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .asset-status-Operational { background: #10b981; }
-    .asset-status-Down { background: #dc2626; }
-    .asset-status-Maintenance { background: #f59e0b; }
-    .asset-status-Retired { background: #94a3b8; }
-    .stock-badge { display: inline-block; padding: 0.15rem 0.7rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; color: white; margin-left: 0.5rem; }
-    .stock-ok { background: #10b981; }
-    .stock-low { background: #dc2626; }
-    .sidebar-user { padding: 0.5rem 0; text-align: center; color: #e2e8f0; }
-    .sidebar-user .user-name { font-weight: 700; font-size: 1.2rem; margin-top: 0.3rem; color: #e2e8f0; }
-    .sidebar-user .user-role { font-size: 0.9rem; color: #94a3b8; }
-    .sidebar-user .user-role i { margin-right: 0.3rem; }
-    .sidebar-user .user-icon { font-size: 3rem; color: #4fc3f7; }
-    .stSelectbox label, .stTextInput label, .stTextArea label, .stCheckbox label, .stDateInput label, .stFileUploader label { font-weight: 600; color: #1e293b !important; }
-    .stSelectbox div, .stTextInput div, .stTextArea div, .stCheckbox div, .stDateInput div { color: #1e293b !important; }
-    .stMetric label { color: #1e293b !important; }
-    .stMetric .value { color: #1e293b !important; }
-    .stMetric .label { color: #64748b !important; }
-    .stDataFrame { color: #1e293b !important; }
-    .stAlert { border-radius: 12px; }
-    .stSuccess, .stInfo, .stWarning, .stError { border-radius: 12px; }
 </style>
 """
 
@@ -302,19 +254,6 @@ st.markdown("""
     .status-Blocked { background: #dc2626; }
     .status-Complete { background: #10b981; }
     .overdue-badge { display: inline-block; background: #dc2626; color: white; padding: 0.15rem 0.6rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
-    .severity-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .severity-Critical { background: #7f1d1d; }
-    .severity-High { background: #dc2626; }
-    .severity-Medium { background: #f59e0b; }
-    .severity-Low { background: #0f3460; }
-    .asset-status-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
-    .asset-status-Operational { background: #10b981; }
-    .asset-status-Down { background: #dc2626; }
-    .asset-status-Maintenance { background: #f59e0b; }
-    .asset-status-Retired { background: #94a3b8; }
-    .stock-badge { display: inline-block; padding: 0.15rem 0.7rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; color: white; margin-left: 0.5rem; }
-    .stock-ok { background: #10b981; }
-    .stock-low { background: #dc2626; }
     .metric-box { background: white; border-radius: 16px; padding: 1.2rem; text-align: center; box-shadow: 0 2px 12px rgba(0,0,0,0.08); border: 1px solid #e8ecf0; }
     .metric-box .value { font-size: 2.2rem; font-weight: 700; color: #1a1a2e; }
     .metric-box .label { font-size: 0.9rem; color: #64748b; }
@@ -335,6 +274,19 @@ st.markdown("""
     .stButton button i { margin-right: 0.5rem; }
     .verified-badge { display: inline-block; background: #10b981; color: white; padding: 0.15rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
     .pending-badge { display: inline-block; background: #f59e0b; color: white; padding: 0.15rem 0.8rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; margin-left: 0.5rem; }
+    .severity-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
+    .severity-Critical { background: #7f1d1d; }
+    .severity-High { background: #dc2626; }
+    .severity-Medium { background: #f59e0b; }
+    .severity-Low { background: #0f3460; }
+    .asset-status-badge { display: inline-block; padding: 0.2rem 0.8rem; border-radius: 20px; font-size: 0.75rem; font-weight: 700; color: white; }
+    .asset-status-Operational { background: #10b981; }
+    .asset-status-Down { background: #dc2626; }
+    .asset-status-Maintenance { background: #f59e0b; }
+    .asset-status-Retired { background: #94a3b8; }
+    .stock-badge { display: inline-block; padding: 0.15rem 0.7rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; color: white; margin-left: 0.5rem; }
+    .stock-ok { background: #10b981; }
+    .stock-low { background: #dc2626; }
     .sidebar-user { padding: 0.5rem 0; text-align: center; color: #e2e8f0; }
     .sidebar-user .user-name { font-weight: 700; font-size: 1.2rem; margin-top: 0.3rem; color: #e2e8f0; }
     .sidebar-user .user-role { font-size: 0.9rem; color: #94a3b8; }
@@ -384,6 +336,7 @@ def menu_styles():
 # 3. ERROR LOGGING
 # -------------------------------
 def log_error(error_message, details=None, user_name=None, endpoint=None):
+    """Log errors to the app_errors table for monitoring."""
     if not SUPABASE_AVAILABLE:
         return
     try:
@@ -394,7 +347,7 @@ def log_error(error_message, details=None, user_name=None, endpoint=None):
             "endpoint": endpoint
         }).execute()
     except Exception:
-        pass
+        pass  # If logging fails, we can't do much else
 
 # -------------------------------
 # 4. PASSWORD HASHING & STRENGTH
@@ -1086,13 +1039,43 @@ def decrypt_message(encrypted_msg, key):
         return base64.b64decode(encrypted_msg.encode()).decode()
 
 # -------------------------------
-# 18. EXPORT REPORTS (CSV)
+# 18. EXPORT REPORTS
 # -------------------------------
 def export_tasks_csv(tasks):
     if not tasks or not PANDAS_AVAILABLE:
         return None
     df = pd.DataFrame(tasks)
     cols = ['id', 'title', 'location', 'status', 'priority', 'assigned_to', 'due_date', 'created_at']
+    existing_cols = [c for c in cols if c in df.columns]
+    df = df[existing_cols]
+    return df.to_csv(index=False)
+
+def export_assets_csv(assets):
+    if not assets or not PANDAS_AVAILABLE:
+        return None
+    df = pd.DataFrame(assets)
+    cols = ['id', 'name', 'asset_tag', 'category', 'location', 'manufacturer', 'model_number',
+            'serial_number', 'status', 'criticality', 'current_meter', 'meter_unit', 'install_date']
+    existing_cols = [c for c in cols if c in df.columns]
+    df = df[existing_cols]
+    return df.to_csv(index=False)
+
+def export_inventory_csv(parts):
+    if not parts or not PANDAS_AVAILABLE:
+        return None
+    df = pd.DataFrame(parts)
+    cols = ['id', 'part_name', 'part_number', 'category', 'quantity_on_hand', 'reorder_point',
+            'reorder_qty', 'unit_cost', 'supplier', 'bin_location']
+    existing_cols = [c for c in cols if c in df.columns]
+    df = df[existing_cols]
+    return df.to_csv(index=False)
+
+def export_incidents_csv(incidents):
+    if not incidents or not PANDAS_AVAILABLE:
+        return None
+    df = pd.DataFrame(incidents)
+    cols = ['id', 'incident_type', 'severity', 'location', 'status', 'reported_by',
+            'description', 'root_cause', 'corrective_action', 'created_at']
     existing_cols = [c for c in cols if c in df.columns]
     df = df[existing_cols]
     return df.to_csv(index=False)
@@ -1153,7 +1136,9 @@ def handle_recurring_tasks():
     except Exception as e:
         log_error(str(e), endpoint="handle_recurring_tasks")
 
-# ===== NEW: ASSET REGISTER FUNCTIONS (same as before) =====
+# -------------------------------
+# 20A. ASSET REGISTER FUNCTIONS
+# -------------------------------
 def fetch_all_assets():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("assets_memory", [])
@@ -1231,7 +1216,9 @@ def delete_asset(asset_id, deleted_by):
         log_error(str(e), details={"asset_id": asset_id}, endpoint="delete_asset")
         return False
 
-# ===== NEW: INVENTORY FUNCTIONS =====
+# -------------------------------
+# 20B. INVENTORY / PARTS FUNCTIONS
+# -------------------------------
 def fetch_all_parts():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("inventory_memory", [])
@@ -1277,6 +1264,7 @@ def create_part(part_name, part_number, category, quantity_on_hand, reorder_poin
     return None
 
 def adjust_part_quantity(part_id, delta, adjusted_by, reason="manual adjustment"):
+    """delta can be negative (consumption) or positive (restock)."""
     if not SUPABASE_AVAILABLE:
         for p in st.session_state.get("inventory_memory", []):
             if p["id"] == part_id:
@@ -1310,6 +1298,7 @@ def delete_part(part_id, deleted_by):
         return False
 
 def link_part_to_task(task_id, part_id, quantity_used, used_by):
+    """Records parts consumption against a task/work order and decrements stock."""
     payload = {
         "task_id": task_id,
         "part_id": part_id,
@@ -1339,7 +1328,9 @@ def fetch_task_parts(task_id):
         log_error(str(e), endpoint="fetch_task_parts")
     return []
 
-# ===== NEW: INCIDENT FUNCTIONS =====
+# -------------------------------
+# 20C. INCIDENT / SAFETY REPORTING FUNCTIONS
+# -------------------------------
 def fetch_all_incidents():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("incidents_memory", [])
@@ -1404,69 +1395,11 @@ def update_incident(incident_id, updates, updated_by):
         log_error(str(e), details={"incident_id": incident_id, "updates": updates}, endpoint="update_incident")
         return False
 
-# ===== NEW: COST TRACKING HELPERS =====
-def compute_task_cost(task_id):
-    task_parts = fetch_task_parts(task_id)
-    total = 0
-    parts_dict = {p['id']: p for p in st.session_state.get('parts', [])}
-    for tp in task_parts:
-        part = parts_dict.get(tp['part_id'])
-        if part:
-            total += part.get('unit_cost', 0) * tp.get('quantity_used', 0)
-    return total
-
-def compute_asset_cost(asset_id):
-    asset_tasks = [t for t in st.session_state.get('tasks', []) if t.get('asset_id') == asset_id]
-    total = 0
-    for t in asset_tasks:
-        total += compute_task_cost(t['id'])
-    return total
-
-# ===== NEW: PDF WORK ORDER GENERATOR =====
-def generate_work_order_pdf(task):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(0, 10, "WORK ORDER", ln=True, align='C')
-    pdf.ln(10)
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(0, 8, f"Task #: {task['id']}")
-    pdf.ln()
-    pdf.cell(0, 8, f"Title: {task['title']}")
-    pdf.ln()
-    pdf.cell(0, 8, f"Location: {task['location']}")
-    pdf.ln()
-    pdf.cell(0, 8, f"Priority: {task['priority']}")
-    pdf.ln()
-    pdf.cell(0, 8, f"Status: {task['status']}")
-    pdf.ln()
-    pdf.cell(0, 8, f"Assigned To: {task['assigned_to']}")
-    pdf.ln()
-    if task.get('due_date'):
-        pdf.cell(0, 8, f"Due Date: {task['due_date'][:10]}")
-        pdf.ln()
-    if task.get('loto'):
-        pdf.cell(0, 8, "LOTO Required: Yes")
-        pdf.ln()
-    if task.get('jsa'):
-        pdf.cell(0, 8, "JSA Required: Yes")
-        pdf.ln()
-    pdf.cell(0, 8, f"Created: {task.get('created_at', 'N/A')[:16]}")
-    pdf.ln()
-    pdf.ln(10)
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 8, "Instructions", ln=True)
-    pdf.set_font("Arial", '', 12)
-    pdf.multi_cell(0, 8, "Please complete the task according to the safety procedures and submit proof photos upon completion.")
-    pdf.ln(10)
-    pdf.cell(0, 8, "________________________________", ln=True)
-    pdf.cell(0, 8, "Signature of Worker", ln=True)
-    pdf.cell(0, 8, "________________________________", ln=True)
-    pdf.cell(0, 8, "Signature of Supervisor", ln=True)
-    return pdf.output(dest='S').encode('latin1')
-
-# ===== NEW: KPI HELPERS (reused) =====
+# -------------------------------
+# 20D. KPI / ANALYTICS HELPERS
+# -------------------------------
 def compute_mttr_hours(tasks):
+    """Mean Time To Repair: average hours between task creation and completion, for Complete tasks with timestamps."""
     durations = []
     for t in tasks:
         if t.get('status') == 'Complete' and t.get('created_at') and t.get('due_date'):
@@ -1483,6 +1416,7 @@ def compute_mttr_hours(tasks):
     return sum(durations) / len(durations)
 
 def compute_pm_compliance(tasks):
+    """Percentage of recurring/PM tasks completed on or before their due date."""
     pm_tasks = [t for t in tasks if t.get('is_recurring')]
     if not pm_tasks:
         return None
@@ -1493,6 +1427,7 @@ def compute_pm_compliance(tasks):
     return round((on_time / len(pm_tasks)) * 100, 1)
 
 def compute_asset_downtime_ranking(tasks, assets):
+    """Ranks assets by number of associated maintenance tasks (proxy for downtime frequency)."""
     counts = {}
     for t in tasks:
         aid = t.get('asset_id')
@@ -1869,7 +1804,7 @@ st.session_state.parts = db_parts if db_parts else st.session_state.inventory_me
 db_incidents = fetch_all_incidents()
 st.session_state.incidents = db_incidents if db_incidents else st.session_state.incidents_memory
 
-# ===== TASK DASHBOARD (with PDF work order and cost analysis) =====
+# ---- TASK DASHBOARD ----
 if selected_section == "Task Dashboard":
     if role == "worker":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
@@ -1911,7 +1846,6 @@ if selected_section == "Task Dashboard":
                                     <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
                                     <span><i class="fas fa-circle" style="color: #3b82f6;"></i> <span class="status-badge {status_class}">{task['status']}</span></span>
                                     {f'<span><i class="fas fa-calendar-alt"></i> Due: {task["due_date"][:10]}</span>' if task.get('due_date') else ''}
-                                    {f'<span><i class="fas fa-dollar-sign"></i> Cost: ${compute_task_cost(task["id"]):.2f}</span>' if compute_task_cost(task["id"]) > 0 else ''}
                                 </div>
                             </div>
                         </div>
@@ -1937,16 +1871,6 @@ if selected_section == "Task Dashboard":
                         st.error("🔒 Safety isolation forms are required before proceeding.")
                     else:
                         st.success("✅ Safety checks passed.")
-
-                    # PDF Work Order button
-                    pdf_bytes = generate_work_order_pdf(task)
-                    st.download_button(
-                        label=f"📄 Download Work Order #{task['id']}",
-                        data=pdf_bytes,
-                        file_name=f"work_order_{task['id']}.pdf",
-                        mime="application/pdf",
-                        key=f"pdf_{task['id']}_{idx}"
-                    )
 
                     with st.expander("💬 Comments"):
                         comments = fetch_comments(task['id'])
@@ -2067,7 +1991,6 @@ if selected_section == "Task Dashboard":
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
                             {f'<i class="fas fa-calendar-alt"></i> {task["due_date"][:10]}' if task.get('due_date') else ''}
-                            {f'<i class="fas fa-dollar-sign"></i> Cost: ${compute_task_cost(task["id"]):.2f}' if compute_task_cost(task["id"]) > 0 else ''}
                         </div>
                     </div>
                 </div>
@@ -2096,15 +2019,6 @@ if selected_section == "Task Dashboard":
                         update_task(task['id'], {"status": "Complete"}, full_name)
                         log_audit(full_name, "task_approve", {"task_id": task['id']})
                         st.rerun()
-                # PDF download button
-                pdf_bytes = generate_work_order_pdf(task)
-                st.download_button(
-                    label=f"📄 Download Work Order #{task['id']}",
-                    data=pdf_bytes,
-                    file_name=f"work_order_{task['id']}.pdf",
-                    mime="application/pdf",
-                    key=f"pdf_sup_{task['id']}"
-                )
                 with st.expander("💬 Comments"):
                     comments = fetch_comments(task['id'])
                     if comments:
@@ -2196,26 +2110,6 @@ if selected_section == "Task Dashboard":
             low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
             kcol4.metric("Low Stock Parts", low_stock_count)
             st.markdown("---")
-            # Cost Analysis
-            st.markdown("#### 💰 Cost Analysis")
-            total_part_cost = sum(compute_task_cost(t['id']) for t in tasks)
-            st.metric("Total Parts Cost Across All Tasks", f"${total_part_cost:.2f}")
-            # Top 5 most expensive assets
-            if st.session_state.assets:
-                asset_costs = [(a, compute_asset_cost(a['id'])) for a in st.session_state.assets if compute_asset_cost(a['id']) > 0]
-                asset_costs.sort(key=lambda x: x[1], reverse=True)
-                if asset_costs:
-                    st.markdown("##### 🔧 Top 5 Most Expensive Assets (by parts cost)")
-                    for asset, cost in asset_costs[:5]:
-                        st.write(f"- **{asset['name']}**: ${cost:.2f}")
-            # Top 5 most expensive tasks
-            task_costs = [(t, compute_task_cost(t['id'])) for t in tasks if compute_task_cost(t['id']) > 0]
-            task_costs.sort(key=lambda x: x[1], reverse=True)
-            if task_costs:
-                st.markdown("##### 📋 Top 5 Most Expensive Tasks")
-                for task, cost in task_costs[:5]:
-                    st.write(f"- #{task['id']} {task['title']}: ${cost:.2f}")
-            st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
                 fig1 = px.pie(df, names='status', title='Tasks by Status')
@@ -2299,7 +2193,6 @@ if selected_section == "Task Dashboard":
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
                             {f'<i class="fas fa-calendar-alt"></i> {task["due_date"][:10]}' if task.get('due_date') else ''}
-                            {f'<i class="fas fa-dollar-sign"></i> Cost: ${compute_task_cost(task["id"]):.2f}' if compute_task_cost(task["id"]) > 0 else ''}
                         </div>
                     </div>
                 </div>
@@ -2333,15 +2226,6 @@ if selected_section == "Task Dashboard":
                 if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
                     delete_task(task['id'], full_name)
                     st.rerun()
-                # PDF download button
-                pdf_bytes = generate_work_order_pdf(task)
-                st.download_button(
-                    label=f"📄 Download Work Order #{task['id']}",
-                    data=pdf_bytes,
-                    file_name=f"work_order_{task['id']}.pdf",
-                    mime="application/pdf",
-                    key=f"pdf_sup_{task['id']}"
-                )
                 with st.expander("💬 Comments"):
                     comments = fetch_comments(task['id'])
                     if comments:
@@ -2402,24 +2286,6 @@ if selected_section == "Task Dashboard":
             kcol3.metric("Open Incidents", open_incidents)
             low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
             kcol4.metric("Low Stock Parts", low_stock_count)
-            st.markdown("---")
-            # Cost Analysis
-            st.markdown("#### 💰 Cost Analysis")
-            total_part_cost = sum(compute_task_cost(t['id']) for t in tasks)
-            st.metric("Total Parts Cost Across All Tasks", f"${total_part_cost:.2f}")
-            if st.session_state.assets:
-                asset_costs = [(a, compute_asset_cost(a['id'])) for a in st.session_state.assets if compute_asset_cost(a['id']) > 0]
-                asset_costs.sort(key=lambda x: x[1], reverse=True)
-                if asset_costs:
-                    st.markdown("##### 🔧 Top 5 Most Expensive Assets (by parts cost)")
-                    for asset, cost in asset_costs[:5]:
-                        st.write(f"- **{asset['name']}**: ${cost:.2f}")
-            task_costs = [(t, compute_task_cost(t['id'])) for t in tasks if compute_task_cost(t['id']) > 0]
-            task_costs.sort(key=lambda x: x[1], reverse=True)
-            if task_costs:
-                st.markdown("##### 📋 Top 5 Most Expensive Tasks")
-                for task, cost in task_costs[:5]:
-                    st.write(f"- #{task['id']} {task['title']}: ${cost:.2f}")
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
@@ -2530,7 +2396,6 @@ elif selected_section == "Asset Register":
                             <i class="fas fa-map-marker-alt"></i> {esc(a.get('location', 'N/A'))} &nbsp;
                             <i class="fas fa-industry"></i> {esc(a.get('manufacturer', 'N/A'))} {esc(a.get('model_number', ''))} &nbsp;
                             <i class="fas fa-tachometer-alt"></i> Meter: {a.get('current_meter', 0)} {esc(a.get('meter_unit', ''))}
-                            {f'<i class="fas fa-dollar-sign"></i> Total cost: ${compute_asset_cost(a["id"]):.2f}' if compute_asset_cost(a["id"]) > 0 else ''}
                         </div>
                     </div>
                 </div>
@@ -2561,6 +2426,11 @@ elif selected_section == "Asset Register":
     # PM compliance quick view for managers
     if can_manage_assets and st.session_state.assets:
         st.markdown("---")
+        if st.button("📥 Export Assets as CSV"):
+            csv = export_assets_csv(st.session_state.assets)
+            if csv:
+                st.download_button("Download CSV", data=csv, file_name="assets_export.csv", mime="text/csv", key="dl_assets_csv")
+
         st.markdown("#### 📊 Asset Task Frequency (proxy for downtime)")
         ranking = compute_asset_downtime_ranking(st.session_state.tasks, st.session_state.assets)
         if ranking:
@@ -2625,6 +2495,10 @@ elif selected_section == "Inventory":
         low_stock = [p for p in parts if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0)]
         if low_stock:
             st.warning(f"⚠️ {len(low_stock)} part(s) at or below reorder point.")
+        if can_manage_inventory and parts and st.button("📥 Export Inventory as CSV"):
+            csv = export_inventory_csv(parts)
+            if csv:
+                st.download_button("Download CSV", data=csv, file_name="inventory_export.csv", mime="text/csv", key="dl_inventory_csv")
         if not parts:
             st.info("No parts in inventory yet.")
         for p in parts:
@@ -2735,6 +2609,10 @@ elif selected_section == "Incident Reports":
         visible = incidents if can_manage_incidents else [i for i in incidents if i.get('reported_by') == full_name]
         if not visible:
             st.info("No incidents reported yet.")
+        if can_manage_incidents and visible and st.button("📥 Export Incidents as CSV"):
+            csv = export_incidents_csv(visible)
+            if csv:
+                st.download_button("Download CSV", data=csv, file_name="incidents_export.csv", mime="text/csv", key="dl_incidents_csv")
         for inc in visible:
             sev_class = f"severity-{inc.get('severity', 'Low')}"
             st.markdown(f"""
@@ -3033,6 +2911,6 @@ elif selected_section == "Activity Timeline":
 # Footer
 st.markdown("""
 <div class="footer">
-    <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker v3.0 — CMMS Edition &nbsp;|&nbsp; Asset Register · Inventory · Incident Reporting · KPI Analytics · PDF Work Orders · Cost Tracking &nbsp;|&nbsp; Powered by Streamlit & Supabase
+    <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker v3.0 — CMMS Edition &nbsp;|&nbsp; Asset Register · Inventory · Incident Reporting · KPI Analytics &nbsp;|&nbsp; Powered by Streamlit & Supabase
 </div>
 """, unsafe_allow_html=True)
