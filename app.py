@@ -333,6 +333,122 @@ def menu_styles():
     }
 
 # -------------------------------
+# 2B. CENTRAL PERMISSION MATRIX
+# -------------------------------
+# All authorization decisions resolve through this one table so a
+# security reviewer can audit the whole model in one place, rather
+# than tracing scattered `if role in [...]` checks through the UI.
+# Add a capability here, then gate the UI with can(role, "capability").
+ROLE_PERMISSIONS = {
+    "worker": {
+        "task.view_assigned", "task.update_status", "task.comment",
+        "task.upload_photo", "task.upload_attachment",
+        "asset.view", "asset.log_meter",
+        "inventory.view",
+        "incident.report", "incident.view_own",
+        "permit.accept", "permit.sign_back", "permit.view",
+        "handover.view",
+        "chat.global", "chat.private",
+        "profile.edit_own",
+    },
+    "supervisor": {
+        "task.view_all", "task.create", "task.assign", "task.update_status",
+        "task.approve_qa", "task.comment", "task.upload_photo",
+        "task.upload_attachment", "task.record_cost",
+        "asset.view", "asset.create", "asset.edit", "asset.log_meter",
+        "inventory.view", "inventory.create", "inventory.adjust", "inventory.record_usage",
+        "incident.report", "incident.view_all", "incident.investigate",
+        "permit.issue", "permit.accept", "permit.sign_back", "permit.view", "permit.cancel",
+        "handover.view", "handover.create", "handover.acknowledge",
+        "contractor.view", "contractor.manage",
+        "analytics.view", "analytics.export",
+        "broadcast.send",
+        "chat.global", "chat.private", "chat.supervisor_room",
+        "profile.edit_own",
+    },
+    "superintendent": {
+        "task.view_all", "task.create", "task.assign", "task.update_status",
+        "task.approve_qa", "task.comment", "task.delete", "task.upload_photo",
+        "task.upload_attachment", "task.record_cost",
+        "asset.view", "asset.create", "asset.edit", "asset.delete", "asset.log_meter",
+        "inventory.view", "inventory.create", "inventory.adjust",
+        "inventory.record_usage", "inventory.delete",
+        "incident.report", "incident.view_all", "incident.investigate",
+        "permit.issue", "permit.accept", "permit.sign_back", "permit.view", "permit.cancel",
+        "handover.view", "handover.create", "handover.acknowledge",
+        "contractor.view", "contractor.manage",
+        "analytics.view", "analytics.export",
+        "broadcast.send",
+        "chat.global", "chat.private", "chat.supervisor_room",
+        "user.approve", "user.reject", "user.deactivate", "user.view_all",
+        "audit.view",
+        "profile.edit_own",
+    },
+}
+
+def can(user_role, capability):
+    """Single authorization entry point. Unknown roles get nothing."""
+    if not user_role:
+        return False
+    return capability in ROLE_PERMISSIONS.get(str(user_role).strip().lower(), set())
+
+def require(user_role, capability, message="You do not have permission to do that."):
+    """Gate a UI block. Returns True if allowed, else renders a notice."""
+    if can(user_role, capability):
+        return True
+    st.warning(f"🔒 {message}")
+    return False
+
+# -------------------------------
+# 2C. LOGIN RATE LIMITING
+# -------------------------------
+# LIMITATION — READ BEFORE RELYING ON THIS:
+# These counters live in Streamlit session state, so they stop
+# casual repeated guessing in one browser session but do NOT stop a
+# determined attacker, who can simply open a new session to reset
+# the counter. Real brute-force protection needs server-side
+# tracking keyed on username/IP (a `login_attempts` table, or an
+# edge/WAF rate limit), and is one of the things you get for free
+# by migrating to Supabase Auth. Treat this as a speed bump, not a
+# control you can present as sufficient in a security review.
+LOGIN_MAX_ATTEMPTS = 5
+LOGIN_LOCKOUT_MINUTES = 15
+
+def _login_state():
+    if 'login_attempts' not in st.session_state:
+        st.session_state.login_attempts = {}
+    return st.session_state.login_attempts
+
+def is_login_locked(username):
+    """Returns (locked, seconds_remaining)."""
+    attempts = _login_state().get(str(username).lower())
+    if not attempts:
+        return False, 0
+    if attempts.get("count", 0) < LOGIN_MAX_ATTEMPTS:
+        return False, 0
+    last = attempts.get("last_attempt")
+    if not last:
+        return False, 0
+    unlock_at = last + timedelta(minutes=LOGIN_LOCKOUT_MINUTES)
+    if datetime.now() >= unlock_at:
+        _login_state().pop(str(username).lower(), None)
+        return False, 0
+    return True, int((unlock_at - datetime.now()).total_seconds())
+
+def record_login_failure(username):
+    key = str(username).lower()
+    state = _login_state()
+    entry = state.get(key, {"count": 0})
+    entry["count"] = entry.get("count", 0) + 1
+    entry["last_attempt"] = datetime.now()
+    state[key] = entry
+    if entry["count"] >= LOGIN_MAX_ATTEMPTS:
+        log_audit(username, "login_lockout", {"attempts": entry["count"]})
+
+def clear_login_failures(username):
+    _login_state().pop(str(username).lower(), None)
+
+# -------------------------------
 # 3. ERROR LOGGING
 # -------------------------------
 def log_error(error_message, details=None, user_name=None, endpoint=None):
@@ -620,7 +736,10 @@ def fetch_all_tasks():
         log_error(str(e), endpoint="fetch_tasks")
         return st.session_state.get("tasks_memory", [])
 
-def create_task(title, location, priority, loto, jsa, created_by, due_date=None, is_recurring=False, recurrence_type=None, recurrence_end_date=None, asset_id=None, meter_interval=None):
+def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
+                is_recurring=False, recurrence_type=None, recurrence_end_date=None,
+                asset_id=None, meter_interval=None, work_type="Reactive",
+                failure_code=None, failure_start=None, labour_rate=0):
     if not SUPABASE_AVAILABLE:
         tasks = st.session_state.get("tasks_memory", [])
         new_id = max([t["id"] for t in tasks], default=0) + 1
@@ -639,6 +758,12 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
             "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None,
             "asset_id": asset_id,
             "meter_interval": meter_interval,
+            "work_type": work_type,
+            "failure_code": failure_code,
+            "failure_start": failure_start.isoformat() if hasattr(failure_start, "isoformat") else failure_start,
+            "labour_hours": 0,
+            "labour_rate": labour_rate,
+            "completed_at": None,
             "version": 0
         }
         tasks.append(new_task)
@@ -660,6 +785,12 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
             "recurrence_end_date": recurrence_end_date.isoformat() if recurrence_end_date else None,
             "asset_id": asset_id,
             "meter_interval": meter_interval,
+            "work_type": work_type,
+            "failure_code": failure_code,
+            "failure_start": failure_start.isoformat() if hasattr(failure_start, "isoformat") else failure_start,
+            "labour_hours": 0,
+            "labour_rate": labour_rate,
+            "completed_at": None,
             "version": 0
         }
         res = supabase.table("tasks").insert(new_task).execute()
@@ -674,6 +805,16 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
     return None
 
 def update_task(task_id, updates, updated_by):
+    # Stamp real completion/reopen timestamps. Every downstream metric
+    # (MTTR, MTBF, PM compliance) depends on this being accurate, so it
+    # is set here centrally rather than at each call site.
+    if "status" in updates:
+        if updates["status"] == "Complete":
+            updates.setdefault("completed_at", datetime.now().isoformat())
+        else:
+            # Reopened or moved backwards — the old completion is no
+            # longer true and must not linger in the metrics.
+            updates["completed_at"] = None
     if not SUPABASE_AVAILABLE:
         for t in st.session_state.get("tasks_memory", []):
             if t["id"] == task_id:
@@ -1009,9 +1150,28 @@ except ImportError:
     CRYPTO_AVAILABLE = False
 
 def derive_key(name1, name2):
+    """
+    ⚠️ THIS IS OBFUSCATION, NOT SECURE ENCRYPTION. ⚠️
+
+    The key material is just the two usernames, which are public
+    within the app, combined with a salt. Anyone who knows both
+    usernames can regenerate this key and decrypt the messages.
+    It protects against nothing more than a casual glance at the
+    raw database rows.
+
+    To make private chat genuinely confidential you need per-user
+    asymmetric keypairs, with private keys held client-side and
+    never sent to the server. That is a real project, not a patch.
+    Until then the UI warns users not to trust this channel.
+
+    CHAT_KEY_SALT (optional, from secrets) at least prevents someone
+    reading this public source from deriving keys without also
+    having your deployment secret. It does NOT fix the fundamental
+    weakness above.
+    """
     sorted_names = sorted([name1.lower(), name2.lower()])
     combined = sorted_names[0] + sorted_names[1]
-    salt = b"fixed_salt_for_demo"
+    salt = str(st.secrets.get("CHAT_KEY_SALT", "fixed_salt_for_demo")).encode()
     if CRYPTO_AVAILABLE:
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
@@ -1438,6 +1598,476 @@ def compute_asset_downtime_ranking(tasks, assets):
     return [(asset_lookup.get(aid, f"Asset #{aid}"), cnt) for aid, cnt in ranked]
 
 # -------------------------------
+# 20E. PERMIT TO WORK / LOTO REGISTER
+# -------------------------------
+FAILURE_CODES = {
+    "BRG": "Bearing failure", "SEAL": "Seal / gasket leak", "BELT": "Belt wear or breakage",
+    "HYD": "Hydraulic system fault", "ELEC": "Electrical fault", "MOTOR": "Motor failure",
+    "SENSOR": "Sensor / instrumentation fault", "STRUCT": "Structural / weld failure",
+    "LUBE": "Lubrication failure", "OPER": "Operator error / misuse",
+    "WEAR": "Normal wear and tear", "CORR": "Corrosion", "OTHER": "Other / uncategorised",
+}
+
+def _mem(key):
+    return st.session_state.setdefault(key, [])
+
+def _mem_insert(key, payload, audit_user, audit_action):
+    rows = _mem(key)
+    payload["id"] = max([r.get("id", 0) for r in rows], default=0) + 1
+    payload.setdefault("created_at", datetime.now().isoformat())
+    rows.append(payload)
+    log_audit(audit_user, audit_action + "_memory", {"id": payload["id"]})
+    return payload
+
+def fetch_permits(task_id=None):
+    if not SUPABASE_AVAILABLE:
+        rows = _mem("permits_memory")
+        return [p for p in rows if task_id is None or p.get("task_id") == task_id]
+    try:
+        q = supabase.table("permits").select("*").order("id", desc=True)
+        if task_id is not None:
+            q = q.eq("task_id", task_id)
+        res = q.execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_permits")
+        return []
+
+def issue_permit(task_id, asset_id, permit_type, lock_tag_numbers, isolation_points,
+                  hazards_identified, issued_by, valid_until):
+    payload = {
+        "task_id": task_id, "asset_id": asset_id, "permit_type": permit_type,
+        "lock_tag_numbers": lock_tag_numbers, "isolation_points": isolation_points,
+        "hazards_identified": hazards_identified, "issued_by": issued_by,
+        "issued_at": datetime.now().isoformat(), "status": "Issued",
+        "valid_until": valid_until.isoformat() if valid_until else None,
+    }
+    if not SUPABASE_AVAILABLE:
+        return _mem_insert("permits_memory", payload, issued_by, "permit_issue")
+    try:
+        res = supabase.table("permits").insert(payload).execute()
+        if res.data:
+            permit = res.data[0]
+            log_audit(issued_by, "permit_issue", {"permit_id": permit["id"], "task_id": task_id})
+            if task_id:
+                log_task_activity(task_id, issued_by, "permit_issued", {"permit_id": permit["id"]})
+            return permit
+    except Exception as e:
+        log_error(str(e), details=payload, endpoint="issue_permit")
+    return None
+
+def accept_permit(permit_id, accepted_by):
+    updates = {"accepted_by": accepted_by, "accepted_at": datetime.now().isoformat(), "status": "Active"}
+    return _update_permit(permit_id, updates, accepted_by, "permit_accept")
+
+def sign_back_permit(permit_id, signed_back_by):
+    updates = {"signed_back_by": signed_back_by, "signed_back_at": datetime.now().isoformat(), "status": "Closed"}
+    return _update_permit(permit_id, updates, signed_back_by, "permit_sign_back")
+
+def cancel_permit(permit_id, cancelled_by):
+    return _update_permit(permit_id, {"status": "Cancelled"}, cancelled_by, "permit_cancel")
+
+def _update_permit(permit_id, updates, actor, action):
+    if not SUPABASE_AVAILABLE:
+        for p in _mem("permits_memory"):
+            if p["id"] == permit_id:
+                p.update(updates)
+                log_audit(actor, action + "_memory", {"permit_id": permit_id})
+                return True
+        return False
+    try:
+        supabase.table("permits").update(updates).eq("id", permit_id).execute()
+        log_audit(actor, action, {"permit_id": permit_id, "updates": updates})
+        return True
+    except Exception as e:
+        log_error(str(e), details={"permit_id": permit_id}, endpoint=action)
+        return False
+
+def task_has_active_permit(task_id):
+    """Safety gate: is there a live accepted permit for this task?"""
+    for p in fetch_permits(task_id=task_id):
+        if p.get("status") == "Active":
+            valid_until = p.get("valid_until")
+            if valid_until:
+                try:
+                    if datetime.fromisoformat(str(valid_until).split("+")[0]) < datetime.now():
+                        continue
+                except Exception:
+                    pass
+            return True
+    return False
+
+# -------------------------------
+# 20F. SHIFT HANDOVER LOG
+# -------------------------------
+def fetch_handovers(limit=50):
+    if not SUPABASE_AVAILABLE:
+        return sorted(_mem("handovers_memory"), key=lambda x: x.get("created_at", ""), reverse=True)[:limit]
+    try:
+        res = supabase.table("shift_handovers").select("*").order("created_at", desc=True).limit(limit).execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_handovers")
+        return []
+
+def create_handover(shift, crew, outgoing, incoming, work_completed, work_outstanding,
+                     safety_concerns, equipment_status):
+    payload = {
+        "shift": shift, "crew": crew, "outgoing_supervisor": outgoing,
+        "incoming_supervisor": incoming, "work_completed": work_completed,
+        "work_outstanding": work_outstanding, "safety_concerns": safety_concerns,
+        "equipment_status": equipment_status, "acknowledged": False,
+    }
+    if not SUPABASE_AVAILABLE:
+        return _mem_insert("handovers_memory", payload, outgoing, "handover_create")
+    try:
+        res = supabase.table("shift_handovers").insert(payload).execute()
+        if res.data:
+            log_audit(outgoing, "handover_create", {"handover_id": res.data[0]["id"], "shift": shift})
+            if safety_concerns and safety_concerns.strip():
+                send_external_notifications(f"Shift handover ({shift}) logged safety concerns by {outgoing}")
+            return res.data[0]
+    except Exception as e:
+        log_error(str(e), details=payload, endpoint="create_handover")
+    return None
+
+def acknowledge_handover(handover_id, acknowledged_by):
+    updates = {"acknowledged": True, "acknowledged_by": acknowledged_by,
+               "acknowledged_at": datetime.now().isoformat()}
+    if not SUPABASE_AVAILABLE:
+        for h in _mem("handovers_memory"):
+            if h["id"] == handover_id:
+                h.update(updates)
+                return True
+        return False
+    try:
+        supabase.table("shift_handovers").update(updates).eq("id", handover_id).execute()
+        log_audit(acknowledged_by, "handover_acknowledge", {"handover_id": handover_id})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="acknowledge_handover")
+        return False
+
+# -------------------------------
+# 20G. CONTRACTOR MANAGEMENT
+# -------------------------------
+def fetch_contractors():
+    if not SUPABASE_AVAILABLE:
+        return _mem("contractors_memory")
+    try:
+        res = supabase.table("contractors").select("*").order("company_name").execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_contractors")
+        return []
+
+def create_contractor(company_name, contact_person, contact_email, contact_phone,
+                       induction_date, induction_expiry, insurance_expiry,
+                       competencies, notes, created_by):
+    payload = {
+        "company_name": company_name, "contact_person": contact_person,
+        "contact_email": contact_email, "contact_phone": contact_phone,
+        "induction_date": induction_date.isoformat() if induction_date else None,
+        "induction_expiry": induction_expiry.isoformat() if induction_expiry else None,
+        "insurance_expiry": insurance_expiry.isoformat() if insurance_expiry else None,
+        "competencies": competencies, "notes": notes, "status": "Active",
+    }
+    if not SUPABASE_AVAILABLE:
+        return _mem_insert("contractors_memory", payload, created_by, "contractor_create")
+    try:
+        res = supabase.table("contractors").insert(payload).execute()
+        if res.data:
+            log_audit(created_by, "contractor_create", {"contractor_id": res.data[0]["id"]})
+            return res.data[0]
+    except Exception as e:
+        log_error(str(e), details=payload, endpoint="create_contractor")
+    return None
+
+def update_contractor(contractor_id, updates, updated_by):
+    if not SUPABASE_AVAILABLE:
+        for c in _mem("contractors_memory"):
+            if c["id"] == contractor_id:
+                c.update(updates)
+                return True
+        return False
+    try:
+        supabase.table("contractors").update(updates).eq("id", contractor_id).execute()
+        log_audit(updated_by, "contractor_update", {"contractor_id": contractor_id})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="update_contractor")
+        return False
+
+def contractor_compliance_status(contractor):
+    """Returns (label, is_blocking). Expired induction/insurance should gate site access."""
+    today = datetime.now().date()
+    problems = []
+    for field, label in (("induction_expiry", "Induction"), ("insurance_expiry", "Insurance")):
+        val = contractor.get(field)
+        if not val:
+            problems.append(f"{label} missing")
+            continue
+        try:
+            exp = datetime.fromisoformat(str(val).split("T")[0]).date()
+            if exp < today:
+                problems.append(f"{label} EXPIRED")
+            elif (exp - today).days <= 30:
+                problems.append(f"{label} expires in {(exp - today).days}d")
+        except Exception:
+            problems.append(f"{label} unreadable")
+    if not problems:
+        return "Compliant", False
+    # Fail CLOSED: expired, missing, or unreadable all block site access.
+    # An unverifiable record is not a passing record — treating it as
+    # non-blocking would let a bad date silently grant access.
+    blocking = any(("EXPIRED" in p) or ("missing" in p) or ("unreadable" in p)
+                   for p in problems)
+    return "; ".join(problems), blocking
+
+# -------------------------------
+# 20H. METER READING TIME SERIES
+# -------------------------------
+def fetch_meter_readings(asset_id, limit=200):
+    if not SUPABASE_AVAILABLE:
+        rows = [r for r in _mem("meter_readings_memory") if r.get("asset_id") == asset_id]
+        return sorted(rows, key=lambda x: x.get("recorded_at", ""))[-limit:]
+    try:
+        res = (supabase.table("meter_readings").select("*")
+               .eq("asset_id", asset_id).order("recorded_at", desc=False)
+               .limit(limit).execute())
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_meter_readings")
+        return []
+
+def log_meter_reading(asset_id, reading, meter_unit, recorded_by, notes=None):
+    payload = {
+        "asset_id": asset_id, "reading": reading, "meter_unit": meter_unit,
+        "recorded_by": recorded_by, "notes": notes,
+        "recorded_at": datetime.now().isoformat(),
+    }
+    if not SUPABASE_AVAILABLE:
+        _mem_insert("meter_readings_memory", payload, recorded_by, "meter_reading")
+    else:
+        try:
+            supabase.table("meter_readings").insert(payload).execute()
+            log_audit(recorded_by, "meter_reading", {"asset_id": asset_id, "reading": reading})
+        except Exception as e:
+            log_error(str(e), details=payload, endpoint="log_meter_reading")
+            return False
+    # Keep the asset's denormalised current reading in step
+    update_asset(asset_id, {"current_meter": reading}, recorded_by)
+    return True
+
+def meter_usage_rate(asset_id):
+    """Average units consumed per day, from the reading history.
+    Returns None until there are at least two readings spanning time."""
+    readings = fetch_meter_readings(asset_id)
+    if len(readings) < 2:
+        return None
+    try:
+        first, last = readings[0], readings[-1]
+        t0 = datetime.fromisoformat(str(first["recorded_at"]).split("+")[0])
+        t1 = datetime.fromisoformat(str(last["recorded_at"]).split("+")[0])
+        days = (t1 - t0).total_seconds() / 86400.0
+        delta = float(last["reading"]) - float(first["reading"])
+        if days <= 0 or delta < 0:
+            return None
+        return delta / days
+    except Exception:
+        return None
+
+def forecast_meter_due_date(asset_id, current_meter, next_service_meter):
+    """Projects when an asset will hit its next meter-based service.
+    This is straight-line extrapolation from observed usage — it is a
+    planning aid, not a failure prediction model."""
+    rate = meter_usage_rate(asset_id)
+    if not rate or rate <= 0 or next_service_meter is None:
+        return None, None
+    remaining = float(next_service_meter) - float(current_meter or 0)
+    if remaining <= 0:
+        return datetime.now(), rate
+    days_out = remaining / rate
+    return datetime.now() + timedelta(days=days_out), rate
+
+# -------------------------------
+# 20I. WORK ORDER COSTING
+# -------------------------------
+def task_parts_cost(task_id, parts_lookup):
+    total = 0.0
+    for tp in fetch_task_parts(task_id):
+        part = parts_lookup.get(tp.get("part_id"))
+        if part:
+            total += float(part.get("unit_cost", 0) or 0) * float(tp.get("quantity_used", 0) or 0)
+    return total
+
+def task_total_cost(task, parts_lookup):
+    labour = float(task.get("labour_hours", 0) or 0) * float(task.get("labour_rate", 0) or 0)
+    return labour + task_parts_cost(task["id"], parts_lookup)
+
+def cost_by_asset(tasks, assets, parts_lookup):
+    totals = {}
+    for t in tasks:
+        aid = t.get("asset_id")
+        if aid:
+            totals[aid] = totals.get(aid, 0.0) + task_total_cost(t, parts_lookup)
+    lookup = {a["id"]: a["name"] for a in assets}
+    return sorted(((lookup.get(k, f"Asset #{k}"), v) for k, v in totals.items()),
+                  key=lambda x: x[1], reverse=True)
+
+# -------------------------------
+# 20J. TRUSTWORTHY MAINTENANCE ANALYTICS
+# -------------------------------
+def _parse_dt(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00").split("+")[0])
+    except Exception:
+        return None
+
+def compute_mttr_hours_v2(tasks):
+    """Mean Time To Repair using REAL timestamps.
+
+    Measures failure_start (or created_at) -> completed_at. Returns
+    (hours, sample_size) so the UI can show how much data backs the
+    number instead of presenting a confident figure from 2 tasks.
+    """
+    durations = []
+    for t in tasks:
+        if t.get("status") != "Complete":
+            continue
+        end = _parse_dt(t.get("completed_at"))
+        start = _parse_dt(t.get("failure_start")) or _parse_dt(t.get("created_at"))
+        if not end or not start:
+            continue
+        hours = (end - start).total_seconds() / 3600.0
+        if hours >= 0:
+            durations.append(hours)
+    if not durations:
+        return None, 0
+    return sum(durations) / len(durations), len(durations)
+
+def compute_mtbf_hours(tasks, asset_id=None):
+    """Mean Time Between Failures for reactive/breakdown work.
+
+    Uses the gaps between consecutive failures on an asset. Needs at
+    least two failures on the same asset to mean anything.
+    """
+    failures = []
+    for t in tasks:
+        if t.get("work_type") and t["work_type"] != "Reactive":
+            continue
+        if asset_id is not None and t.get("asset_id") != asset_id:
+            continue
+        ts = _parse_dt(t.get("failure_start")) or _parse_dt(t.get("created_at"))
+        if ts:
+            failures.append((t.get("asset_id"), ts))
+    by_asset = {}
+    for aid, ts in failures:
+        by_asset.setdefault(aid, []).append(ts)
+    gaps = []
+    for aid, times in by_asset.items():
+        times.sort()
+        for i in range(1, len(times)):
+            gap = (times[i] - times[i - 1]).total_seconds() / 3600.0
+            if gap > 0:
+                gaps.append(gap)
+    if not gaps:
+        return None, 0
+    return sum(gaps) / len(gaps), len(gaps)
+
+def compute_pm_compliance_v2(tasks):
+    """PM compliance = PM tasks completed on or before due date / all
+    PM tasks that have come due. Unlike the earlier version this
+    actually checks the completion date against the due date."""
+    due_pm = []
+    now = datetime.now()
+    for t in tasks:
+        if not t.get("is_recurring"):
+            continue
+        due = _parse_dt(t.get("due_date"))
+        if due and due <= now:
+            due_pm.append(t)
+    if not due_pm:
+        return None, 0
+    on_time = 0
+    for t in due_pm:
+        completed = _parse_dt(t.get("completed_at"))
+        due = _parse_dt(t.get("due_date"))
+        if completed and due and completed <= due:
+            on_time += 1
+    return round((on_time / len(due_pm)) * 100, 1), len(due_pm)
+
+def planned_vs_reactive(tasks):
+    """The benchmark most maintenance organisations are measured on.
+    World class is generally cited as ~80% planned / 20% reactive."""
+    planned = sum(1 for t in tasks if t.get("work_type") in ("Preventive", "Planned", "Predictive") or t.get("is_recurring"))
+    reactive = sum(1 for t in tasks if not (t.get("work_type") in ("Preventive", "Planned", "Predictive") or t.get("is_recurring")))
+    total = planned + reactive
+    if total == 0:
+        return None, None, 0
+    return round(planned / total * 100, 1), round(reactive / total * 100, 1), total
+
+def backlog_aging(tasks):
+    """Buckets open work by age — the standard backlog health view."""
+    buckets = {"0-7 days": 0, "8-30 days": 0, "31-90 days": 0, "90+ days": 0}
+    now = datetime.now()
+    for t in tasks:
+        if t.get("status") in ("Complete",):
+            continue
+        created = _parse_dt(t.get("created_at"))
+        if not created:
+            continue
+        age = (now - created).days
+        if age <= 7:
+            buckets["0-7 days"] += 1
+        elif age <= 30:
+            buckets["8-30 days"] += 1
+        elif age <= 90:
+            buckets["31-90 days"] += 1
+        else:
+            buckets["90+ days"] += 1
+    return buckets
+
+def failure_pareto(tasks):
+    """Failure counts by code, descending — drives root-cause effort."""
+    counts = {}
+    for t in tasks:
+        code = t.get("failure_code")
+        if code:
+            counts[code] = counts.get(code, 0) + 1
+    ranked = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    return [(FAILURE_CODES.get(c, c), c, n) for c, n in ranked]
+
+def safety_leading_indicators(incidents, tasks):
+    """Leading (not just lagging) safety metrics.
+
+    Near-miss reporting rate is a LEADING indicator: a rising rate
+    usually means better reporting culture, not a less safe site.
+    Read it alongside the overdue-corrective-action count.
+    """
+    total = len(incidents)
+    near_misses = sum(1 for i in incidents if i.get("incident_type") == "Near Miss")
+    hazard_obs = sum(1 for i in incidents if i.get("incident_type") == "Hazard Observation")
+    injuries = sum(1 for i in incidents if i.get("incident_type") == "Injury")
+    open_actions = sum(1 for i in incidents
+                       if i.get("status") in ("Open", "Investigating")
+                       and not (i.get("corrective_action") or "").strip())
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    recent = [i for i in incidents if (_parse_dt(i.get("created_at")) or datetime.min) >= thirty_days_ago]
+    return {
+        "total_incidents": total,
+        "near_misses": near_misses,
+        "hazard_observations": hazard_obs,
+        "injuries": injuries,
+        "proactive_reports": near_misses + hazard_obs,
+        "open_without_action": open_actions,
+        "last_30_days": len(recent),
+        "near_miss_ratio": round(near_misses / total * 100, 1) if total else None,
+    }
+
+# -------------------------------
 # 21. SESSION STATE INIT
 # -------------------------------
 if 'authenticated' not in st.session_state:
@@ -1482,6 +2112,14 @@ if 'incidents_memory' not in st.session_state:
     st.session_state.incidents_memory = []
 if 'task_parts_memory' not in st.session_state:
     st.session_state.task_parts_memory = []
+if 'permits_memory' not in st.session_state:
+    st.session_state.permits_memory = []
+if 'handovers_memory' not in st.session_state:
+    st.session_state.handovers_memory = []
+if 'contractors_memory' not in st.session_state:
+    st.session_state.contractors_memory = []
+if 'meter_readings_memory' not in st.session_state:
+    st.session_state.meter_readings_memory = []
 
 # -------------------------------
 # 22. SESSION TIMEOUT CHECK
@@ -1560,23 +2198,35 @@ if not st.session_state.authenticated:
         login_submitted = st.form_submit_button('🔐 Authenticate Profile', use_container_width=True)
 
     if login_submitted:
-        matched_user, status = authenticate_user(user_in, pass_in)
-        if matched_user:
-            st.session_state.user_payload = {
-                "name": matched_user.get("full_name", matched_user.get("username")),
-                "role": matched_user.get("role", "Worker"),
-                "username": matched_user.get("username"),
-                "email": matched_user.get("email", None),
-                "avatar_url": matched_user.get("avatar_url", None)
-            }
-            st.session_state.authenticated = True
-            st.session_state.last_activity = datetime.now()
-            log_audit(matched_user.get("full_name"), "login")
-            st.rerun()
-        elif status == "pending_approval":
-            st.error("Your account is pending admin approval. Please wait for a superintendent to approve your account.")
+        locked, seconds_left = is_login_locked(user_in)
+        if locked:
+            mins = max(1, seconds_left // 60)
+            st.error(f"🔒 Too many failed attempts. This account is locked for about {mins} more minute(s).")
         else:
-            st.error("Invalid credentials or database unreachable.")
+            matched_user, status = authenticate_user(user_in, pass_in)
+            if matched_user:
+                clear_login_failures(user_in)
+                st.session_state.user_payload = {
+                    "name": matched_user.get("full_name", matched_user.get("username")),
+                    "role": matched_user.get("role", "Worker"),
+                    "username": matched_user.get("username"),
+                    "email": matched_user.get("email", None),
+                    "avatar_url": matched_user.get("avatar_url", None)
+                }
+                st.session_state.authenticated = True
+                st.session_state.last_activity = datetime.now()
+                log_audit(matched_user.get("full_name"), "login")
+                st.rerun()
+            elif status == "pending_approval":
+                st.error("Your account is pending admin approval. Please wait for a superintendent to approve your account.")
+            else:
+                record_login_failure(user_in)
+                attempts = _login_state().get(str(user_in).lower(), {}).get("count", 0)
+                remaining = max(0, LOGIN_MAX_ATTEMPTS - attempts)
+                if remaining > 0:
+                    st.error(f"Invalid credentials. {remaining} attempt(s) remaining before lockout.")
+                else:
+                    st.error(f"🔒 Too many failed attempts. Account locked for {LOGIN_LOCKOUT_MINUTES} minutes.")
 
     # Forgot password link
     with st.expander("Forgot Password?"):
@@ -1694,7 +2344,7 @@ with st.sidebar:
         st.session_state.dark_mode = not st.session_state.dark_mode
         st.rerun()
 
-    if role in ["supervisor", "superintendent"]:
+    if can(role, "broadcast.send"):
         st.markdown("---")
         st.markdown("📢 **Send Broadcast**")
         broadcast_msg = st.text_area("Message to all Workers", placeholder="Type your broadcast...")
@@ -1722,7 +2372,7 @@ with st.sidebar:
     if st.button("🌍 Global Chat", use_container_width=True):
         st.session_state.chat_room = "global"
         st.rerun()
-    if role in ["supervisor", "superintendent"]:
+    if can(role, "chat.supervisor_room"):
         if st.button("🔒 Supervisor Room", use_container_width=True):
             st.session_state.chat_room = "supervisor"
             st.rerun()
@@ -1784,8 +2434,26 @@ except ImportError:
     st.error("streamlit-option-menu not installed. Please run: pip install streamlit-option-menu")
     st.stop()
 
-nav_options = ["Task Dashboard", "Asset Register", "Inventory", "Incident Reports", "Chat Room", "Admin Panel", "Profile", "Activity Timeline"]
-nav_icons = ["list-task", "hdd-stack-fill", "box-seam-fill", "exclamation-triangle-fill", "chat-dots-fill", "gear-fill", "person-circle", "clock-history"]
+nav_options = ["Task Dashboard", "Assets", "Permits", "Inventory", "Incidents",
+               "Handover", "Contractors", "Analytics", "Chat", "Admin", "Profile", "Timeline"]
+nav_icons = ["list-task", "hdd-stack-fill", "shield-lock-fill", "box-seam-fill",
+             "exclamation-triangle-fill", "arrow-left-right", "people-fill",
+             "graph-up-arrow", "chat-dots-fill", "gear-fill", "person-circle", "clock-history"]
+
+# Hide sections the role has no capability for, so the menu reflects
+# actual permissions rather than showing dead ends.
+_nav_caps = {
+    "Permits": "permit.view",
+    "Contractors": "contractor.view",
+    "Handover": "handover.view",
+    "Analytics": "analytics.view",
+    "Admin": "audit.view",
+}
+_role_lower = st.session_state.user_payload['role'].strip().lower()
+_filtered = [(o, i) for o, i in zip(nav_options, nav_icons)
+             if o not in _nav_caps or can(_role_lower, _nav_caps[o])]
+nav_options = [o for o, _ in _filtered]
+nav_icons = [i for _, i in _filtered]
 
 selected_section = option_menu(
     menu_title=None,
@@ -1852,6 +2520,11 @@ if selected_section == "Task Dashboard":
                     </div>
                     """, unsafe_allow_html=True)
 
+                    # Permit gate: if this task requires LOTO, there must be a
+                    # live accepted permit before work can be marked in progress.
+                    requires_permit = task.get('loto', False)
+                    has_permit = task_has_active_permit(task['id']) if requires_permit else True
+
                     col1, col2 = st.columns([2, 3])
                     with col1:
                         loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
@@ -1860,17 +2533,45 @@ if selected_section == "Task Dashboard":
                         status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
                         current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
                         new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}_{idx}")
-                        if new_status != task['status']:
-                            update_task(task['id'], {"status": new_status}, full_name)
-                            log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_status})
-                            st.rerun()
+
                     if loto != task.get('loto') or jsa != task.get('jsa'):
                         update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
                         st.rerun()
-                    if not loto or not jsa:
+
+                    if requires_permit and not has_permit:
+                        st.error("🚫 **This task requires an accepted Permit to Work.** No live permit is recorded "
+                                 "against it. Ask your supervisor to issue one, then accept it in the Permits section "
+                                 "before starting work.")
+                    elif not loto or not jsa:
                         st.error("🔒 Safety isolation forms are required before proceeding.")
                     else:
                         st.success("✅ Safety checks passed.")
+
+                    # Closing out work: capture the data the analytics depend on.
+                    if new_status != task['status']:
+                        if new_status == "Complete":
+                            with st.form(f"close_out_{task['id']}_{idx}"):
+                                st.markdown("**Close-out details** — these feed the reliability and cost reports.")
+                                fc_options = ["(none)"] + [f"{k} — {v}" for k, v in FAILURE_CODES.items()]
+                                fc_sel = st.selectbox("Failure code (for breakdown work)", fc_options)
+                                lh = st.number_input("Labour hours spent", min_value=0.0, value=0.0, step=0.5)
+                                confirm_close = st.form_submit_button("✅ Complete Task")
+                                if confirm_close:
+                                    closing = {"status": new_status, "labour_hours": lh}
+                                    if fc_sel != "(none)":
+                                        closing["failure_code"] = fc_sel.split(" — ")[0]
+                                    update_task(task['id'], closing, full_name)
+                                    log_audit(full_name, "task_status_change",
+                                              {"task_id": task['id'], "new_status": new_status})
+                                    st.rerun()
+                        else:
+                            if requires_permit and not has_permit and new_status == "In Progress":
+                                st.error("Cannot move to In Progress without an accepted permit.")
+                            else:
+                                update_task(task['id'], {"status": new_status}, full_name)
+                                log_audit(full_name, "task_status_change",
+                                          {"task_id": task['id'], "new_status": new_status})
+                                st.rerun()
 
                     with st.expander("💬 Comments"):
                         comments = fetch_comments(task['id'])
@@ -2067,6 +2768,9 @@ if selected_section == "Task Dashboard":
                 due_date = st.date_input("Due Date", value=datetime.now() + timedelta(days=7))
                 asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in st.session_state.get("assets", [])]
                 selected_asset = st.selectbox("Linked Asset (optional)", asset_options)
+                work_type = st.selectbox("Work Type", ["Reactive", "Preventive", "Planned", "Predictive", "Improvement"],
+                                          help="Drives the planned-vs-reactive benchmark. Reactive = breakdown response.")
+                labour_rate = st.number_input("Labour rate (per hour, for costing)", min_value=0.0, value=0.0, step=1.0)
                 is_recurring = st.checkbox("Recurring Task (Preventive Maintenance)")
                 recurrence_type = st.selectbox("Recurrence Type", ["daily", "weekly", "monthly", "meter-based"], disabled=not is_recurring)
                 recurrence_end_date = st.date_input("End Date (optional)", value=datetime.now() + timedelta(days=30), disabled=not is_recurring)
@@ -2086,7 +2790,9 @@ if selected_section == "Task Dashboard":
                             recurrence_type=recurrence_type if is_recurring else None,
                             recurrence_end_date=recurrence_end_date if is_recurring else None,
                             asset_id=asset_id,
-                            meter_interval=meter_interval if (is_recurring and recurrence_type == "meter-based") else None
+                            meter_interval=meter_interval if (is_recurring and recurrence_type == "meter-based") else None,
+                            work_type=work_type,
+                            labour_rate=labour_rate
                         )
                         if new_task:
                             st.success(f"Task #{new_task['id']} created!")
@@ -2101,14 +2807,17 @@ if selected_section == "Task Dashboard":
             tasks = st.session_state.tasks
             st.markdown("#### 🎯 Key Performance Indicators")
             kcol1, kcol2, kcol3, kcol4 = st.columns(4)
-            mttr = compute_mttr_hours(tasks)
-            kcol1.metric("MTTR (avg hrs)", f"{mttr:.1f}" if mttr is not None else "N/A")
-            pm_compliance = compute_pm_compliance(tasks)
-            kcol2.metric("PM Compliance", f"{pm_compliance}%" if pm_compliance is not None else "N/A")
+            mttr, mttr_n = compute_mttr_hours_v2(tasks)
+            kcol1.metric("MTTR (avg hrs)", f"{mttr:.1f}" if mttr is not None else "No data")
+            pm_compliance, pm_n = compute_pm_compliance_v2(tasks)
+            kcol2.metric("PM Compliance", f"{pm_compliance}%" if pm_compliance is not None else "No data")
             open_incidents = sum(1 for i in st.session_state.get("incidents", []) if i.get("status") in ("Open", "Investigating"))
             kcol3.metric("Open Incidents", open_incidents)
             low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
             kcol4.metric("Low Stock Parts", low_stock_count)
+            if mttr_n and mttr_n < 10:
+                st.caption(f"⚠️ MTTR is based on only {mttr_n} completed task(s) — indicative, not yet reliable.")
+            st.caption("Full breakdowns, Pareto analysis, and cost reporting are in the **Analytics** section.")
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
@@ -2278,14 +2987,17 @@ if selected_section == "Task Dashboard":
             tasks = st.session_state.tasks
             st.markdown("#### 🎯 Key Performance Indicators")
             kcol1, kcol2, kcol3, kcol4 = st.columns(4)
-            mttr = compute_mttr_hours(tasks)
-            kcol1.metric("MTTR (avg hrs)", f"{mttr:.1f}" if mttr is not None else "N/A")
-            pm_compliance = compute_pm_compliance(tasks)
-            kcol2.metric("PM Compliance", f"{pm_compliance}%" if pm_compliance is not None else "N/A")
+            mttr, mttr_n = compute_mttr_hours_v2(tasks)
+            kcol1.metric("MTTR (avg hrs)", f"{mttr:.1f}" if mttr is not None else "No data")
+            pm_compliance, pm_n = compute_pm_compliance_v2(tasks)
+            kcol2.metric("PM Compliance", f"{pm_compliance}%" if pm_compliance is not None else "No data")
             open_incidents = sum(1 for i in st.session_state.get("incidents", []) if i.get("status") in ("Open", "Investigating"))
             kcol3.metric("Open Incidents", open_incidents)
             low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
             kcol4.metric("Low Stock Parts", low_stock_count)
+            if mttr_n and mttr_n < 10:
+                st.caption(f"⚠️ MTTR is based on only {mttr_n} completed task(s) — indicative, not yet reliable.")
+            st.caption("Full breakdowns, Pareto analysis, and cost reporting are in the **Analytics** section.")
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
@@ -2355,9 +3067,9 @@ if selected_section == "Task Dashboard":
                 st.info("No approved users yet.")
 
 # ---- ASSET REGISTER ----
-elif selected_section == "Asset Register":
+elif selected_section == "Assets":
     st.subheader("🏭 Asset Register")
-    can_manage_assets = role in ["supervisor", "superintendent"]
+    can_manage_assets = can(role, "asset.edit")
 
     if can_manage_assets:
         asset_sub = option_menu(
@@ -2411,11 +3123,40 @@ elif selected_section == "Asset Register":
                             update_asset(a['id'], {"status": new_status, "current_meter": new_meter}, full_name)
                             st.success("Asset updated.")
                             st.rerun()
-                        if role == "superintendent" and cols[3].button("🗑️ Delete", key=f"asset_del_{a['id']}"):
+                        if can(role, "asset.delete") and cols[3].button("🗑️ Delete", key=f"asset_del_{a['id']}"):
                             delete_asset(a['id'], full_name)
                             st.rerun()
                         related_tasks = [t for t in st.session_state.tasks if t.get('asset_id') == a['id']]
                         st.caption(f"📋 {len(related_tasks)} maintenance task(s) linked to this asset.")
+
+                        st.markdown("**📈 Meter Reading History**")
+                        readings = fetch_meter_readings(a['id'])
+                        rate = meter_usage_rate(a['id'])
+                        if rate is not None:
+                            st.caption(f"Observed usage: **{rate:.1f} {a.get('meter_unit','units')}/day** "
+                                       f"(from {len(readings)} readings)")
+                        elif len(readings) < 2:
+                            st.caption("Log at least two readings over time to calculate a usage rate.")
+                        if readings and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
+                            dfm = pd.DataFrame(readings)
+                            dfm['recorded_at'] = pd.to_datetime(dfm['recorded_at'], errors='coerce')
+                            st.plotly_chart(px.line(dfm, x='recorded_at', y='reading',
+                                                     title=f"Meter trend — {a.get('name')}"),
+                                            use_container_width=True, key=f"meter_chart_{a['id']}")
+                        mr_cols = st.columns([2, 2, 1])
+                        new_reading = mr_cols[0].number_input(
+                            f"New reading ({a.get('meter_unit','units')})",
+                            value=float(a.get('current_meter', 0) or 0),
+                            key=f"mr_val_{a['id']}")
+                        mr_note = mr_cols[1].text_input("Note (optional)", key=f"mr_note_{a['id']}")
+                        if mr_cols[2].button("📝 Log", key=f"mr_btn_{a['id']}"):
+                            if new_reading < float(a.get('current_meter', 0) or 0):
+                                st.error("New reading is lower than the current reading. "
+                                         "Meters normally only increase — correct the value, or note a meter replacement.")
+                            else:
+                                log_meter_reading(a['id'], new_reading, a.get('meter_unit'), full_name, mr_note)
+                                st.success("Reading logged.")
+                                st.rerun()
                         meter_tasks = [t for t in related_tasks if t.get('meter_interval')]
                         for mt in meter_tasks:
                             interval = mt.get('meter_interval', 0)
@@ -2475,7 +3216,7 @@ elif selected_section == "Asset Register":
 # ---- INVENTORY ----
 elif selected_section == "Inventory":
     st.subheader("📦 Inventory & Parts Management")
-    can_manage_inventory = role in ["supervisor", "superintendent"]
+    can_manage_inventory = can(role, "inventory.adjust")
 
     if can_manage_inventory:
         inv_sub = option_menu(
@@ -2524,7 +3265,7 @@ elif selected_section == "Inventory":
                         adjust_part_quantity(p['id'], restock_qty, full_name, reason="restock")
                         st.success("Stock updated.")
                         st.rerun()
-                if role == "superintendent" and cols[2].button("🗑️ Delete", key=f"part_del_{p['id']}"):
+                if can(role, "inventory.delete") and cols[2].button("🗑️ Delete", key=f"part_del_{p['id']}"):
                     delete_part(p['id'], full_name)
                     st.rerun()
 
@@ -2580,9 +3321,9 @@ elif selected_section == "Inventory":
                         st.error("Failed to record usage.")
 
 # ---- INCIDENT REPORTS ----
-elif selected_section == "Incident Reports":
+elif selected_section == "Incidents":
     st.subheader("🚨 Incident & Safety Reporting")
-    can_manage_incidents = role in ["supervisor", "superintendent"]
+    can_manage_incidents = can(role, "incident.investigate")
 
     if can_manage_incidents:
         inc_sub = option_menu(
@@ -2677,21 +3418,481 @@ elif selected_section == "Incident Reports":
                     st.error("Location and Description are required.")
 
 # ---- CHAT ROOM ----
-elif selected_section == "Chat Room":
+elif selected_section == "Permits":
+    st.subheader("🔐 Permit to Work / LOTO Register")
+    st.caption("A permit must be issued, then accepted by the person doing the work, and signed back on completion. "
+               "This register is the auditable record of that chain.")
+
+    permit_tabs = ["Active Permits"]
+    if can(role, "permit.issue"):
+        permit_tabs.append("Issue Permit")
+    permit_tabs.append("Permit History")
+
+    permit_sub = option_menu(
+        menu_title=None, options=permit_tabs,
+        icons=["shield-check", "plus-circle", "clock-history"][:len(permit_tabs)],
+        orientation="horizontal", default_index=0, styles=menu_styles(),
+    )
+
+    all_permits = fetch_permits()
+    task_lookup = {t['id']: t for t in st.session_state.tasks}
+
+    def _render_permit(p, allow_actions=True):
+        status = p.get('status', 'Issued')
+        colour = {"Issued": "#f59e0b", "Active": "#10b981", "Closed": "#94a3b8", "Cancelled": "#dc2626"}.get(status, "#0f3460")
+        expired = False
+        if p.get('valid_until'):
+            vu = _parse_dt(p['valid_until'])
+            if vu and vu < datetime.now() and status in ("Issued", "Active"):
+                expired = True
+        linked = task_lookup.get(p.get('task_id'))
+        st.markdown(f"""
+        <div class="custom-card" style="border-left-color: {colour};">
+            <strong>Permit #{p['id']} — {esc(p.get('permit_type'))}</strong>
+            <span class="status-badge" style="background:{colour};">{esc(status)}</span>
+            {'<span class="overdue-badge">EXPIRED</span>' if expired else ''}<br>
+            <i class="fas fa-clipboard-list"></i> Task: {esc(linked['title']) if linked else 'N/A'}<br>
+            <i class="fas fa-lock"></i> Lock tags: {esc(p.get('lock_tag_numbers') or 'N/A')}<br>
+            <i class="fas fa-power-off"></i> Isolation points: {esc(p.get('isolation_points') or 'N/A')}<br>
+            <i class="fas fa-exclamation-triangle"></i> Hazards: {esc(p.get('hazards_identified') or 'N/A')}<br>
+            <small>
+            Issued by {esc(p.get('issued_by'))} at {str(p.get('issued_at', ''))[:16]}
+            {f" · Accepted by {esc(p.get('accepted_by'))} at {str(p.get('accepted_at',''))[:16]}" if p.get('accepted_by') else ""}
+            {f" · Signed back by {esc(p.get('signed_back_by'))} at {str(p.get('signed_back_at',''))[:16]}" if p.get('signed_back_by') else ""}
+            {f" · Valid until {str(p.get('valid_until',''))[:16]}" if p.get('valid_until') else ""}
+            </small>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if not allow_actions:
+            return
+        acols = st.columns(3)
+        if status == "Issued" and can(role, "permit.accept"):
+            if acols[0].button("✍️ Accept Isolation", key=f"permit_acc_{p['id']}"):
+                accept_permit(p['id'], full_name)
+                st.success("Permit accepted. You are now the responsible person.")
+                st.rerun()
+        if status == "Active" and can(role, "permit.sign_back"):
+            if acols[1].button("✅ Sign Back", key=f"permit_sb_{p['id']}"):
+                sign_back_permit(p['id'], full_name)
+                st.success("Permit signed back and closed.")
+                st.rerun()
+        if status in ("Issued", "Active") and can(role, "permit.cancel"):
+            if acols[2].button("🚫 Cancel", key=f"permit_can_{p['id']}"):
+                cancel_permit(p['id'], full_name)
+                st.rerun()
+
+    if permit_sub == "Active Permits":
+        live = [p for p in all_permits if p.get('status') in ("Issued", "Active")]
+        if not live:
+            st.info("No open permits.")
+        else:
+            expired_live = [p for p in live if (_parse_dt(p.get('valid_until')) or datetime.max) < datetime.now()]
+            if expired_live:
+                st.error(f"⚠️ {len(expired_live)} open permit(s) are past their validity window and must be reviewed or cancelled.")
+            for p in live:
+                _render_permit(p)
+
+    elif permit_sub == "Issue Permit":
+        if require(role, "permit.issue"):
+            st.markdown("### Issue New Permit")
+            open_tasks = [t for t in st.session_state.tasks if t.get('status') != 'Complete']
+            if not open_tasks:
+                st.info("No open tasks to attach a permit to.")
+            else:
+                with st.form("issue_permit_form"):
+                    task_map = {f"#{t['id']} {t['title']}": t['id'] for t in open_tasks}
+                    sel_task = st.selectbox("Task requiring the permit *", list(task_map.keys()))
+                    permit_type = st.selectbox("Permit Type", [
+                        "General Work Permit", "LOTO / Isolation", "Hot Work", "Confined Space",
+                        "Working at Height", "Excavation", "Electrical Isolation", "Live Line"])
+                    lock_tags = st.text_input("Lock / Tag Numbers *", placeholder="e.g. LT-1042, LT-1043")
+                    isolation_points = st.text_area("Isolation Points *", placeholder="List each energy source isolated")
+                    hazards = st.text_area("Hazards Identified *", placeholder="Stored energy, residual pressure, etc.")
+                    valid_hours = st.number_input("Valid for (hours)", min_value=1, max_value=72, value=12)
+                    confirm = st.checkbox("I confirm isolation has been physically verified at each point listed above.")
+                    submitted = st.form_submit_button("🔐 Issue Permit")
+                    if submitted:
+                        if not (lock_tags and isolation_points and hazards):
+                            st.error("Lock tags, isolation points, and hazards are all required.")
+                        elif not confirm:
+                            st.error("You must confirm physical verification of isolation before a permit can be issued.")
+                        else:
+                            tid = task_map[sel_task]
+                            linked_task = task_lookup.get(tid, {})
+                            permit = issue_permit(
+                                tid, linked_task.get('asset_id'), permit_type, lock_tags,
+                                isolation_points, hazards, full_name,
+                                datetime.now() + timedelta(hours=valid_hours))
+                            if permit:
+                                st.success(f"Permit #{permit['id']} issued. It must now be accepted by the person performing the work.")
+                                st.rerun()
+                            else:
+                                st.error("Failed to issue permit.")
+
+    elif permit_sub == "Permit History":
+        closed = [p for p in all_permits if p.get('status') in ("Closed", "Cancelled")]
+        if not closed:
+            st.info("No closed permits yet.")
+        for p in closed[:50]:
+            _render_permit(p, allow_actions=False)
+
+elif selected_section == "Handover":
+    st.subheader("🔄 Shift Handover Log")
+    st.caption("Structured handover between shifts. Lost context between crews is a recognised contributor to incidents, "
+               "so outstanding work and safety concerns are captured explicitly.")
+
+    handover_tabs = ["Recent Handovers"]
+    if can(role, "handover.create"):
+        handover_tabs.append("New Handover")
+    handover_sub = option_menu(
+        menu_title=None, options=handover_tabs,
+        icons=["journal-text", "plus-circle"][:len(handover_tabs)],
+        orientation="horizontal", default_index=0, styles=menu_styles(),
+    )
+
+    handovers = fetch_handovers()
+
+    if handover_sub == "Recent Handovers":
+        unack = [h for h in handovers if not h.get('acknowledged')]
+        if unack:
+            st.warning(f"📋 {len(unack)} handover(s) not yet acknowledged by the incoming supervisor.")
+        if not handovers:
+            st.info("No handovers logged yet.")
+        for h in handovers:
+            ack_badge = ('<span class="verified-badge">ACKNOWLEDGED</span>' if h.get('acknowledged')
+                         else '<span class="pending-badge">AWAITING ACK</span>')
+            has_safety = bool((h.get('safety_concerns') or '').strip())
+            st.markdown(f"""
+            <div class="custom-card" style="border-left-color: {'#dc2626' if has_safety else '#0f3460'};">
+                <strong>{esc(h.get('shift'))} — {esc(h.get('crew') or 'No crew')}</strong> {ack_badge}<br>
+                <small><i class="fas fa-sign-out-alt"></i> Out: {esc(h.get('outgoing_supervisor'))}
+                &nbsp;<i class="fas fa-sign-in-alt"></i> In: {esc(h.get('incoming_supervisor') or 'TBA')}
+                &nbsp;<i class="fas fa-clock"></i> {str(h.get('created_at',''))[:16]}</small>
+                <p><b>Completed:</b> {esc(h.get('work_completed') or '—')}</p>
+                <p><b>Outstanding:</b> {esc(h.get('work_outstanding') or '—')}</p>
+                {f"<p style='color:#dc2626;'><b>⚠️ Safety concerns:</b> {esc(h.get('safety_concerns'))}</p>" if has_safety else ""}
+                <p><b>Equipment status:</b> {esc(h.get('equipment_status') or '—')}</p>
+                {f"<small>Acknowledged by {esc(h.get('acknowledged_by'))} at {str(h.get('acknowledged_at',''))[:16]}</small>" if h.get('acknowledged') else ""}
+            </div>
+            """, unsafe_allow_html=True)
+            if not h.get('acknowledged') and can(role, "handover.acknowledge"):
+                if st.button("✅ Acknowledge Handover", key=f"ack_ho_{h['id']}"):
+                    acknowledge_handover(h['id'], full_name)
+                    st.success("Handover acknowledged.")
+                    st.rerun()
+
+    elif handover_sub == "New Handover":
+        if require(role, "handover.create"):
+            st.markdown("### Log Shift Handover")
+            all_users_ho = fetch_all_users_from_db()
+            supervisor_names = [u['full_name'] for u in all_users_ho
+                                if u['role'].strip().lower() in ('supervisor', 'superintendent')
+                                and u.get('is_approved') and u['full_name'] != full_name]
+            with st.form("handover_form"):
+                shift = st.selectbox("Shift", ["Day Shift", "Night Shift", "Swing Shift", "Weekend Day", "Weekend Night"])
+                crew = st.text_input("Crew / Team", max_chars=100)
+                incoming = st.selectbox("Incoming Supervisor", ["TBA"] + supervisor_names)
+                work_completed = st.text_area("Work Completed This Shift *")
+                work_outstanding = st.text_area("Work Outstanding / Handed Over *")
+                safety_concerns = st.text_area("Safety Concerns", placeholder="Leave blank if none. Anything entered here triggers a notification.")
+                equipment_status = st.text_area("Equipment Status / Defects")
+                submitted = st.form_submit_button("📤 Submit Handover")
+                if submitted:
+                    if work_completed and work_outstanding:
+                        h = create_handover(shift, crew, full_name,
+                                            None if incoming == "TBA" else incoming,
+                                            work_completed, work_outstanding,
+                                            safety_concerns, equipment_status)
+                        if h:
+                            st.success("Handover logged.")
+                            st.rerun()
+                        else:
+                            st.error("Failed to log handover.")
+                    else:
+                        st.error("Work completed and work outstanding are both required.")
+
+elif selected_section == "Contractors":
+    st.subheader("👷 Contractor Management")
+    st.caption("Induction and insurance expiry are tracked because they commonly gate site access. "
+               "Expired or missing records are flagged as blocking.")
+
+    if require(role, "contractor.view"):
+        contractor_tabs = ["All Contractors"]
+        if can(role, "contractor.manage"):
+            contractor_tabs.append("Add Contractor")
+        contractor_sub = option_menu(
+            menu_title=None, options=contractor_tabs,
+            icons=["people", "plus-circle"][:len(contractor_tabs)],
+            orientation="horizontal", default_index=0, styles=menu_styles(),
+        )
+
+        contractors = fetch_contractors()
+
+        if contractor_sub == "All Contractors":
+            blocked = []
+            for c in contractors:
+                label, is_blocking = contractor_compliance_status(c)
+                if is_blocking:
+                    blocked.append(c)
+            if blocked:
+                st.error(f"🚫 {len(blocked)} contractor(s) have expired or missing compliance records and should not be granted site access.")
+            if not contractors:
+                st.info("No contractors registered yet.")
+            for c in contractors:
+                label, is_blocking = contractor_compliance_status(c)
+                badge_colour = "#dc2626" if is_blocking else ("#f59e0b" if label != "Compliant" else "#10b981")
+                st.markdown(f"""
+                <div class="custom-card" style="border-left-color: {badge_colour};">
+                    <strong>{esc(c.get('company_name'))}</strong>
+                    <span class="status-badge" style="background:{badge_colour};">{esc(label)}</span><br>
+                    <i class="fas fa-user"></i> {esc(c.get('contact_person') or 'N/A')}
+                    &nbsp;<i class="fas fa-envelope"></i> {esc(c.get('contact_email') or 'N/A')}
+                    &nbsp;<i class="fas fa-phone"></i> {esc(c.get('contact_phone') or 'N/A')}<br>
+                    <i class="fas fa-id-card"></i> Induction expires: {str(c.get('induction_expiry') or 'Not set')[:10]}
+                    &nbsp;<i class="fas fa-file-contract"></i> Insurance expires: {str(c.get('insurance_expiry') or 'Not set')[:10]}<br>
+                    <i class="fas fa-tools"></i> Competencies: {esc(c.get('competencies') or 'None recorded')}
+                </div>
+                """, unsafe_allow_html=True)
+                if can(role, "contractor.manage"):
+                    with st.expander(f"⚙️ Update {c.get('company_name')}"):
+                        ccols = st.columns(3)
+                        new_ind = ccols[0].date_input("Induction expiry", key=f"ind_{c['id']}")
+                        new_ins = ccols[1].date_input("Insurance expiry", key=f"ins_{c['id']}")
+                        if ccols[2].button("💾 Save", key=f"csave_{c['id']}"):
+                            update_contractor(c['id'], {
+                                "induction_expiry": new_ind.isoformat(),
+                                "insurance_expiry": new_ins.isoformat(),
+                            }, full_name)
+                            st.success("Contractor updated.")
+                            st.rerun()
+
+        elif contractor_sub == "Add Contractor":
+            if require(role, "contractor.manage"):
+                with st.form("contractor_form"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        company_name = st.text_input("Company Name *", max_chars=150)
+                        contact_person = st.text_input("Contact Person", max_chars=100)
+                        contact_email = st.text_input("Contact Email", max_chars=150)
+                        contact_phone = st.text_input("Contact Phone", max_chars=50)
+                    with c2:
+                        induction_date = st.date_input("Induction Date", value=datetime.now())
+                        induction_expiry = st.date_input("Induction Expiry", value=datetime.now() + timedelta(days=365))
+                        insurance_expiry = st.date_input("Insurance Expiry", value=datetime.now() + timedelta(days=365))
+                    competencies = st.text_area("Competencies / Certifications",
+                                                 placeholder="e.g. Confined space, EWP licence, HV switching")
+                    notes = st.text_area("Notes")
+                    submitted = st.form_submit_button("➕ Add Contractor")
+                    if submitted:
+                        if company_name:
+                            c = create_contractor(company_name, contact_person, contact_email,
+                                                   contact_phone, induction_date, induction_expiry,
+                                                   insurance_expiry, competencies, notes, full_name)
+                            if c:
+                                st.success(f"Contractor '{company_name}' added.")
+                                st.rerun()
+                            else:
+                                st.error("Failed to add contractor.")
+                        else:
+                            st.error("Company Name is required.")
+
+elif selected_section == "Analytics":
+    if require(role, "analytics.view"):
+        st.subheader("📈 Maintenance & Safety Analytics")
+        tasks = st.session_state.tasks
+        assets = st.session_state.get("assets", [])
+        parts = st.session_state.get("parts", [])
+        incidents = st.session_state.get("incidents", [])
+        parts_lookup = {p['id']: p for p in parts}
+
+        analytics_sub = option_menu(
+            menu_title=None,
+            options=["Reliability", "Backlog & Compliance", "Failure Pareto", "Cost", "Safety"],
+            icons=["speedometer2", "list-check", "bar-chart-fill", "cash-coin", "shield-fill-check"],
+            orientation="horizontal", default_index=0, styles=menu_styles(),
+        )
+
+        if analytics_sub == "Reliability":
+            st.markdown("#### Reliability Metrics")
+            mttr, mttr_n = compute_mttr_hours_v2(tasks)
+            mtbf, mtbf_n = compute_mtbf_hours(tasks)
+            c1, c2 = st.columns(2)
+            c1.metric("MTTR (hours)", f"{mttr:.1f}" if mttr is not None else "No data",
+                      help="Mean Time To Repair — failure start to completion.")
+            c1.caption(f"Based on {mttr_n} completed task(s).")
+            c2.metric("MTBF (hours)", f"{mtbf:.1f}" if mtbf is not None else "No data",
+                      help="Mean Time Between Failures — gaps between reactive failures on the same asset.")
+            c2.caption(f"Based on {mtbf_n} failure interval(s).")
+
+            if (mttr_n and mttr_n < 10) or (mtbf_n and mtbf_n < 10):
+                st.warning("⚠️ **Small sample.** These figures are computed from very few data points and will "
+                           "swing widely as more work is completed. Treat them as indicative only until you have "
+                           "a few months of history — don't set targets or report them upward yet.")
+            if mttr is None and mtbf is None:
+                st.info("No reliability data yet. These metrics populate as tasks are completed with "
+                        "recorded completion timestamps and work types.")
+
+            st.markdown("#### Asset Task Frequency")
+            ranking = compute_asset_downtime_ranking(tasks, assets)
+            if ranking and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
+                dfr = pd.DataFrame(ranking[:15], columns=["Asset", "Tasks"])
+                st.plotly_chart(px.bar(dfr, x="Asset", y="Tasks",
+                                        title="Maintenance tasks per asset (proxy for downtime frequency)"),
+                                use_container_width=True)
+            elif ranking:
+                for name, cnt in ranking[:15]:
+                    st.write(f"- **{esc(name)}**: {cnt}")
+            else:
+                st.caption("No tasks linked to assets yet.")
+
+        elif analytics_sub == "Backlog & Compliance":
+            pm_pct, pm_n = compute_pm_compliance_v2(tasks)
+            planned_pct, reactive_pct, wt_total = planned_vs_reactive(tasks)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("PM Compliance", f"{pm_pct}%" if pm_pct is not None else "No data",
+                      help="PM tasks completed on or before their due date.")
+            c1.caption(f"{pm_n} PM task(s) have come due.")
+            c2.metric("Planned Work", f"{planned_pct}%" if planned_pct is not None else "No data")
+            c3.metric("Reactive Work", f"{reactive_pct}%" if reactive_pct is not None else "No data")
+            if planned_pct is not None:
+                st.caption("A commonly cited maintenance benchmark is roughly 80% planned / 20% reactive, though the "
+                           "right target varies by operation and equipment age — treat it as a direction, not a rule.")
+
+            st.markdown("#### Backlog Aging")
+            buckets = backlog_aging(tasks)
+            if sum(buckets.values()) == 0:
+                st.success("No open backlog.")
+            else:
+                bcols = st.columns(len(buckets))
+                for i, (label, count) in enumerate(buckets.items()):
+                    bcols[i].metric(label, count)
+                if buckets["90+ days"] > 0:
+                    st.warning(f"⚠️ {buckets['90+ days']} task(s) have been open over 90 days. "
+                               "Long-aged backlog usually means the work is either not resourced or no longer valid — worth reviewing.")
+                if PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
+                    dfb = pd.DataFrame(list(buckets.items()), columns=["Age", "Open tasks"])
+                    st.plotly_chart(px.bar(dfb, x="Age", y="Open tasks", title="Open work by age"),
+                                    use_container_width=True)
+
+        elif analytics_sub == "Failure Pareto":
+            st.markdown("#### Failure Modes (Pareto)")
+            pareto = failure_pareto(tasks)
+            if not pareto:
+                st.info("No failure codes recorded yet. Assign a failure code when closing reactive work "
+                        "and this becomes your root-cause priority list.")
+            else:
+                total = sum(n for _, _, n in pareto)
+                cumulative = 0
+                rows = []
+                for desc, code, n in pareto:
+                    cumulative += n
+                    rows.append({"Failure Mode": desc, "Code": code, "Count": n,
+                                 "Cumulative %": round(cumulative / total * 100, 1)})
+                if PANDAS_AVAILABLE:
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True)
+                    if PLOTLY_AVAILABLE:
+                        dfp = pd.DataFrame(rows)
+                        st.plotly_chart(px.bar(dfp, x="Failure Mode", y="Count",
+                                                title="Failure modes by frequency"),
+                                        use_container_width=True)
+                else:
+                    for r in rows:
+                        st.write(f"- **{r['Failure Mode']}** ({r['Code']}): {r['Count']} — cumulative {r['Cumulative %']}%")
+                st.caption("The Pareto principle suggests a small number of failure modes usually drive most of your "
+                           "downtime. Focus root-cause work at the top of this list.")
+
+        elif analytics_sub == "Cost":
+            st.markdown("#### Maintenance Cost by Asset")
+            costs = cost_by_asset(tasks, assets, parts_lookup)
+            if not costs or all(v == 0 for _, v in costs):
+                st.info("No cost data yet. Cost accumulates from labour hours × rate on each task, "
+                        "plus the unit cost of parts recorded against it.")
+            else:
+                total_cost = sum(v for _, v in costs)
+                st.metric("Total recorded maintenance cost", f"{total_cost:,.2f}")
+                if PANDAS_AVAILABLE:
+                    dfc = pd.DataFrame(costs, columns=["Asset", "Cost"])
+                    st.dataframe(dfc, use_container_width=True)
+                    if PLOTLY_AVAILABLE:
+                        st.plotly_chart(px.bar(dfc.head(15), x="Asset", y="Cost",
+                                                title="Cost by asset"), use_container_width=True)
+                st.caption("Currency is whatever you enter — the app does not assume or convert units.")
+
+        elif analytics_sub == "Safety":
+            st.markdown("#### Safety Indicators")
+            si = safety_leading_indicators(incidents, tasks)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Incidents", si["total_incidents"])
+            c2.metric("Proactive Reports", si["proactive_reports"],
+                      help="Near misses + hazard observations. A LEADING indicator.")
+            c3.metric("Injuries", si["injuries"])
+            c4.metric("Last 30 Days", si["last_30_days"])
+
+            c5, c6 = st.columns(2)
+            c5.metric("Near-miss share", f"{si['near_miss_ratio']}%" if si['near_miss_ratio'] is not None else "No data")
+            c6.metric("Open, no corrective action", si["open_without_action"])
+
+            if si["open_without_action"] > 0:
+                st.warning(f"⚠️ {si['open_without_action']} open incident(s) have no corrective action recorded. "
+                           "Unclosed corrective actions are a common audit finding.")
+            st.info("**Reading these correctly matters.** A *rising* near-miss and hazard-report count usually means "
+                    "reporting culture is improving, not that the site became more dangerous. The metric to worry about "
+                    "is proactive reports falling while injuries hold steady — that pattern suggests under-reporting. "
+                    "Don't set targets that reward fewer reports.")
+
+            if incidents and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
+                dfi = pd.DataFrame(incidents)
+                if 'severity' in dfi.columns:
+                    st.plotly_chart(px.pie(dfi, names='severity', title='Incidents by severity'),
+                                    use_container_width=True)
+                if 'incident_type' in dfi.columns:
+                    st.plotly_chart(px.bar(dfi.groupby('incident_type').size().reset_index(name='count'),
+                                            x='incident_type', y='count', title='Incidents by type'),
+                                    use_container_width=True)
+
+        if can(role, "analytics.export"):
+            st.markdown("---")
+            st.markdown("#### Exports")
+            ecols = st.columns(4)
+            if ecols[0].button("📥 Tasks"):
+                c = export_tasks_csv(tasks)
+                if c:
+                    st.download_button("Download", c, "tasks_export.csv", "text/csv", key="an_dl_tasks")
+            if ecols[1].button("📥 Assets"):
+                c = export_assets_csv(assets)
+                if c:
+                    st.download_button("Download", c, "assets_export.csv", "text/csv", key="an_dl_assets")
+            if ecols[2].button("📥 Inventory"):
+                c = export_inventory_csv(parts)
+                if c:
+                    st.download_button("Download", c, "inventory_export.csv", "text/csv", key="an_dl_inv")
+            if ecols[3].button("📥 Incidents"):
+                c = export_incidents_csv(incidents)
+                if c:
+                    st.download_button("Download", c, "incidents_export.csv", "text/csv", key="an_dl_inc")
+
+elif selected_section == "Chat":
     st.subheader("💬 Real‑time Chat")
 
     room = st.session_state.chat_room
     if room == "global":
         st.markdown("### 🌍 Global Chat – all users")
     elif room == "supervisor":
-        if role not in ["supervisor", "superintendent"]:
+        if not can(role, "chat.supervisor_room"):
             st.error("You don't have permission to view the Supervisor room.")
             st.stop()
         st.markdown("### 🔒 Supervisor Room – Supervisors & Superintendent only")
     elif room.startswith("private:"):
         partner = st.session_state.chat_partner
-        st.markdown(f"### 🔐 Private Chat with **{partner}** (end‑to‑end encrypted)")
-        st.caption("Messages are encrypted with a shared key derived from both usernames.")
+        st.markdown(f"### 💬 Private Chat with **{partner}**")
+        st.warning(
+            "⚠️ **Not end-to-end encrypted.** Messages here are obfuscated, not securely encrypted: "
+            "the key is derived from the two usernames plus a fixed salt, so anyone who knows both "
+            "usernames — or who can read the app's source — can decrypt them. Server administrators "
+            "can also read them. **Do not use this channel for anything confidential** "
+            "(personnel matters, incident specifics, credentials)."
+        )
     else:
         st.warning("Unknown room. Switching to Global.")
         st.session_state.chat_room = "global"
@@ -2799,8 +4000,8 @@ elif selected_section == "Chat Room":
                 st.rerun()
 
 # ---- ADMIN PANEL ----
-elif selected_section == "Admin Panel":
-    if role != "superintendent":
+elif selected_section == "Admin":
+    if not can(role, "audit.view"):
         st.warning("You do not have admin privileges.")
     else:
         st.subheader("⚙️ Admin Panel")
@@ -2887,7 +4088,7 @@ elif selected_section == "Profile":
                 st.error("Failed to update email.")
 
 # ---- ACTIVITY TIMELINE ----
-elif selected_section == "Activity Timeline":
+elif selected_section == "Timeline":
     st.subheader("⏱️ Activity Timeline")
     st.markdown("Recent actions across all tasks (last 50)")
 
