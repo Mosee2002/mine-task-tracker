@@ -1,21 +1,30 @@
 {
-  "name": "Mine & Electrical Workshop Digital Tracker",
-  "short_name": "Mine & Electrical Workshop Tracker",
-  "description": "Task management for mines and Electrical workshops.",
-  "start_url": "/",
+  "name": "Mine & Workshop Digital Tracker System",
+  "short_name": "MWDTS",
+  "description": "CMMS maintenance, safety, and incident tracking for mine and workshop operations.",
+  "start_url": ".",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#1f2937",
+  "background_color": "#eef1f6",
+  "theme_color": "#16213e",
+  "orientation": "any",
   "icons": [
     {
-      "src": "/static/icon-192.png",
+      "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "/static/icon-512.png",
+      "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
