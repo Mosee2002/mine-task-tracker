@@ -58,6 +58,15 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
+# Optional: Google Workspace mailbox auto-provisioning
+try:
+    from google.oauth2 import service_account as _gws_service_account
+    from googleapiclient.discovery import build as _gws_build
+    from googleapiclient.errors import HttpError as _gws_HttpError
+    GOOGLE_WORKSPACE_LIB_AVAILABLE = True
+except ImportError:
+    GOOGLE_WORKSPACE_LIB_AVAILABLE = False
+
 # -------------------------------
 # 0. PAGE CONFIG  (must be the very first Streamlit command)
 # -------------------------------
@@ -980,33 +989,52 @@ def log_audit(user_name, action, details=None):
 # -------------------------------
 # 6. EMAIL NOTIFICATION
 # -------------------------------
-def send_email_notification(recipient, subject, body):
+def send_email_notification(recipient, subject, body_html, _return_error=False):
+    """Send an email. Returns True/False, or (bool, error_str) if
+    _return_error=True — used by the Owner Console health check so a
+    misconfiguration shows the actual SMTP error instead of a bare
+    failure.
+
+    Sends multipart/alternative with a plain-text fallback alongside
+    the HTML. Plain text matters here for two practical reasons: some
+    site email gateways strip or quarantine HTML-only mail more
+    aggressively, and a plain fallback still gets read on a phone with
+    a broken mail-app renderer.
+    """
     if not recipient:
-        return False
+        return (False, "No recipient") if _return_error else False
+    smtp_server = st.secrets.get("SMTP_SERVER")
+    smtp_port = st.secrets.get("SMTP_PORT", 587)
+    smtp_user = st.secrets.get("SMTP_USER")
+    smtp_password = st.secrets.get("SMTP_PASSWORD")
+    smtp_from = st.secrets.get("SMTP_FROM", smtp_user)
+    if not all([smtp_server, smtp_user, smtp_password]):
+        return (False, "SMTP not configured") if _return_error else False
     try:
-        smtp_server = st.secrets.get("SMTP_SERVER")
-        smtp_port = st.secrets.get("SMTP_PORT", 587)
-        smtp_user = st.secrets.get("SMTP_USER")
-        smtp_password = st.secrets.get("SMTP_PASSWORD")
-        smtp_from = st.secrets.get("SMTP_FROM", smtp_user)
-        if not all([smtp_server, smtp_user, smtp_password]):
-            return False
         import smtplib
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
-        msg = MIMEMultipart()
+        plain_text = body_html
+        plain_text = re.sub(r"<br\s*/?>", "\n", plain_text, flags=re.I)
+        plain_text = re.sub(r"</p>", "\n\n", plain_text, flags=re.I)
+        plain_text = re.sub(r"<[^>]+>", "", plain_text)
+        plain_text = re.sub(r"\n{3,}", "\n\n", plain_text).strip()
+        msg = MIMEMultipart("alternative")
         msg['From'] = smtp_from
         msg['To'] = recipient
         msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'html'))
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
+        msg.attach(MIMEText(plain_text, 'plain'))
+        msg.attach(MIMEText(body_html, 'html'))
+        with smtplib.SMTP(smtp_server, int(smtp_port), timeout=10) as server:
             server.starttls()
             server.login(smtp_user, smtp_password)
             server.send_message(msg)
-        return True
+        return (True, "") if _return_error else True
     except Exception as e:
-        log_error(str(e), endpoint="send_email")
-        return False
+        _err = f"{type(e).__name__}: {e}"
+        log_error(_err, details={"recipient": recipient, "subject": subject},
+                  endpoint="send_email")
+        return (False, _err) if _return_error else False
 
 # -------------------------------
 # 7. SLACK / TEAMS WEBHOOK INTEGRATION
@@ -1307,6 +1335,213 @@ def set_user_suspended(username, suspended, decided_by, reason=None):
         return False, str(e)
 
 
+# =====================================================================
+# GOOGLE WORKSPACE MAILBOX AUTO-PROVISIONING
+# =====================================================================
+# Creates a REAL mailbox via the Admin SDK Directory API, not a
+# fabricated address. A generated-but-nonexistent email is worse than
+# no email: self-service password reset would report success while
+# silently vanishing into nothing, hiding the fact that the person has
+# no way to receive it. This only ever writes `email` after Google has
+# actually confirmed the mailbox was created.
+#
+# Requires, entirely outside this app:
+#   - gmc.com verified in Google Workspace
+#   - a Google Cloud service account with domain-wide delegation
+#   - the admin.directory.user scope authorized by a Workspace Super
+#     Admin, for the service account to impersonate
+#   - GOOGLE_WORKSPACE_SA_JSON, GOOGLE_WORKSPACE_ADMIN_EMAIL, and
+#     GOOGLE_WORKSPACE_DOMAIN set in secrets.toml
+#
+# See GOOGLE_WORKSPACE_SETUP.md for the full walkthrough — none of
+# that setup can be done from inside this app.
+# =====================================================================
+
+def workspace_provisioning_configured():
+    return bool(GOOGLE_WORKSPACE_LIB_AVAILABLE
+               and _secret_get("GOOGLE_WORKSPACE_SA_JSON")
+               and _secret_get("GOOGLE_WORKSPACE_ADMIN_EMAIL"))
+
+
+def _sanitize_name_part(s):
+    """Lowercase, ASCII letters only.
+
+    Accented Latin characters are transliterated, not dropped: NFKD
+    decomposition splits 'é' into 'e' + a combining accent mark, and the
+    combining mark is then stripped — so 'García' becomes 'garcia', not
+    'garca'. Dropping the base letter entirely (the earlier, naive
+    version of this function did that) mangles the name rather than
+    cleanly stripping diacritics.
+
+    Scripts that aren't Latin-based (Cyrillic, CJK, Arabic, etc.) have
+    no ASCII fallback and are dropped to empty — generate_workspace_username
+    falls back to "user" in that case. There's no good automatic answer
+    there; a real transliteration table is a much bigger undertaking
+    than this address-generation helper should take on.
+    """
+    import unicodedata
+    normalized = unicodedata.normalize("NFKD", (s or "").strip().lower())
+    ascii_only = "".join(c for c in normalized if not unicodedata.combining(c))
+    return re.sub(r"[^a-z]", "", ascii_only)
+
+
+def generate_workspace_username(full_name, role, existing_local_parts=None):
+    """Build the local-part (before the @) from name + role.
+
+    Format: firstname.lastname.role — e.g. john.doe.worker
+    Collisions get a numeric suffix: john.doe.worker2, john.doe.worker3.
+
+    `existing_local_parts` should be the set of local-parts already in
+    use (from your existing facility_users.email values), so this
+    never proposes an address you already assigned to someone else in
+    THIS app — Google's own 409-on-conflict is still the authoritative
+    check for the Workspace directory as a whole.
+    """
+    existing_local_parts = existing_local_parts or set()
+    parts = [p for p in (full_name or "").strip().split() if p]
+    name_bits = [_sanitize_name_part(p) for p in parts] or ["user"]
+    name_bits = [b for b in name_bits if b] or ["user"]
+    role_bit = _sanitize_name_part(role) or "worker"
+
+    base = ".".join(name_bits + [role_bit])
+    candidate = base
+    n = 2
+    while candidate in existing_local_parts:
+        candidate = f"{base}{n}"
+        n += 1
+    return candidate
+
+
+def _get_workspace_directory_service():
+    """Build an authenticated Admin SDK Directory client.
+
+    Returns (service, error_string). service is None on any failure —
+    every failure mode is caught and reported, never raised, since this
+    runs inside an approval click and must not crash the console.
+    """
+    if not GOOGLE_WORKSPACE_LIB_AVAILABLE:
+        return None, "google-api-python-client / google-auth not installed"
+    sa_json = _secret_get("GOOGLE_WORKSPACE_SA_JSON")
+    admin_email = _secret_get("GOOGLE_WORKSPACE_ADMIN_EMAIL")
+    if not sa_json or not admin_email:
+        return None, "GOOGLE_WORKSPACE_SA_JSON / GOOGLE_WORKSPACE_ADMIN_EMAIL not set"
+    try:
+        info = json.loads(sa_json) if isinstance(sa_json, str) else dict(sa_json)
+        scopes = ["https://www.googleapis.com/auth/admin.directory.user"]
+        credentials = _gws_service_account.Credentials.from_service_account_info(
+            info, scopes=scopes)
+        delegated = credentials.with_subject(admin_email)
+        service = _gws_build("admin", "directory_v1", credentials=delegated,
+                             cache_discovery=False)
+        return service, None
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"
+
+
+def provision_workspace_mailbox(full_name, role, decided_by, existing_local_parts=None):
+    """Create a real Workspace mailbox and return the address plus a
+    one-time initial password for it.
+
+    Returns (ok, error, email, initial_password). initial_password is
+    for WORKSPACE / Gmail login specifically — separate from and
+    unrelated to this app's own password. The recipient will need both,
+    relayed the same way admin_reset_password() already relays the
+    app's temp password: in person, shown once, never emailed.
+    """
+    domain = _secret_get("GOOGLE_WORKSPACE_DOMAIN", "gmc.com")
+    service, err = _get_workspace_directory_service()
+    if not service:
+        return False, err, None, None
+
+    parts = [p for p in (full_name or "").strip().split() if p]
+    given = parts[0] if parts else "User"
+    family = " ".join(parts[1:]) if len(parts) > 1 else given
+
+    base_local = generate_workspace_username(full_name, role, existing_local_parts)
+    initial_password = generate_temp_password()
+
+    for attempt in range(6):
+        candidate_local = base_local if attempt == 0 else f"{base_local}{attempt + 1}"
+        candidate_email = f"{candidate_local}@{domain}"
+        try:
+            service.users().insert(body={
+                "primaryEmail": candidate_email,
+                "name": {"givenName": given, "familyName": family},
+                "password": initial_password,
+                "changePasswordAtNextLogin": True,
+            }).execute()
+            log_audit(decided_by, "workspace_mailbox_created",
+                     {"email": candidate_email, "for": full_name})
+            return True, "", candidate_email, initial_password
+        except _gws_HttpError as e:
+            status = getattr(e, "status_code", None) or getattr(e.resp, "status", None)
+            if status == 409:
+                # Address taken in the real directory (even if it wasn't
+                # in our local set) — the next loop iteration tries the
+                # next numbered variant of the SAME base name.
+                continue
+            _err = f"HTTP {status}: {e}"
+            log_error(_err, details={"full_name": full_name}, endpoint="provision_workspace_mailbox")
+            return False, _err, None, None
+        except Exception as e:
+            _err = f"{type(e).__name__}: {e}"
+            log_error(_err, details={"full_name": full_name}, endpoint="provision_workspace_mailbox")
+            return False, _err, None, None
+
+    return False, "Could not find an unused address after 6 attempts", None, None
+
+
+def generate_temp_password():
+    """A random password guaranteed to satisfy is_strong_password —
+    one from each required character class, then padded and shuffled
+    so the class-guarantee isn't visible as a fixed prefix pattern."""
+    import string
+    upper = secrets.choice(string.ascii_uppercase)
+    lower = secrets.choice(string.ascii_lowercase)
+    digit = secrets.choice(string.digits)
+    special = secrets.choice("!@#$%^&*")
+    rest = "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(8))
+    chars = list(upper + lower + digit + special + rest)
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
+
+
+def admin_reset_password(username, decided_by):
+    """Set a temporary password for a user who cannot complete
+    self-service reset (no email on file, or SMTP unavailable).
+
+    SECURITY:
+    - The temp password is returned ONCE to the caller for the admin
+      to relay in person or via whatever secure channel the site uses.
+      It is never stored anywhere in plaintext and never emailed.
+    - must_change_password is set, forcing a real password to be
+      chosen before the account can do anything else.
+    - The decision is logged with the actor's name, not a generic
+      'admin' string, in the same append-only history as every other
+      access decision.
+    """
+    if not SUPABASE_AVAILABLE:
+        return False, "No database connected.", None
+    try:
+        target = supabase.table("facility_users").select("*").eq("username", username).execute()
+        if not target.data:
+            return False, "User not found.", None
+        full_name = target.data[0].get("full_name")
+        temp_password = generate_temp_password()
+        supabase.table("facility_users").update({
+            "password_hash": hash_password(temp_password),
+            "must_change_password": True,
+            "password_reset_token": None,   # invalidate any pending self-service link too
+            "reset_token_expiry": None,
+        }).eq("username", username).execute()
+        log_access_decision(username, full_name, "password_reset_by_admin", decided_by)
+        log_audit(decided_by, "admin_password_reset", {"username": username})
+        return True, "", temp_password
+    except Exception as e:
+        log_error(str(e), details={"username": username}, endpoint="admin_reset_password")
+        return False, str(e), None
+
+
 def remove_user(username, decided_by, reason=None):
     if not SUPABASE_AVAILABLE:
         return False, "No database connected."
@@ -1384,32 +1619,61 @@ def register_user_to_db(username, name, requested_role, password, email=None,
     strong, msg = is_strong_password(password)
     if not strong:
         return False, msg
+
+    full_payload = {
+        "username": username,
+        "full_name": name,
+        "role": "Worker",                 # lowest privilege until granted
+        "requested_role": requested_role,  # what they asked for
+        "password_hash": hash_password(password),
+        "email": email,
+        "job_title": job_title,
+        "department": department,
+        "employee_id": employee_id,
+        "is_approved": False,
+        "is_suspended": False,
+        "requested_at": datetime.now().isoformat(),
+    }
+    # Columns that only exist after the Phase 3 migration. If the database
+    # hasn't been migrated yet, PostgREST returns PGRST204 and the whole
+    # insert fails — which blocks signup completely. Rather than hard-fail,
+    # drop the optional fields and retry with the core ones, then tell the
+    # user which migration is outstanding.
+    OPTIONAL = ("requested_role", "job_title", "department", "employee_id",
+                "is_suspended", "requested_at")
     try:
-        payload = {
-            "username": username,
-            "full_name": name,
-            "role": "Worker",                 # lowest privilege until granted
-            "requested_role": requested_role,  # what they asked for
-            "password_hash": hash_password(password),
-            "email": email,
-            "job_title": job_title,
-            "department": department,
-            "employee_id": employee_id,
-            "is_approved": False,
-            "is_suspended": False,
-            "requested_at": datetime.now().isoformat(),
-        }
-        supabase.table("facility_users").insert(payload).execute()
+        supabase.table("facility_users").insert(full_payload).execute()
+        _degraded = False
+    except Exception as e:
+        if "PGRST204" not in str(e) and "schema cache" not in str(e).lower():
+            log_error(str(e), details={"username": username}, endpoint="register_user")
+            return False, str(e)
+        minimal = {k: v for k, v in full_payload.items() if k not in OPTIONAL}
+        try:
+            supabase.table("facility_users").insert(minimal).execute()
+            _degraded = True
+        except Exception as e2:
+            log_error(str(e2), details={"username": username}, endpoint="register_user_minimal")
+            return False, (f"{e2}\n\nYour `facility_users` table is missing required "
+                           "columns. Run FIX_registration_columns.sql in the Supabase "
+                           "SQL editor.")
+
+    try:
         log_audit(name, "access_request",
                   {"username": username, "requested_role": requested_role})
-        # Tell the owner there is something to review.
         if OWNER_USERNAME:
             send_notification(OWNER_USERNAME, "New access request",
                               f"{name} ({username}) requested access as {requested_role}.")
-        return True, ""
-    except Exception as e:
-        log_error(str(e), details={"username": username}, endpoint="register_user")
-        return False, str(e)
+    except Exception:
+        pass  # never fail a signup because a notification failed
+
+    if _degraded:
+        return True, ("__DEGRADED__Your request was saved, but the job title, "
+                      "department, ID, and requested role could NOT be stored — "
+                      "those columns are missing from the database. Run "
+                      "FIX_registration_columns.sql, then the administrator will "
+                      "see full details on future requests.")
+    return True, ""
 
 def authenticate_user(username, password):
     """Authenticate and return (user, status).
@@ -1451,6 +1715,14 @@ def update_user_profile(username, updates):
 # access_decisions table.
 
 def generate_reset_token(username, email):
+    """Create a reset token and email it.
+
+    Always returns quickly and the caller shows an identical message to
+    the requester regardless of outcome (see the login-page enumeration
+    fix). Delivery failures are logged and, if persistent, surfaced to
+    the owner — the requester should never learn from this function's
+    result whether the email step succeeded, only the operator should.
+    """
     if not SUPABASE_AVAILABLE:
         return False
     token = secrets.token_urlsafe(32)
@@ -1461,8 +1733,20 @@ def generate_reset_token(username, email):
             "reset_token_expiry": expiry.isoformat()
         }).eq("username", username).eq("email", email).execute()
         reset_link = f"{APP_URL}/?reset_token={token}"
-        body = f"Click the link to reset your password: <a href='{reset_link}'>Reset Password</a>"
-        send_email_notification(email, "Password Reset Request", body)
+        sent = send_email_notification(
+            email, "Password Reset Request",
+            f"<p>A password reset was requested for your account on the "
+            f"Mine & Workshop Tracker.</p>"
+            f"<p><a href='{reset_link}'>Click here to reset your password</a> "
+            f"(expires in 1 hour).</p>"
+            f"<p>If the link above doesn't work, copy this URL into your browser:<br>"
+            f"{reset_link}</p>"
+            f"<p>If you did not request this, you can ignore this email — "
+            f"your password will not change unless the link above is used.</p>")
+        if not sent:
+            log_error("Password reset email did not send (SMTP not configured or failed)",
+                      details={"username": username}, endpoint="generate_reset_token")
+            log_audit(username, "reset_email_delivery_failed", {})
         return True
     except Exception as e:
         log_error(str(e), details={"username": username}, endpoint="generate_reset_token")
@@ -3037,7 +3321,8 @@ if not st.session_state.authenticated:
                     "role": matched_user.get("role", "Worker"),
                     "username": matched_user.get("username"),
                     "email": matched_user.get("email", None),
-                    "avatar_url": matched_user.get("avatar_url", None)
+                    "avatar_url": matched_user.get("avatar_url", None),
+                    "must_change_password": matched_user.get("must_change_password", False),
                 }
                 st.session_state.authenticated = True
                 st.session_state.last_activity = datetime.now()
@@ -3066,16 +3351,26 @@ if not st.session_state.authenticated:
         with st.form("reset_form"):
             reset_email = st.text_input("Enter your registered email", placeholder="email@example.com")
             if st.form_submit_button("Send Reset Link"):
-                users = fetch_all_users_from_db()
-                for u in users:
-                    if u.get("email") == reset_email:
-                        if generate_reset_token(u["username"], reset_email):
-                            st.success("Reset link sent to your email.")
-                        else:
-                            st.error("Failed to send reset link.")
-                        break
+                if not reset_email or "@" not in reset_email:
+                    st.error("Enter a valid email address.")
                 else:
-                    st.error("Email not found.")
+                    _locked, _secs = is_login_locked(f"reset:{reset_email.lower()}")
+                    if _locked:
+                        st.error(f"Too many reset requests for this address. "
+                                 f"Try again in about {max(1, _secs // 60)} minute(s).")
+                    else:
+                        record_login_failure(f"reset:{reset_email.lower()}")
+                        users = fetch_all_users_from_db()
+                        _matched = next((u for u in users if u.get("email") == reset_email), None)
+                        if _matched:
+                            generate_reset_token(_matched["username"], reset_email)
+                        # SECURITY: identical response whether or not the email exists.
+                        # Previously this branched to "Email not found" for unregistered
+                        # addresses, which let anyone enumerate the worker roster by
+                        # trying emails one at a time. If SMTP itself isn't configured,
+                        # that's an operator problem visible in the Owner Console health
+                        # check, not something to reveal to whoever is at this form.
+                        st.success("If that email is registered, a reset link has been sent.")
 
     if AUTH_AVAILABLE and GOOGLE_CLIENT_ID:
         if st.button("🔑 Login with Google", use_container_width=True):
@@ -3126,6 +3421,43 @@ if not st.session_state.authenticated:
     st.stop()
 else:
     check_timeout()
+
+    # --- Forced password change gate ------------------------------------
+    # Blocks EVERYTHING else in the app until satisfied. This is the
+    # enforcement side of admin_reset_password(): a temp password alone
+    # is not enough, since the person who set it (the admin) would
+    # otherwise still know the account's live password afterward.
+    if st.session_state.user_payload.get("must_change_password"):
+        st.markdown('''
+        <div class="main-header">
+            <i class="fas fa-key"></i> Password Change Required
+        </div>
+        ''', unsafe_allow_html=True)
+        st.warning("An administrator reset your password. Choose a new one to continue — "
+                  "you won't be able to use the app until this is done.")
+        with st.form("forced_password_change"):
+            _fp1 = st.text_input("New Password", type="password")
+            _fp2 = st.text_input("Confirm New Password", type="password")
+            _fp_go = st.form_submit_button("Set New Password", use_container_width=True)
+            if _fp_go:
+                if _fp1 != _fp2:
+                    st.error("Passwords do not match.")
+                else:
+                    _strong, _msg = is_strong_password(_fp1)
+                    if not _strong:
+                        st.error(_msg)
+                    elif update_user_profile(st.session_state.user_payload.get("username"), {
+                        "password_hash": hash_password(_fp1),
+                        "must_change_password": False,
+                    }):
+                        st.session_state.user_payload["must_change_password"] = False
+                        log_audit(st.session_state.user_payload.get("name", "unknown"),
+                                 "forced_password_change_completed", {})
+                        st.success("Password updated.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to update password. Try again.")
+        st.stop()
 
 # -------------------------------
 # 25. PWA MANIFEST & SERVICE WORKER
@@ -3210,10 +3542,15 @@ with st.sidebar:
                 log_audit(full_name, "broadcast", {"message": broadcast_msg[:50]})
                 all_users = fetch_all_users_from_db()
                 worker_emails = [u.get('email') for u in all_users if u['role'].strip().lower() == 'worker' and u.get('email')]
-                for email in worker_emails:
-                    send_email_notification(email, f"Broadcast from {full_name}", broadcast_msg.replace('\n', '<br>'))
+                _sent = sum(1 for email in worker_emails
+                           if send_email_notification(email, f"Broadcast from {full_name}",
+                                                       broadcast_msg.replace('\n', '<br>')))
                 send_push_notification("New Broadcast", broadcast_msg[:100])
-                st.success("Broadcast sent!")
+                if worker_emails and _sent < len(worker_emails):
+                    st.warning(f"Broadcast posted, but only {_sent}/{len(worker_emails)} "
+                              "emails sent. Check Owner Console → Settings → email health.")
+                else:
+                    st.success("Broadcast sent!")
                 st.rerun()
             else:
                 st.error("Message cannot be empty.")
@@ -4804,11 +5141,52 @@ elif selected_section == "Owner Console":
                             key=f"grant_{u['username']}")
                         _note = st.text_input("Note (optional)", key=f"note_{u['username']}",
                                               placeholder="e.g. verified with HR")
+
+                        _has_email = bool(u.get("email"))
+                        _provision = False
+                        if not _has_email:
+                            if workspace_provisioning_configured():
+                                _provision = st.checkbox(
+                                    "📧 Create a real Workspace mailbox for them",
+                                    key=f"provision_{u['username']}",
+                                    help="Creates an actual, working mailbox via Google "
+                                         "Workspace — not a placeholder value. Needed "
+                                         "for self-service password reset to work; "
+                                         "without it they'll rely on admin reset.")
+                            else:
+                                st.caption("No email on file. Workspace auto-provisioning "
+                                          "isn't configured — see GOOGLE_WORKSPACE_SETUP.md, "
+                                          "or leave this and use admin password reset later.")
+
                         _b1, _b2 = st.columns(2)
                         if _b1.button("✅ Approve", key=f"appr_{u['username']}",
                                       use_container_width=True):
+                            _provisioned_email = None
+                            if _provision:
+                                _existing_locals = {
+                                    e.split("@")[0] for a_u in _all
+                                    if (e := a_u.get("email")) and "@" in e
+                                }
+                                _pok, _perr, _pemail, _ppass = provision_workspace_mailbox(
+                                    u.get("full_name"), _grant, full_name, _existing_locals)
+                                if _pok:
+                                    _provisioned_email = _pemail
+                                    st.session_state[f"_ws_created_{u['username']}"] = (_pemail, _ppass)
+                                else:
+                                    st.error(f"Mailbox creation failed: {_perr}. "
+                                            "Approving without email — you can retry "
+                                            "provisioning or use admin password reset later.")
+                                    log_error(_perr, details={"username": u['username']},
+                                             endpoint="owner_console_provision")
+
                             ok, err = approve_access(u['username'], _grant, full_name, _note or None)
                             if ok:
+                                if _provisioned_email:
+                                    supabase.table("facility_users").update({
+                                        "email": _provisioned_email,
+                                        "email_auto_provisioned": True,
+                                        "workspace_provision_error": None,
+                                    }).eq("username", u['username']).execute()
                                 st.success(f"{u.get('full_name')} approved as {_grant}.")
                                 st.rerun()
                             else:
@@ -4858,6 +5236,22 @@ elif selected_section == "Owner Console":
                     f"</small>", unsafe_allow_html=True)
                 if u.get("denial_reason"):
                     st.caption(f"Reason on file: {esc(u['denial_reason'])}")
+                if u.get("email_auto_provisioned"):
+                    st.caption("📧 This mailbox was auto-created by the app.")
+
+                _ws_new = st.session_state.get(f"_ws_created_{u['username']}")
+                if _ws_new:
+                    _ws_email, _ws_pass = _ws_new
+                    st.warning(f"⚠️ New Workspace mailbox created: **{esc(_ws_email)}** — "
+                              "credentials shown once below. Relay both to them in person "
+                              "along with their app password.")
+                    st.code(f"Email:    {_ws_email}\nPassword: {_ws_pass}", language="text")
+                    st.caption("They'll be asked to set a new Workspace password on first "
+                              "Gmail login — that's separate from their app password.")
+                    if st.button("I've recorded this — clear it from screen",
+                                 key=f"clearws_{u['username']}"):
+                        del st.session_state[f"_ws_created_{u['username']}"]
+                        st.rerun()
 
                 if _owner_row:
                     st.caption("🔒 The owner account cannot be modified from here. "
@@ -4899,10 +5293,35 @@ elif selected_section == "Owner Console":
                                 st.rerun()
                             else:
                                 st.error(err)
-                    _confirm = _sc2.checkbox("I understand this is permanent",
+                    _confirm = _sc2.checkbox("I understand removal is permanent",
                                              key=f"delok_{u['username']}")
-                    if _sc2.button("🗑️ Remove permanently", key=f"del_{u['username']}",
-                                   use_container_width=True, disabled=not _confirm):
+
+                    st.markdown("---")
+                    st.markdown("**🔑 Password reset**")
+                    st.caption("Use this when self-service reset can't work — no email "
+                              "on file, or SMTP isn't set up. Shown once; write it down "
+                              "or relay it in person. They'll be forced to set a real "
+                              "password on their next login.")
+                    if st.button("🔑 Generate temporary password",
+                                 key=f"pwreset_{u['username']}"):
+                        ok, err, temp_pw = admin_reset_password(u['username'], full_name)
+                        if ok:
+                            st.session_state[f"_temp_pw_{u['username']}"] = temp_pw
+                        else:
+                            st.error(err)
+                    _shown_pw = st.session_state.get(f"_temp_pw_{u['username']}")
+                    if _shown_pw:
+                        st.warning("⚠️ Shown once. It will not be retrievable after you "
+                                  "leave this page.")
+                        st.code(_shown_pw, language="text")
+                        if st.button("I've recorded this — clear it from screen",
+                                     key=f"clearpw_{u['username']}"):
+                            del st.session_state[f"_temp_pw_{u['username']}"]
+                            st.rerun()
+
+                    st.markdown("---")
+                    if st.button("🗑️ Remove permanently", key=f"del_{u['username']}",
+                                 use_container_width=True, disabled=not _confirm):
                         ok, err = remove_user(u['username'], full_name, _reason or None)
                         if ok:
                             st.success("User removed.")
@@ -4923,7 +5342,8 @@ elif selected_section == "Owner Console":
             st.info("No decisions recorded yet.")
         else:
             _icons = {"approved": "✅", "denied": "🚫", "suspended": "⏸️",
-                      "reinstated": "♻️", "role_changed": "🔄", "removed": "🗑️"}
+                      "reinstated": "♻️", "role_changed": "🔄", "removed": "🗑️",
+                      "password_reset_by_admin": "🔑"}
             for d in _dec:
                 _ic = _icons.get(d.get("action"), "•")
                 _detail = ""
@@ -4969,6 +5389,84 @@ elif selected_section == "Owner Console":
             st.warning("More Superintendents than most sites need. Each one can delete "
                        "work orders and view the audit log — worth reviewing whether "
                        "they all still require that level.")
+
+        st.markdown("---")
+        st.markdown("### 📧 Email delivery health")
+        _smtp_configured = bool(_secret_get("SMTP_SERVER") and _secret_get("SMTP_USER")
+                                and _secret_get("SMTP_PASSWORD"))
+        if not _smtp_configured:
+            st.warning("SMTP is not configured. Password resets, task assignment emails, "
+                      "and broadcast emails are all silently skipped — nothing errors, "
+                      "they just never send. Add SMTP_SERVER / SMTP_USER / SMTP_PASSWORD "
+                      "to secrets.toml to enable them.")
+        else:
+            st.success(f"SMTP configured: `{esc(_secret_get('SMTP_SERVER'))}` as "
+                      f"`{esc(_secret_get('SMTP_USER'))}`.")
+            with st.form("email_health_check"):
+                _test_to = st.text_input("Send a test email to",
+                                        value=_secret_get("SMTP_FROM", ""))
+                _test_go = st.form_submit_button("📤 Send test email")
+                if _test_go:
+                    if not _test_to or "@" not in _test_to:
+                        st.error("Enter a valid email address.")
+                    else:
+                        _ok, _err = send_email_notification(
+                            _test_to, "Mine & Workshop Tracker — test email",
+                            "<p>This confirms SMTP delivery is working from your "
+                            "Mine & Workshop Tracker deployment.</p>"
+                            f"<p>Sent by {esc(full_name)} via the Owner Console.</p>",
+                            _return_error=True)
+                        if _ok:
+                            st.success("Sent. Check the inbox (and spam folder).")
+                        else:
+                            st.error(f"Failed: {_err}")
+
+        st.markdown("---")
+        st.markdown("---")
+        st.markdown("### 📧 Google Workspace mailbox provisioning")
+        if not GOOGLE_WORKSPACE_LIB_AVAILABLE:
+            st.warning("`google-api-python-client` and `google-auth` are not installed. "
+                      "Add them to requirements.txt: `pip install google-api-python-client "
+                      "google-auth`. Until then, mailbox auto-creation is unavailable and "
+                      "the checkbox won't appear on access requests.")
+        elif not workspace_provisioning_configured():
+            st.info("Not configured. Applicants without email fall back to admin password "
+                    "reset. See **GOOGLE_WORKSPACE_SETUP.md** to enable real mailbox "
+                    "creation via Google Workspace.")
+        else:
+            st.success(f"Configured. New mailboxes are created on "
+                      f"`{esc(_secret_get('GOOGLE_WORKSPACE_DOMAIN', 'gmc.com'))}`, "
+                      f"impersonating `{esc(_secret_get('GOOGLE_WORKSPACE_ADMIN_EMAIL'))}`.")
+            _provisioned_count = sum(1 for u in _all if u.get("email_auto_provisioned"))
+            st.metric("Mailboxes auto-created by this app", _provisioned_count)
+            with st.form("workspace_health_check"):
+                st.caption("Verifies the service account can authenticate and call the "
+                          "Directory API — does NOT create a test mailbox.")
+                _wc_go = st.form_submit_button("🔎 Test Workspace connection")
+                if _wc_go:
+                    _svc, _svcerr = _get_workspace_directory_service()
+                    if _svc:
+                        try:
+                            _svc.users().list(customer="my_customer", maxResults=1).execute()
+                            st.success("Connected. The service account can reach the "
+                                      "Directory API with the configured delegation.")
+                        except Exception as _e:
+                            st.error(f"Authenticated, but the API call failed: "
+                                    f"{type(_e).__name__}: {_e}")
+                    else:
+                        st.error(f"Could not authenticate: {_svcerr}")
+
+
+        st.caption("Session-based lockout — resets if the app restarts or the "
+                  "attacker opens a new session. It slows casual attempts, not a "
+                  "determined one. Treat it as a speed bump, not a control.")
+        _lockstate = st.session_state.get("login_attempts", {})
+        _locked_now = [k for k in _lockstate
+                      if is_login_locked(k)[0] and not k.startswith("reset:")]
+        if _locked_now:
+            st.warning(f"Currently locked out: {', '.join(_locked_now)}")
+        else:
+            st.info("No accounts currently locked out (this session).")
 
 elif selected_section == "Chat":
     st.subheader("💬 Real‑time Chat")
