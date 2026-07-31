@@ -185,9 +185,21 @@ else:
         "SLACK_WEBHOOK": "no Slack alerts",
         "TEAMS_WEBHOOK": "no Teams alerts",
         "SMTP_SERVER": "no email notifications",
+        "GOOGLE_WORKSPACE_SA_JSON": "no mailbox auto-provisioning",
+        "GOOGLE_WORKSPACE_ADMIN_EMAIL": "no mailbox auto-provisioning",
     }
     for k, consequence in optional.items():
         print(f"{OK if k in data else INFO} {k:26} {'set' if k in data else 'not set — ' + consequence}")
+
+    hr("6B. OWNER_USERNAME  (important — not optional in practice)")
+    if "OWNER_USERNAME" in data:
+        print(f"{OK} OWNER_USERNAME is set")
+    else:
+        print(f"{BAD} OWNER_USERNAME is NOT set")
+        print("     Without it, nobody can reach the Owner Console — access requests")
+        print("     pile up with no one able to approve them. Set it to the exact")
+        print("     username of the account that should be owner, then restart.")
+        issues.append("OWNER_USERNAME not set")
 
     if isinstance(data.get("SMTP_PORT"), str):
         print(f"{WARN} SMTP_PORT is a string; use SMTP_PORT = 587 (no quotes)")
