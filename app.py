@@ -2710,8 +2710,10 @@ def export_incidents_csv(incidents):
     if not incidents or not PANDAS_AVAILABLE:
         return None
     df = pd.DataFrame(incidents)
-    cols = ['id', 'incident_type', 'severity', 'location', 'status', 'reported_by',
-            'description', 'root_cause', 'corrective_action', 'created_at']
+    cols = ['id', 'incident_type', 'severity', 'location', 'department', 'shift',
+            'status', 'reported_by', 'reporter_id_no', 'paper_ref_no', 'description',
+            'immediate_action', 'reporter_suggestion', 'root_cause', 'corrective_action',
+            'acknowledged_by', 'acknowledged_at', 'created_at']
     existing_cols = [c for c in cols if c in df.columns]
     df = df[existing_cols]
     return df.to_csv(index=False)
@@ -3002,7 +3004,9 @@ def fetch_all_incidents():
         log_error(str(e), endpoint="fetch_incidents")
         return st.session_state.get("incidents_memory", [])
 
-def create_incident(incident_type, severity, location, description, reported_by, asset_id=None, witnesses=None, immediate_action=None):
+def create_incident(incident_type, severity, location, description, reported_by, asset_id=None,
+                    witnesses=None, immediate_action=None, paper_ref_no=None, reporter_id_no=None,
+                    department=None, shift=None, reporter_suggestion=None):
     payload = {
         "incident_type": incident_type,
         "severity": severity,
@@ -3012,9 +3016,16 @@ def create_incident(incident_type, severity, location, description, reported_by,
         "asset_id": asset_id,
         "witnesses": witnesses,
         "immediate_action": immediate_action,
+        "paper_ref_no": paper_ref_no,
+        "reporter_id_no": reporter_id_no,
+        "department": department,
+        "shift": shift,
+        "reporter_suggestion": reporter_suggestion,
         "status": "Open",
         "root_cause": None,
         "corrective_action": None,
+        "acknowledged_by": None,
+        "acknowledged_at": None,
     }
     if not SUPABASE_AVAILABLE:
         incidents = st.session_state.get("incidents_memory", [])
@@ -3047,12 +3058,31 @@ def update_incident(incident_id, updates, updated_by):
                 return True
         return False
     try:
-        supabase.table("incidents").update(updates).eq("id", incident_id).execute()
+        res = supabase.table("incidents").update(updates).eq("id", incident_id).execute()
+        if not res.data:
+            # Same silent-RLS-block failure mode fixed earlier for the
+            # Owner Console write functions — PostgREST returns HTTP 200
+            # with an empty result when RLS blocks the write, no
+            # exception raised. Without this check, "Save Investigation"
+            # would report success while nothing actually changed.
+            return False
         log_audit(updated_by, "incident_update", {"incident_id": incident_id, "new": updates})
         return True
     except Exception as e:
         log_error(str(e), details={"incident_id": incident_id, "updates": updates}, endpoint="update_incident")
         return False
+
+
+def acknowledge_incident(incident_id, acknowledged_by):
+    """Records that a supervisor has received/taken ownership of a
+    report — the digital equivalent of the paper form's supervisor
+    receipt signature, and a distinct, earlier step than the full
+    investigation (root cause / corrective action)."""
+    return update_incident(incident_id, {
+        "acknowledged_by": acknowledged_by,
+        "acknowledged_at": datetime.now().isoformat(),
+        "status": "Investigating",
+    }, acknowledged_by)
 
 # -------------------------------
 # 20D. KPI / ANALYTICS HELPERS
@@ -5043,6 +5073,16 @@ elif selected_section == "Incidents":
                 st.download_button("Download CSV", data=csv, file_name="incidents_export.csv", mime="text/csv", key="dl_incidents_csv")
         for inc in visible:
             sev_class = f"severity-{inc.get('severity', 'Low')}"
+            _meta_bits = []
+            if inc.get('department'):
+                _meta_bits.append(f'<i class="fas fa-building"></i> {esc(inc["department"])}')
+            if inc.get('shift'):
+                _meta_bits.append(f'<i class="fas fa-clock-rotate-left"></i> {esc(inc["shift"])}')
+            if inc.get('reporter_id_no'):
+                _meta_bits.append(f'<i class="fas fa-id-card"></i> ID {esc(inc["reporter_id_no"])}')
+            if inc.get('paper_ref_no'):
+                _meta_bits.append(f'<i class="fas fa-book"></i> Paper ref #{esc(inc["paper_ref_no"])}')
+            _meta_line = (' &nbsp; ' + ' &nbsp; '.join(_meta_bits)) if _meta_bits else ''
             st.markdown(f"""
             <div class="custom-card" style="border-left-color: #dc2626;">
                 <strong>#{inc['id']}: {esc(inc.get('incident_type'))}</strong>
@@ -5050,14 +5090,23 @@ elif selected_section == "Incidents":
                 <span class="status-badge status-{esc(inc.get('status', 'Open')).replace(' ', '')}">{esc(inc.get('status', 'Open'))}</span><br>
                 <i class="fas fa-map-marker-alt"></i> {esc(inc.get('location'))} &nbsp;
                 <i class="fas fa-user"></i> Reported by {esc(inc.get('reported_by'))} &nbsp;
-                <i class="fas fa-clock"></i> {str(inc.get('created_at', ''))[:16]}<br>
+                <i class="fas fa-clock"></i> {str(inc.get('created_at', ''))[:16]}{_meta_line}<br>
                 <p>{esc(inc.get('description'))}</p>
                 {f"<p><i>Immediate action:</i> {esc(inc.get('immediate_action'))}</p>" if inc.get('immediate_action') else ""}
+                {f"<p><i>Reporter's suggestion:</i> {esc(inc.get('reporter_suggestion'))}</p>" if inc.get('reporter_suggestion') else ""}
                 {f"<p><i>Root cause:</i> {esc(inc.get('root_cause'))}</p>" if inc.get('root_cause') else ""}
                 {f"<p><i>Corrective action:</i> {esc(inc.get('corrective_action'))}</p>" if inc.get('corrective_action') else ""}
+                {f"<p><small>Acknowledged by {esc(inc.get('acknowledged_by'))} at {str(inc.get('acknowledged_at',''))[:16]}</small></p>" if inc.get('acknowledged_by') else ""}
             </div>
             """, unsafe_allow_html=True)
             if can_manage_incidents:
+                if not inc.get('acknowledged_by'):
+                    if st.button(f"✋ Acknowledge receipt — #{inc['id']}", key=f"inc_ack_{inc['id']}"):
+                        if acknowledge_incident(inc['id'], full_name):
+                            st.success("Acknowledged. You're now the owner of this report.")
+                            st.rerun()
+                        else:
+                            st.error("Update failed. If this keeps happening, Row Level Security may be blocking writes to the incidents table — see schema_additions.sql.")
                 with st.expander(f"⚙️ Investigate #{inc['id']}"):
                     new_status = st.selectbox("Status", ["Open", "Investigating", "Resolved", "Closed"],
                                                index=["Open", "Investigating", "Resolved", "Closed"].index(inc.get('status', 'Open')) if inc.get('status') in ["Open", "Investigating", "Resolved", "Closed"] else 0,
@@ -5065,37 +5114,82 @@ elif selected_section == "Incidents":
                     root_cause = st.text_area("Root Cause", value=inc.get('root_cause') or '', key=f"inc_root_{inc['id']}")
                     corrective_action = st.text_area("Corrective Action", value=inc.get('corrective_action') or '', key=f"inc_corr_{inc['id']}")
                     if st.button("💾 Save Investigation", key=f"inc_save_{inc['id']}"):
-                        update_incident(inc['id'], {
+                        if update_incident(inc['id'], {
                             "status": new_status,
                             "root_cause": root_cause,
                             "corrective_action": corrective_action
-                        }, full_name)
-                        st.success("Incident updated.")
-                        st.rerun()
+                        }, full_name):
+                            st.success("Incident updated.")
+                            st.rerun()
+                        else:
+                            st.error("Update failed. If this keeps happening, Row Level Security may be blocking writes to the incidents table — see schema_additions.sql.")
 
     elif inc_sub == "Report Incident":
         st.markdown("### Submit New Incident Report")
         st.caption("Report near-misses, injuries, and hazards as soon as possible. All Critical/High severity reports notify supervisors immediately.")
+
+        # Prefill department/employee ID from the reporter's own profile
+        # (set at registration — see Owner Console access requests) so
+        # they don't have to retype what the app already knows, matching
+        # what the paper form pre-knows about a regular reporter. Both
+        # remain editable, since the incident might be filed for a
+        # different department than the reporter's home one.
+        _my_profile = next((u for u in fetch_all_users_from_db() if u.get("username") == username), {})
+
         with st.form("new_incident_form"):
-            incident_type = selectbox_with_other("Incident Type",
-                ["Near Miss", "Injury", "Property Damage", "Equipment Failure",
-                 "Environmental", "Hazard Observation"], key_prefix="incident_type")
-            severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"])
+            st.markdown("#### Report details")
+            _rc1, _rc2 = st.columns(2)
+            with _rc1:
+                incident_type = selectbox_with_other("Type",
+                    ["Near Miss", "Injury", "Property Damage", "Equipment Failure",
+                     "Environmental", "Hazard Observation"], key_prefix="incident_type")
+                severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"])
+                department = st.text_input("Department", value=_my_profile.get("department") or "",
+                                           max_chars=100)
+                shift = st.selectbox("Shift", ["Day Shift", "Night Shift", "Swing Shift",
+                                               "Weekend Day", "Weekend Night"])
+            with _rc2:
+                reporter_id_no = st.text_input("Your ID No.", value=_my_profile.get("employee_id") or "",
+                                               max_chars=50)
+                assets_list = st.session_state.get("assets", [])
+                asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in assets_list]
+                selected_asset = st.selectbox("Related Asset (optional)", asset_options)
+                witnesses = st.text_input("Witnesses (optional)", max_chars=200)
+                paper_ref_no = st.text_input("Paper book ref. no. (optional)", max_chars=50,
+                                             placeholder="e.g. 0000651",
+                                             help="If this was first written up in the paper "
+                                                  "hazard/near-miss book, record its number here "
+                                                  "so both copies can be cross-referenced.")
+
             location = st.text_input("Location / Area *", max_chars=100)
-            assets_list = st.session_state.get("assets", [])
-            asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in assets_list]
-            selected_asset = st.selectbox("Related Asset (optional)", asset_options)
             description = st.text_area("Description *", placeholder="What happened? Be specific.")
             immediate_action = st.text_area("Immediate Action Taken", placeholder="What was done right away?")
-            witnesses = st.text_input("Witnesses (optional)", max_chars=200)
+            reporter_suggestion = st.text_area(
+                "My suggestion / corrective action",
+                placeholder="What do you think should be done to stop this happening again?",
+                help="Your own suggestion at the time of reporting — separate from whatever "
+                     "the investigating supervisor decides later.")
+
+            confirm_accurate = st.checkbox(
+                "I confirm the details above are accurate to the best of my knowledge",
+                help="The digital equivalent of signing the paper report.")
+
             submitted = st.form_submit_button("🚨 Submit Report")
             if submitted:
-                if location and description:
+                if not (location and description):
+                    st.error("Location and Description are required.")
+                elif not confirm_accurate:
+                    st.error("Please confirm the details are accurate before submitting.")
+                else:
                     asset_id = None
                     if selected_asset != "None":
                         asset_id = int(selected_asset.split(" ")[0].replace("#", ""))
-                    new_incident = create_incident(incident_type, severity, location, description, full_name,
-                                                    asset_id=asset_id, witnesses=witnesses, immediate_action=immediate_action)
+                    new_incident = create_incident(
+                        incident_type, severity, location, description, full_name,
+                        asset_id=asset_id, witnesses=witnesses, immediate_action=immediate_action,
+                        paper_ref_no=paper_ref_no or None, reporter_id_no=reporter_id_no or None,
+                        department=department or None, shift=shift,
+                        reporter_suggestion=reporter_suggestion or None)
                     if new_incident:
                         st.success("Incident reported. Thank you for keeping the site safe.")
                         if severity in ("Critical", "High"):
@@ -5103,8 +5197,6 @@ elif selected_section == "Incidents":
                         st.rerun()
                     else:
                         st.error("Failed to submit report.")
-                else:
-                    st.error("Location and Description are required.")
 
 # ---- CHAT ROOM ----
 elif selected_section == "Permits":
