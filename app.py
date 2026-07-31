@@ -734,6 +734,14 @@ _CSS_BODY = """
     overflow-wrap: anywhere;
 }
 
+/* ---------- Feedback board ---------- */
+.vote-btn-wrap { display: flex; flex-direction: column; align-items: center; }
+.feedback-response {
+    background: var(--tone-info-soft); border-left: 3px solid var(--tone-info);
+    border-radius: 8px; padding: 0.6rem 0.8rem; margin-top: 0.5rem;
+    font-size: 0.88rem; color: var(--text-primary);
+}
+
 /* ---------- User directory table ---------- */
 .user-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 .user-table th {
@@ -1219,6 +1227,7 @@ ROLE_PERMISSIONS = {
         "handover.view", "handover.create", "handover.acknowledge",
         "contractor.view", "contractor.manage",
         "analytics.view", "analytics.export",
+        "feedback.manage",
         "broadcast.send",
         "chat.global", "chat.private", "chat.supervisor_room",
         "profile.edit_own",
@@ -1235,6 +1244,7 @@ ROLE_PERMISSIONS = {
         "handover.view", "handover.create", "handover.acknowledge",
         "contractor.view", "contractor.manage",
         "analytics.view", "analytics.export",
+        "feedback.manage",
         "broadcast.send",
         "chat.global", "chat.private", "chat.supervisor_room",
         "user.approve", "user.reject", "user.deactivate", "user.view_all",
@@ -2778,6 +2788,22 @@ def export_incidents_csv(incidents):
     df = df[existing_cols]
     return df.to_csv(index=False)
 
+
+def export_feedback_csv(feedback_list, vote_counts):
+    if not feedback_list or not PANDAS_AVAILABLE:
+        return None
+    rows = []
+    for f in feedback_list:
+        row = dict(f)
+        row['vote_count'] = vote_counts.get(f.get('id'), 0)
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    cols = ['id', 'title', 'category', 'status', 'vote_count', 'submitted_by',
+            'description', 'admin_response', 'responded_by', 'responded_at', 'created_at']
+    existing_cols = [c for c in cols if c in df.columns]
+    df = df[existing_cols]
+    return df.to_csv(index=False)
+
 # -------------------------------
 # 19. PUSH NOTIFICATIONS
 # -------------------------------
@@ -3589,6 +3615,124 @@ def _parse_dt(value):
     except Exception:
         return None
 
+
+# =====================================================================
+# FEEDBACK / SUGGESTIONS BOARD
+# =====================================================================
+FEEDBACK_CATEGORIES = ["Feature Request", "Bug Report", "UI/UX Improvement", "Performance", "Other"]
+FEEDBACK_STATUSES = ["New", "Under Review", "Planned", "Implemented", "Declined"]
+
+
+def fetch_all_feedback():
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("feedback_memory", [])
+    try:
+        res = supabase.table("app_feedback").select("*").order("id", desc=True).execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_all_feedback")
+        return st.session_state.get("feedback_memory", [])
+
+
+def fetch_all_feedback_votes():
+    """All votes, fetched once and aggregated in Python — consistent
+    with how the rest of this app joins related tables (task_parts,
+    meter_readings, etc.) rather than relying on PostgREST joins."""
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("feedback_votes_memory", [])
+    try:
+        res = supabase.table("app_feedback_votes").select("*").execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_all_feedback_votes")
+        return st.session_state.get("feedback_votes_memory", [])
+
+
+def submit_feedback(title, description, category, submitted_by):
+    if not title or not title.strip():
+        return False, "Title is required.", None
+    payload = {
+        "submitted_by": submitted_by,
+        "title": title.strip(),
+        "description": description,
+        "category": category,
+        "status": "New",
+    }
+    if not SUPABASE_AVAILABLE:
+        rows = st.session_state.setdefault("feedback_memory", [])
+        payload["id"] = max([r.get("id", 0) for r in rows], default=0) + 1
+        payload["created_at"] = datetime.now().isoformat()
+        rows.append(payload)
+        log_audit(submitted_by, "feedback_submit_memory", {"title": title})
+        return True, "", payload
+    try:
+        res = supabase.table("app_feedback").insert(payload).execute()
+        if not res.data:
+            return False, ("Submitted but nothing was saved — Row Level Security is likely "
+                          "blocking writes to app_feedback. Run schema_additions.sql Phase 8."), None
+        log_audit(submitted_by, "feedback_submit", {"title": title})
+        return True, "", res.data[0]
+    except Exception as e:
+        log_error(str(e), details={"title": title}, endpoint="submit_feedback")
+        return False, str(e), None
+
+
+def toggle_feedback_vote(feedback_id, voted_by, currently_voted):
+    """Adds or removes this person's vote. The UNIQUE(feedback_id,
+    voted_by) constraint is what actually prevents double-voting, even
+    under a race — this function just decides which direction to go
+    based on what the UI already knows about the current state."""
+    if not SUPABASE_AVAILABLE:
+        votes = st.session_state.setdefault("feedback_votes_memory", [])
+        if currently_voted:
+            st.session_state.feedback_votes_memory = [
+                v for v in votes if not (v["feedback_id"] == feedback_id and v["voted_by"] == voted_by)]
+        else:
+            votes.append({"feedback_id": feedback_id, "voted_by": voted_by,
+                         "created_at": datetime.now().isoformat()})
+        return True
+    try:
+        if currently_voted:
+            res = (supabase.table("app_feedback_votes").delete()
+                  .eq("feedback_id", feedback_id).eq("voted_by", voted_by).execute())
+            return bool(res.data)
+        else:
+            res = (supabase.table("app_feedback_votes")
+                  .insert({"feedback_id": feedback_id, "voted_by": voted_by}).execute())
+            return bool(res.data)
+    except Exception as e:
+        # A 409/unique-violation here means a duplicate vote attempt —
+        # not a real failure worth alarming over, just log it quietly.
+        log_error(str(e), details={"feedback_id": feedback_id, "voted_by": voted_by},
+                 endpoint="toggle_feedback_vote")
+        return False
+
+
+def update_feedback_status(feedback_id, status, admin_response, responded_by):
+    updates = {
+        "status": status,
+        "admin_response": admin_response,
+        "responded_by": responded_by,
+        "responded_at": datetime.now().isoformat(),
+    }
+    if not SUPABASE_AVAILABLE:
+        for f in st.session_state.get("feedback_memory", []):
+            if f["id"] == feedback_id:
+                f.update(updates)
+                return True
+        return False
+    try:
+        res = supabase.table("app_feedback").update(updates).eq("id", feedback_id).execute()
+        if not res.data:
+            return False
+        log_audit(responded_by, "feedback_status_change", {"feedback_id": feedback_id, "status": status})
+        return True
+    except Exception as e:
+        log_error(str(e), details={"feedback_id": feedback_id}, endpoint="update_feedback_status")
+        return False
+
+
+
 def compute_mttr_hours_v2(tasks):
     """Mean Time To Repair using REAL timestamps.
 
@@ -3783,6 +3927,10 @@ if 'contractors_memory' not in st.session_state:
     st.session_state.contractors_memory = []
 if 'meter_readings_memory' not in st.session_state:
     st.session_state.meter_readings_memory = []
+if 'feedback_memory' not in st.session_state:
+    st.session_state.feedback_memory = []
+if 'feedback_votes_memory' not in st.session_state:
+    st.session_state.feedback_votes_memory = []
 
 # -------------------------------
 # 22. SESSION TIMEOUT CHECK
@@ -3934,6 +4082,11 @@ if not st.session_state.authenticated:
                 st.session_state.authenticated = True
                 st.session_state.last_activity = datetime.now()
                 log_audit(matched_user.get("full_name"), "login")
+                # last_login exists in the schema but nothing wrote to it
+                # until now — best-effort, since a failure here shouldn't
+                # block someone from actually logging in.
+                update_user_profile(matched_user.get("username"),
+                                    {"last_login": datetime.now().isoformat()})
                 st.rerun()
             elif status == "pending_approval":
                 st.info("⏳ **Your access request is pending.** The administrator has "
@@ -4233,10 +4386,10 @@ except ImportError:
     st.stop()
 
 nav_options = ["Task Dashboard", "Assets", "Permits", "Inventory", "Incidents",
-               "Handover", "Contractors", "Analytics", "Chat", "Admin", "Profile", "Timeline"]
+               "Handover", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile", "Timeline"]
 nav_icons = ["list-task", "hdd-stack-fill", "shield-lock-fill", "box-seam-fill",
              "exclamation-triangle-fill", "arrow-left-right", "people-fill",
-             "graph-up-arrow", "chat-dots-fill", "gear-fill", "person-circle", "clock-history"]
+             "graph-up-arrow", "chat-dots-fill", "lightbulb-fill", "gear-fill", "person-circle", "clock-history"]
 
 # Hide sections the role has no capability for, so the menu reflects
 # actual permissions rather than showing dead ends.
@@ -5974,6 +6127,7 @@ elif selected_section == "Owner Console":
                     f"{esc(u.get('department') or '—')} · "
                     f"{esc(u.get('email') or 'no email')}"
                     f"{' · approved by ' + esc(u.get('decision_by')) if u.get('decision_by') else ''}"
+                    f"{' · last login ' + esc(_fmt_log_time(u.get('last_login'))) if u.get('last_login') else ' · never logged in'}"
                     f"</small>", unsafe_allow_html=True)
                 if u.get("denial_reason"):
                     st.caption(f"Reason on file: {esc(u['denial_reason'])}")
@@ -6400,6 +6554,127 @@ elif selected_section == "Chat":
             if st.button('🧹 Clear input', use_container_width=True):
                 st.session_state.chat_input_value = ""
                 st.rerun()
+
+# ---- FEEDBACK / SUGGESTIONS BOARD ----
+elif selected_section == "Feedback":
+    st.subheader("💡 App Feedback & Suggestions")
+    st.caption("Submit ideas for improving this app, and upvote the ones you want built next. "
+              "This board is open to everyone — the most-upvoted ideas rise to the top.")
+
+    feedback_tabs = ["All Suggestions", "Submit Suggestion"]
+    fb_sub = option_menu(
+        menu_title=None, options=feedback_tabs,
+        icons=["lightbulb", "plus-circle"],
+        orientation="horizontal", default_index=0, styles=menu_styles(),
+    )
+
+    all_feedback = fetch_all_feedback()
+    all_votes = fetch_all_feedback_votes()
+    _vote_counts = {}
+    _my_votes = set()
+    for v in all_votes:
+        fid = v.get("feedback_id")
+        _vote_counts[fid] = _vote_counts.get(fid, 0) + 1
+        if v.get("voted_by") == full_name:
+            _my_votes.add(fid)
+
+    if fb_sub == "All Suggestions":
+        _fcol1, _fcol2, _fcol3 = st.columns(3)
+        _sort_by = _fcol1.selectbox("Sort by", ["Most Voted", "Newest"])
+        _status_filter = _fcol2.selectbox("Status", ["All"] + FEEDBACK_STATUSES)
+        _category_filter = _fcol3.selectbox("Category", ["All"] + FEEDBACK_CATEGORIES)
+
+        visible_feedback = all_feedback
+        if _status_filter != "All":
+            visible_feedback = [f for f in visible_feedback if f.get("status") == _status_filter]
+        if _category_filter != "All":
+            visible_feedback = [f for f in visible_feedback if f.get("category") == _category_filter]
+        if _sort_by == "Most Voted":
+            visible_feedback = sorted(visible_feedback, key=lambda f: _vote_counts.get(f["id"], 0), reverse=True)
+        # "Newest" is already the default fetch order (desc by id)
+
+        if not visible_feedback:
+            st.info("No suggestions match these filters yet." if (all_feedback) else
+                    "No suggestions yet — be the first to submit one.")
+
+        if can(role, "feedback.manage") and all_feedback and st.button("📥 Export all suggestions as CSV"):
+            _csv = export_feedback_csv(all_feedback, _vote_counts)
+            if _csv:
+                st.download_button("Download CSV", _csv, "feedback_export.csv", "text/csv",
+                                  key="dl_feedback_csv")
+
+        _status_tone = {"New": "info", "Under Review": "warn", "Planned": "info",
+                        "Implemented": "ok", "Declined": "neutral"}
+
+        for f in visible_feedback:
+            fid = f["id"]
+            count = _vote_counts.get(fid, 0)
+            already_voted = fid in _my_votes
+            tone = _status_tone.get(f.get("status", "New"), "neutral")
+
+            _vcol, _bcol = st.columns([1, 8])
+            with _vcol:
+                st.markdown('<div class="vote-btn-wrap">', unsafe_allow_html=True)
+                _label = f"▲ {count}"
+                if st.button(_label, key=f"vote_{fid}",
+                            help="Remove your upvote" if already_voted else "Upvote this idea",
+                            type="primary" if already_voted else "secondary",
+                            use_container_width=True):
+                    if toggle_feedback_vote(fid, full_name, already_voted):
+                        st.rerun()
+                    else:
+                        st.error("Vote didn't register — check Row Level Security "
+                                "on app_feedback_votes.")
+                st.markdown('</div>', unsafe_allow_html=True)
+            with _bcol:
+                st.markdown(f"""
+                <div class="custom-card" style="border-left-color: var(--tone-{tone});">
+                    <strong>{esc(f.get('title'))}</strong>
+                    <span class="priority-badge" style="background:var(--tone-{tone});">{esc(f.get('status', 'New'))}</span>
+                    {f'<span class="priority-badge" style="background:var(--tone-neutral);">{esc(f["category"])}</span>' if f.get('category') else ''}
+                    <br>
+                    <small><i class="fas fa-user"></i> {esc(f.get('submitted_by'))} &nbsp;
+                    <i class="fas fa-clock"></i> {str(f.get('created_at', ''))[:16]}</small>
+                    {f'<p>{esc(f.get("description"))}</p>' if f.get('description') else ''}
+                    {f'<div class="feedback-response"><i class="fas fa-reply"></i> <b>{esc(f.get("responded_by"))}:</b> {esc(f.get("admin_response"))}</div>' if f.get('admin_response') else ''}
+                </div>
+                """, unsafe_allow_html=True)
+
+                if can(role, "feedback.manage"):
+                    with st.expander(f"⚙️ Manage #{fid}"):
+                        _new_status = st.selectbox("Status", FEEDBACK_STATUSES,
+                                                   index=FEEDBACK_STATUSES.index(f.get('status', 'New'))
+                                                   if f.get('status') in FEEDBACK_STATUSES else 0,
+                                                   key=f"fb_status_{fid}")
+                        _response = st.text_area("Response (optional)",
+                                                 value=f.get('admin_response') or '',
+                                                 key=f"fb_resp_{fid}",
+                                                 placeholder="e.g. 'Good idea — added to next sprint' "
+                                                            "or 'Not planned because...'")
+                        if st.button("💾 Save", key=f"fb_save_{fid}"):
+                            if update_feedback_status(fid, _new_status, _response or None, full_name):
+                                st.success("Updated.")
+                                st.rerun()
+                            else:
+                                st.error("Save failed — check Row Level Security on app_feedback.")
+
+    elif fb_sub == "Submit Suggestion":
+        st.markdown("### Submit a New Suggestion")
+        with st.form("new_feedback_form"):
+            fb_title = st.text_input("Title *", max_chars=150,
+                                     placeholder="e.g. 'Add offline mode for underground areas'")
+            fb_category = selectbox_with_other("Category", FEEDBACK_CATEGORIES,
+                                               key_prefix="feedback_category")
+            fb_description = st.text_area("Description",
+                                          placeholder="What would this improve, and why does it matter to you?")
+            fb_submitted = st.form_submit_button("💡 Submit Suggestion")
+            if fb_submitted:
+                ok, err, new_item = submit_feedback(fb_title, fb_description, fb_category, full_name)
+                if ok:
+                    st.success("Thanks — your suggestion has been posted.")
+                    st.rerun()
+                else:
+                    st.error(err or "Failed to submit suggestion.")
 
 # ---- ADMIN PANEL ----
 elif selected_section == "Admin":
