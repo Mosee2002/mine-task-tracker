@@ -224,6 +224,17 @@ LIGHT_TOKENS = """
     --accent-contrast: #ffffff;
     --accent-soft: #e6ecfb;
 
+    /* Stat-card tones — deliberately the SAME hex values already used by
+       priority/status/severity badges elsewhere in the app (see the
+       .priority-*, .status-*, .severity-* rules below). New components
+       borrow the app's existing semantic color language instead of
+       inventing a second one. */
+    --tone-info: #1d4ed8;    --tone-info-soft: #dbe6fb;
+    --tone-ok: #15803d;      --tone-ok-soft: #dcf1e3;
+    --tone-warn: #b45309;    --tone-warn-soft: #faeadb;
+    --tone-danger: #a4161a;  --tone-danger-soft: #f8dcdd;
+    --tone-neutral: #4b5563; --tone-neutral-soft: #e6e8eb;
+
     --focus-ring: #1d4ed8;
     --shadow-sm: 0 1px 3px rgba(16,24,40,.08);
     --shadow-md: 0 4px 12px rgba(16,24,40,.10);
@@ -248,6 +259,12 @@ DARK_TOKENS = """
     --accent-hover: #a3caff;
     --accent-contrast: #0b1220;
     --accent-soft: #1e2f4d;
+
+    --tone-info: #7cb3ff;    --tone-info-soft: #16233f;
+    --tone-ok: #34d399;      --tone-ok-soft: #0f2e21;
+    --tone-warn: #fbbf24;    --tone-warn-soft: #3a2a0d;
+    --tone-danger: #f87171;  --tone-danger-soft: #3a1416;
+    --tone-neutral: #9aa5b5; --tone-neutral-soft: #232d3d;
 
     --focus-ring: #7cb3ff;
     --shadow-sm: 0 1px 3px rgba(0,0,0,.4);
@@ -419,6 +436,71 @@ _CSS_BODY = """
     margin: 0.4rem 0 1.1rem 0;
     padding-bottom: 0.45rem;
     border-bottom: 2px solid var(--accent);
+}
+
+/* ---------- Stat cards ----------
+   Icon-badge status tiles, styled after industrial control-room /
+   SCADA dashboard tiles rather than a generic KPI-card template — the
+   right reference point for a mine ops tool. The icon sits in a
+   hexagonal badge (a workshop motif: bolt heads, hazard/PPE badges are
+   commonly hexagonal) rather than a plain circle. Tone colors are the
+   exact hex values already used by the priority/status/severity
+   badges elsewhere, so a red stat card means the same thing a red
+   badge means anywhere else in the app. */
+.stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.85rem;
+    margin: 0.75rem 0 1.25rem 0;
+}
+.stat-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.95rem 1.05rem;
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+.stat-card::before {
+    content: "";
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: var(--stat-color, var(--accent));
+}
+.stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.stat-icon {
+    flex: 0 0 auto;
+    width: 42px; height: 42px;
+    display: flex; align-items: center; justify-content: center;
+    clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
+    background: var(--stat-bg, var(--accent-soft));
+    color: var(--stat-color, var(--accent));
+    font-size: 1rem;
+}
+.stat-body { min-width: 0; }
+.stat-value {
+    font-size: 1.65rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+.stat-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.045em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 /* ---------- Cards ---------- */
@@ -784,6 +866,45 @@ def menu_styles():
             "font-weight": "800",
         },
     }
+
+
+def render_stat_cards(cards):
+    """Render a row of icon-badge stat tiles.
+
+    `cards` is a list of dicts, each with:
+        icon  - a Font Awesome class suffix, e.g. "fa-clipboard-list"
+        label - the metric name, e.g. "Total Tasks"
+        value - the number/string to display (already computed by the
+                caller — this function only renders, it never counts
+                anything itself, so the underlying logic everywhere
+                that used to call st.metric() is completely unchanged)
+        tone  - one of "info", "ok", "warn", "danger", "neutral"
+                (defaults to "info"). These map to the exact colors
+                already used by the app's priority/status/severity
+                badges — see the --tone-* CSS variables — so a red
+                stat card and a red badge always mean the same thing.
+
+    This is a pure rendering swap for st.metric()/st.columns(); nothing
+    about what gets counted or when changes.
+    """
+    valid_tones = {"info", "ok", "warn", "danger", "neutral"}
+    html = ['<div class="stat-grid">']
+    for c in cards:
+        tone = c.get("tone", "info")
+        if tone not in valid_tones:
+            tone = "info"
+        icon = c.get("icon", "fa-chart-simple")
+        html.append(
+            f'<div class="stat-card" style="--stat-color:var(--tone-{tone});'
+            f'--stat-bg:var(--tone-{tone}-soft);">'
+            f'<div class="stat-icon"><i class="fas {esc(icon)}"></i></div>'
+            f'<div class="stat-body">'
+            f'<div class="stat-value">{esc(c.get("value", 0))}</div>'
+            f'<div class="stat-label">{esc(c.get("label", ""))}</div>'
+            f'</div></div>'
+        )
+    html.append('</div>')
+    st.markdown("".join(html), unsafe_allow_html=True)
 
 # -------------------------------
 # 2B. CENTRAL PERMISSION MATRIX
@@ -1249,7 +1370,7 @@ def approve_access(username, granted_role, decided_by, reason=None):
             return False, "User not found."
         old_role = target.data[0].get("role")
         full_name = target.data[0].get("full_name")
-        supabase.table("facility_users").update({
+        res = supabase.table("facility_users").update({
             "is_approved": True,
             "is_suspended": False,
             "role": granted_role,
@@ -1257,6 +1378,12 @@ def approve_access(username, granted_role, decided_by, reason=None):
             "decision_at": datetime.now().isoformat(),
             "denial_reason": None,
         }).eq("username", username).execute()
+        if not res.data:
+            # PostgREST returns HTTP 200 with an empty data list when Row
+            # Level Security silently blocks the write — no exception is
+            # raised, so without this check the caller would report
+            # "approved" while nothing in the database actually changed.
+            return False, "Update was accepted but changed nothing — Row Level Security is most likely blocking writes to facility_users. Run the RLS fix in schema_additions.sql (Phase 6), then try again."
         log_access_decision(username, full_name, "approved", decided_by,
                             old_role=old_role, new_role=granted_role, reason=reason)
         log_audit(decided_by, "access_approve",
@@ -1280,13 +1407,15 @@ def deny_access(username, decided_by, reason=None):
         if not target.data:
             return False, "User not found."
         full_name = target.data[0].get("full_name")
-        supabase.table("facility_users").update({
+        res = supabase.table("facility_users").update({
             "is_approved": False,
             "is_suspended": True,
             "decision_by": decided_by,
             "decision_at": datetime.now().isoformat(),
             "denial_reason": reason,
         }).eq("username", username).execute()
+        if not res.data:
+            return False, "Update was accepted but changed nothing — Row Level Security is most likely blocking writes to facility_users. Run the RLS fix in schema_additions.sql (Phase 6), then try again."
         log_access_decision(username, full_name, "denied", decided_by, reason=reason)
         log_audit(decided_by, "access_deny", {"username": username, "reason": reason})
         return True, ""
@@ -1312,11 +1441,13 @@ def set_user_role(username, new_role, decided_by, reason=None):
         full_name = target.data[0].get("full_name")
         if old_role == new_role:
             return False, f"Already {new_role}."
-        supabase.table("facility_users").update({
+        res = supabase.table("facility_users").update({
             "role": new_role,
             "decision_by": decided_by,
             "decision_at": datetime.now().isoformat(),
         }).eq("username", username).execute()
+        if not res.data:
+            return False, "Update was accepted but changed nothing — Row Level Security is most likely blocking writes to facility_users. Run the RLS fix in schema_additions.sql (Phase 6), then try again."
         log_access_decision(username, full_name, "role_changed", decided_by,
                             old_role=old_role, new_role=new_role, reason=reason)
         log_audit(decided_by, "role_change",
@@ -1344,12 +1475,14 @@ def set_user_suspended(username, suspended, decided_by, reason=None):
         if not target.data:
             return False, "User not found."
         full_name = target.data[0].get("full_name")
-        supabase.table("facility_users").update({
+        res = supabase.table("facility_users").update({
             "is_suspended": suspended,
             "is_approved": (not suspended) and target.data[0].get("is_approved", False),
             "decision_by": decided_by,
             "decision_at": datetime.now().isoformat(),
         }).eq("username", username).execute()
+        if not res.data:
+            return False, "Update was accepted but changed nothing — Row Level Security is most likely blocking writes to facility_users. Run the RLS fix in schema_additions.sql (Phase 6), then try again."
         action = "suspended" if suspended else "reinstated"
         log_access_decision(username, full_name, action, decided_by, reason=reason)
         log_audit(decided_by, f"access_{action}", {"username": username})
@@ -1552,12 +1685,14 @@ def admin_reset_password(username, decided_by):
             return False, "User not found.", None
         full_name = target.data[0].get("full_name")
         temp_password = generate_temp_password()
-        supabase.table("facility_users").update({
+        res = supabase.table("facility_users").update({
             "password_hash": hash_password(temp_password),
             "must_change_password": True,
             "password_reset_token": None,   # invalidate any pending self-service link too
             "reset_token_expiry": None,
         }).eq("username", username).execute()
+        if not res.data:
+            return False, "Update was accepted but changed nothing — Row Level Security is most likely blocking writes to facility_users. Run the RLS fix in schema_additions.sql (Phase 6), then try again.", None
         log_access_decision(username, full_name, "password_reset_by_admin", decided_by)
         log_audit(decided_by, "admin_password_reset", {"username": username})
         return True, "", temp_password
@@ -1575,7 +1710,9 @@ def remove_user(username, decided_by, reason=None):
         target = supabase.table("facility_users").select("*").eq("username", username).execute()
         full_name = target.data[0].get("full_name") if target.data else None
         old_role = target.data[0].get("role") if target.data else None
-        supabase.table("facility_users").delete().eq("username", username).execute()
+        res = supabase.table("facility_users").delete().eq("username", username).execute()
+        if not res.data:
+            return False, "Delete was accepted but changed nothing — Row Level Security is most likely blocking writes to facility_users. Run the RLS fix in schema_additions.sql (Phase 6), then try again."
         log_access_decision(username, full_name, "removed", decided_by,
                             old_role=old_role, reason=reason)
         log_audit(decided_by, "access_remove", {"username": username})
@@ -4077,21 +4214,23 @@ if selected_section == "Task Dashboard":
             in_progress = sum(1 for t in st.session_state.tasks if t['status'] == "In Progress")
             unassigned = sum(1 for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned")
             blocked = sum(1 for t in st.session_state.tasks if t['status'] == "Blocked")
-            col1, col2, col3, col4, col5 = st.columns(5)
-            col1.metric("Total Tasks", total)
-            col2.metric("Completed", completed)
-            col3.metric("In Progress", in_progress)
-            col4.metric("Unassigned", unassigned)
-            col5.metric("Blocked", blocked)
+            render_stat_cards([
+                {"icon": "fa-clipboard-list", "label": "Total Tasks", "value": total, "tone": "info"},
+                {"icon": "fa-circle-check", "label": "Completed", "value": completed, "tone": "ok"},
+                {"icon": "fa-gears", "label": "In Progress", "value": in_progress, "tone": "info"},
+                {"icon": "fa-inbox", "label": "Unassigned", "value": unassigned, "tone": "neutral"},
+                {"icon": "fa-ban", "label": "Blocked", "value": blocked, "tone": "danger"},
+            ])
 
-            acol1, acol2, acol3, acol4 = st.columns(4)
-            acol1.metric("Registered Assets", len(st.session_state.get("assets", [])))
             down_assets = sum(1 for a in st.session_state.get("assets", []) if a.get('status') == 'Down')
-            acol2.metric("Assets Down", down_assets)
             low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
-            acol3.metric("Low Stock Parts", low_stock_count)
             open_incidents = sum(1 for i in st.session_state.get("incidents", []) if i.get("status") in ("Open", "Investigating"))
-            acol4.metric("Open Incidents", open_incidents)
+            render_stat_cards([
+                {"icon": "fa-hard-hat", "label": "Registered Assets", "value": len(st.session_state.get("assets", [])), "tone": "neutral"},
+                {"icon": "fa-triangle-exclamation", "label": "Assets Down", "value": down_assets, "tone": "danger"},
+                {"icon": "fa-boxes-stacked", "label": "Low Stock Parts", "value": low_stock_count, "tone": "danger"},
+                {"icon": "fa-bell", "label": "Open Incidents", "value": open_incidents, "tone": "warn"},
+            ])
 
             st.markdown("### Recent Broadcasts")
             if st.session_state.broadcast_messages:
