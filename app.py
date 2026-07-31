@@ -1173,6 +1173,30 @@ def owner_is_configured():
     return bool(OWNER_USERNAME)
 
 
+def friendly_db_error(err):
+    """Translate a raw Supabase/PostgREST error into something actionable.
+
+    Specifically catches the 'column does not exist in schema cache'
+    class of error — this happens whenever code references a column
+    that schema_additions.sql adds but that hasn't actually been run
+    against this database yet. It's easy to hit this once (fix it),
+    then hit a DIFFERENT missing column later from a different feature,
+    and not recognize it as the same root cause each time. This makes
+    that connection explicit instead of showing a bare PGRST204.
+    """
+    err_str = str(err)
+    if "PGRST204" in err_str or ("schema cache" in err_str.lower() and "column" in err_str.lower()):
+        m = re.search(r"'([a-z_]+)' column", err_str)
+        col = m.group(1) if m else "a required"
+        return (f"{err_str}\n\n"
+                f"→ This means the `{col}` column doesn't exist in your database yet. "
+                f"Run the full `schema_additions.sql` in the Supabase SQL editor — "
+                f"it's safe to run more than once (every statement checks IF NOT EXISTS "
+                f"first). This is the same class of error as the earlier 'department "
+                f"column' issue, just a different column this time.")
+    return err_str
+
+
 def log_access_decision(target_username, target_full_name, action,
                         decided_by, old_role=None, new_role=None, reason=None):
     """Append-only record of an access decision."""
@@ -5190,7 +5214,7 @@ elif selected_section == "Owner Console":
                                 st.success(f"{u.get('full_name')} approved as {_grant}.")
                                 st.rerun()
                             else:
-                                st.error(err)
+                                st.error(friendly_db_error(err))
                         if _b2.button("🚫 Decline", key=f"deny_{u['username']}",
                                       use_container_width=True):
                             if not _note:
@@ -5202,7 +5226,7 @@ elif selected_section == "Owner Console":
                                     st.success("Request declined.")
                                     st.rerun()
                                 else:
-                                    st.error(err)
+                                    st.error(friendly_db_error(err))
 
     # ---------- ACTIVE USERS ----------
     elif owner_sub == "Active Users":
@@ -5272,7 +5296,7 @@ elif selected_section == "Owner Console":
                             st.success("Role updated.")
                             st.rerun()
                         else:
-                            st.error(err)
+                            st.error(friendly_db_error(err))
 
                     _sc1, _sc2 = st.columns(2)
                     if _suspended:
@@ -5283,7 +5307,7 @@ elif selected_section == "Owner Console":
                                 st.success("Reinstated.")
                                 st.rerun()
                             else:
-                                st.error(err)
+                                st.error(friendly_db_error(err))
                     else:
                         if _sc1.button("⏸️ Suspend", key=f"susp_{u['username']}",
                                        use_container_width=True):
@@ -5292,7 +5316,7 @@ elif selected_section == "Owner Console":
                                 st.success("Suspended. They can no longer sign in.")
                                 st.rerun()
                             else:
-                                st.error(err)
+                                st.error(friendly_db_error(err))
                     _confirm = _sc2.checkbox("I understand removal is permanent",
                                              key=f"delok_{u['username']}")
 
@@ -5308,7 +5332,7 @@ elif selected_section == "Owner Console":
                         if ok:
                             st.session_state[f"_temp_pw_{u['username']}"] = temp_pw
                         else:
-                            st.error(err)
+                            st.error(friendly_db_error(err))
                     _shown_pw = st.session_state.get(f"_temp_pw_{u['username']}")
                     if _shown_pw:
                         st.warning("⚠️ Shown once. It will not be retrievable after you "
@@ -5327,7 +5351,7 @@ elif selected_section == "Owner Console":
                             st.success("User removed.")
                             st.rerun()
                         else:
-                            st.error(err)
+                            st.error(friendly_db_error(err))
                     st.caption("Prefer **Suspend** over Remove. Suspension blocks sign-in "
                                "but keeps the person's history attached to the work orders "
                                "and incidents they touched.")
