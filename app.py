@@ -657,6 +657,32 @@ _CSS_BODY = """
 }
 .chat-message .chat-text { margin-top: 0.1rem; overflow-wrap: anywhere; }
 
+.chat-date-sep {
+    display: flex; align-items: center; gap: 0.7rem;
+    margin: 0.9rem 0 0.5rem 0;
+    color: var(--text-secondary);
+    font-size: 0.72rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+}
+.chat-date-sep::before, .chat-date-sep::after {
+    content: ""; flex: 1; height: 1px; background: var(--border);
+}
+
+.chat-room-header {
+    display: flex; align-items: center; gap: 0.7rem;
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    border-radius: 12px; padding: 0.8rem 1.05rem;
+    margin-bottom: 0.75rem; box-shadow: var(--shadow-sm);
+}
+.chat-room-icon {
+    flex: 0 0 auto; width: 38px; height: 38px;
+    border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    background: var(--tone-info-soft); color: var(--tone-info); font-size: 1rem;
+}
+.chat-room-title { font-weight: 800; color: var(--text-primary); font-size: 1.02rem; }
+.chat-room-sub { font-size: 0.78rem; color: var(--text-secondary); margin-top: 0.1rem; }
+
 /* ---------- Log / activity timeline ----------
    A third, deliberately distinct shape from the stat-card hexagon and
    the chat avatar circle: a rounded-square icon chip. The app now has
@@ -1142,6 +1168,26 @@ def selectbox_with_other(label, options, key_prefix, other_option="Other", help_
         custom = (custom or "").strip()
         return custom if custom else other_option
     return choice
+
+
+def navigate_to(section_name):
+    """Force the top nav to a specific section from anywhere else in the
+    app (a sidebar button, a card's 'view details' link, etc).
+
+    Why this exists: streamlit-option-menu has no key/session-state
+    wiring by default, so a button elsewhere that sets some related
+    piece of state (e.g. chat_room) and calls st.rerun() does NOT
+    actually change which tab is showing — the nav just keeps rendering
+    whatever it last had. This was silently broken for four sidebar
+    buttons (Global Chat, Supervisor Room, Open Private Chat, My
+    Profile) — clicking them changed data behind the scenes but never
+    navigated anywhere, which looks like nothing happened.
+
+    Call this, then st.rerun(). The option_menu call reads and clears
+    this flag via its manual_select parameter — the library's own
+    documented mechanism for programmatic selection.
+    """
+    st.session_state["_nav_jump_to"] = section_name
 
 # -------------------------------
 # 2B. CENTRAL PERMISSION MATRIX
@@ -3971,10 +4017,12 @@ with st.sidebar:
     st.markdown("💬 **Chat Rooms**")
     if st.button("🌍 Global Chat", use_container_width=True):
         st.session_state.chat_room = "global"
+        navigate_to("Chat")
         st.rerun()
     if can(role, "chat.supervisor_room"):
         if st.button("🔒 Supervisor Room", use_container_width=True):
             st.session_state.chat_room = "supervisor"
+            navigate_to("Chat")
             st.rerun()
 
     st.markdown("👤 **Private Chat**")
@@ -3987,6 +4035,7 @@ with st.sidebar:
             room_name = f"private:{sorted_names[0]}_{sorted_names[1]}"
             st.session_state.chat_room = room_name
             st.session_state.chat_partner = selected_user
+            navigate_to("Chat")
             st.rerun()
     else:
         st.info("No other approved users available.")
@@ -3994,7 +4043,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("👤 **Profile**")
     if st.button("👤 My Profile", use_container_width=True):
-        st.session_state.active_tab = "profile"
+        navigate_to("Profile")
         st.rerun()
 
     if st.button("🚪 Logout", use_container_width=True):
@@ -4063,14 +4112,37 @@ if _IS_OWNER:
     nav_options.insert(1, "Owner Console")
     nav_icons.insert(1, "key-fill")
 
-selected_section = option_menu(
-    menu_title=None,
-    options=nav_options,
-    icons=nav_icons,
-    orientation="horizontal",
-    default_index=0,
-    styles=menu_styles(),
-)
+_manual_select = (nav_options.index(st.session_state["_nav_jump_to"])
+                  if st.session_state.get("_nav_jump_to") in nav_options else None)
+try:
+    selected_section = option_menu(
+        menu_title=None,
+        options=nav_options,
+        icons=nav_icons,
+        orientation="horizontal",
+        default_index=0,
+        manual_select=_manual_select,
+        styles=menu_styles(),
+        key="main_nav",
+    )
+except TypeError:
+    # Older streamlit-option-menu versions (pre ~0.3) don't have
+    # manual_select. Degrade to the un-jumpable behavior this already
+    # had rather than crash the whole app over a nav convenience —
+    # upgrade the package (pip install -U streamlit-option-menu) to
+    # restore programmatic navigation from sidebar buttons.
+    selected_section = option_menu(
+        menu_title=None,
+        options=nav_options,
+        icons=nav_icons,
+        orientation="horizontal",
+        default_index=0,
+        styles=menu_styles(),
+        key="main_nav",
+    )
+# Clear immediately after use — this should only force a jump ONCE,
+# not keep overriding every future click within the nav itself.
+st.session_state.pop("_nav_jump_to", None)
 
 # Load shared datasets used across the new modules
 db_assets = fetch_all_assets()
@@ -5893,16 +5965,47 @@ elif selected_section == "Chat":
     st.subheader("💬 Real‑time Chat")
 
     room = st.session_state.chat_room
+
+    # In-page room switcher, so common room changes don't require going
+    # back to the sidebar. Directly changing chat_room + rerun is safe
+    # here (unlike the sidebar buttons) because we're already inside
+    # the Chat section for this run — the nav widget's own key keeps it
+    # pointed at "Chat" on the next rerun without needing navigate_to().
+    _switch_cols = st.columns([1, 1, 2])
+    if _switch_cols[0].button("🌍 Global", use_container_width=True,
+                              disabled=(room == "global")):
+        st.session_state.chat_room = "global"
+        st.rerun()
+    if can(role, "chat.supervisor_room"):
+        if _switch_cols[1].button("🔒 Supervisor", use_container_width=True,
+                                  disabled=(room == "supervisor")):
+            st.session_state.chat_room = "supervisor"
+            st.rerun()
+
     if room == "global":
-        st.markdown("### 🌍 Global Chat – all users")
+        st.markdown(
+            '<div class="chat-room-header"><div class="chat-room-icon">'
+            '<i class="fas fa-earth-americas"></i></div><div>'
+            '<div class="chat-room-title">Global Chat</div>'
+            '<div class="chat-room-sub">Visible to everyone with access to this app</div>'
+            '</div></div>', unsafe_allow_html=True)
     elif room == "supervisor":
         if not can(role, "chat.supervisor_room"):
             st.error("You don't have permission to view the Supervisor room.")
             st.stop()
-        st.markdown("### 🔒 Supervisor Room – Supervisors & Superintendent only")
+        st.markdown(
+            '<div class="chat-room-header"><div class="chat-room-icon">'
+            '<i class="fas fa-user-shield"></i></div><div>'
+            '<div class="chat-room-title">Supervisor Room</div>'
+            '<div class="chat-room-sub">Supervisors and Superintendent only</div>'
+            '</div></div>', unsafe_allow_html=True)
     elif room.startswith("private:"):
         partner = st.session_state.chat_partner
-        st.markdown(f"### 💬 Private Chat with **{partner}**")
+        st.markdown(
+            f'<div class="chat-room-header">{render_avatar_html(partner)}<div>'
+            f'<div class="chat-room-title">Private — {esc(partner)}</div>'
+            f'<div class="chat-room-sub">Only visible to you and {esc(partner)}</div>'
+            f'</div></div>', unsafe_allow_html=True)
         st.warning(
             "⚠️ **Not end-to-end encrypted.** Messages here are obfuscated, not securely encrypted: "
             "the key is derived from the two usernames plus a fixed salt, so anyone who knows both "
@@ -5943,17 +6046,32 @@ elif selected_section == "Chat":
 
     messages = [m for m in st.session_state.chat_messages_cache if m['room'] == room]
     if messages:
+        st.caption(f"{len(messages)} message{'s' if len(messages) != 1 else ''} in this room")
+        _last_date = None
         for msg in reversed(messages):
             sender = msg['sender']
             is_encrypted = msg.get('is_encrypted', False)
             content = msg['message']
-            if 'created_at' in msg and isinstance(msg['created_at'], str):
-                try:
-                    timestamp = datetime.fromisoformat(msg['created_at'].replace('Z', '+00:00')).strftime("%H:%M")
-                except:
-                    timestamp = "??:??"
-            else:
-                timestamp = "??:??"
+            # _parse_dt is the same timezone-safe parser used everywhere
+            # else in this file — handles both 'Z' and '+00:00' suffixed
+            # timestamps and never raises, unlike the raw
+            # datetime.fromisoformat() this replaced.
+            msg_dt = _parse_dt(msg.get('created_at'))
+            timestamp = msg_dt.strftime("%H:%M") if msg_dt else "??:??"
+
+            if msg_dt:
+                msg_date = msg_dt.date()
+                if msg_date != _last_date:
+                    _today = datetime.now().date()
+                    if msg_date == _today:
+                        date_label = "Today"
+                    elif (_today - msg_date).days == 1:
+                        date_label = "Yesterday"
+                    else:
+                        date_label = msg_dt.strftime("%B %d, %Y")
+                    st.markdown(f'<div class="chat-date-sep">{esc(date_label)}</div>',
+                               unsafe_allow_html=True)
+                    _last_date = msg_date
 
             if room.startswith("private:") and is_encrypted:
                 parts = room.split(":")[1].split("_")
@@ -5989,11 +6107,20 @@ elif selected_section == "Chat":
                         else:
                             st.error("Failed to delete message.")
     else:
-        st.info("No messages yet. Be the first to send!")
+        if room == "global":
+            st.info("💬 No messages yet — be the first to say something to everyone.")
+        elif room == "supervisor":
+            st.info("💬 No messages yet in the Supervisor room.")
+        elif room.startswith("private:"):
+            st.info(f"💬 No messages yet with {st.session_state.chat_partner} — say hello.")
+        else:
+            st.info("No messages yet.")
 
     with st.container():
         st.markdown("---")
-        msg_input = st.text_area("Type your message", height=100, key="chat_input_text", value=st.session_state.chat_input_value)
+        msg_input = st.text_area("Message", height=100, key="chat_input_text",
+                                 value=st.session_state.chat_input_value,
+                                 placeholder="Write a message…")
         col_send, col_clear = st.columns([1, 5])
         with col_send:
             if st.button('📤 Send', use_container_width=True):
