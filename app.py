@@ -74,9 +74,27 @@ except ImportError:
 # warnings fired first, which raises StreamlitAPIException and can
 # swallow the real connection error, making every failure look
 # identical ("demo mode") regardless of its actual cause.
+#
+# page_title/page_icon here are what actually shows in the browser
+# tab and window title on every normal visit — this is DIFFERENT from
+# the PWA manifest (further down), which only applies once someone
+# explicitly installs the app as a desktop/home-screen shortcut, and
+# even then browsers cache that install metadata aggressively (an
+# already-installed shortcut won't pick up a rename just because the
+# server redeployed — it needs to be uninstalled and reinstalled).
+# If a name/icon change isn't showing up, THIS is the one to check
+# first, since it applies immediately with no install or caching step.
+_PAGE_ICON_B64 = "iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAFnUlEQVR4nO3dvY7bRhSG4RmBRS5gF5JdWBsgiLdy6Z8gTYoEdpdLTRckVWJv/u4gBmLtugoF30A6pVDkyLJEUdQMz5z53gdQZUCkyfPxzCGlVbx//1EwsLLYKFyIY26sGakSKXj0tVsrWQPRZHxvih4pbNdR8jCkDgBFj5ySh6FJGCqKH2NahQTFm6IDUPiwsqm9wUGYJNoBwNLgOhzaASh8lGZQN2hCPLl7UPwo2UmzwalLIIofHvSu01MCQPHDk1712jcAFD88Olq3fZ4DUPzwrHMmONYBKH7U4GAdn/scAHCt6VgBcfVHTfYuhQ7NABQ/avRRCFgCQdq+L8Rw9UfNPugCux2A4oeC93We8vsAgDvMAJC2HQCWP1CyCqH7OQBQPWYASNssgVj+QNGKIRjSWAJBGh0A0iaB9T+EcRsU0pgBMvr77R/J3uve/Emy98L/4uzBY5ZAA6Us8HMRkGEIQE8lFXtfhOI4AtDBY9EfQhj2i9MHTwjAf9q3v1vvwmhm86fWu1AE+QAoFf0hymGI07lmANo7Cn/X7EovCFIBoOj7UwlDnM6fVh+A9u43611wa3b1zHoXsqo6ABR+OrUGodoPw1H8adV6PKvrALWeqJLU1A3idP6sigC0d79a74Kc2dUX1rtwtiqWQBS/jRqOe5xe+e0A7a3/E1CL2ac+u4HbDkDxl8Xr+Zisvw/g6+X1YNdufV7s6+OUl7sO0N7+Yr0L6ODt/LgKgLeDq8rTeXKzBPJ0ULEJgX3dVLEEam9vrHcBA3g4b5MCQtj58nAQcVh7e2NeQ12vySqs/zBQia92QfHXoF3cmNfSoVexM8CS4q/K+nza19Xuq8gZYLl4Zb0LyKDE81pkAICxFBeAEq8SSKe081vUDFDawUEe6/NsX2/FzgDAWIp5DrBcvMz+n0U5louX5jUXYoEzADCmImaA5Ruu/orW59229ugAkEYAIM08AMs3P1vvAgxZn39+IgkFsKtBfiQP9gxr0HQJtPzrJ8vNoxCWdWA+AwCWmhVrIBTAqg7pAJBGACCN26AohE0dxsvPvnL7x3GBc7EEgjQCAGnMAJBGB4A0AgBpBADSmAEgjY9DQxpLIEgjAJDGDABpdABIIwCQ1vBRUChrQhxvBnj3+sfRtgXfLh9+M8p24sXnX2dvAhQ+hsodhOwB6Cr+b2/+yblpOPLdl58c/LecIcg6BHPlRwo564jnAHAiT51m6wDvXv+Q660hKFc98RwA0ka9DQqcJUOt0gEgjQBAWrYAXF4/z/XWEJSrnrgNCiec3QYNIYTL6xc53x4ictZRvHj4PP9ngf78PvcmUKncF9FRArBBENDXWKuHeHH9gq8EQBZfiIE0ngNAGgGANJ4DQBodANIIAKTxx3EhjRkA0lgCQRoBgDQCAGnMAJBGB4A0AgBpPAeANGYASGMJBGkEANKaFUsgCKMDQBoBgDRug0Iat0EhjSUQpBEASCMAkMYMAGl0AEjjNiik0QEgjRkA0ugAkEYAII0AQBozAKTxE0mQxnMASGMGgDRmAEijA0AaAYA0lkCQRgeANG6DQhodANKYASCNDgBpBADSCACkMQNAGh0A0ngOAGl0AEjjJ5IgjQ4AaQQA0ggApPEcANK4DQppk0ALgDBmAEhjBoA0OgCkbQJAG4CiyBII0rgNCmnbMwBRgJIYAkMwxDEDQNpuByANUPC+zvf9RFIMIfDLSajVBxd5ZgBIOzQD0AVQo4+Kves5ACFATfZWOksgSDsWAO4KoQYH67jPcwCWQvCss8D7LoHoBPDoaN2eMgMQAnjSq15PHYIJATzoXadNiCfXNDMBSnZSQTdnboQgoBSDVifnPgdgSYQSDK7DoR1g38bpBhjb2RfglN8HYDbAmJIUbooOsG17pwgDUku+5E4dgG2EASlknTP/BdPRSAFECwQ8AAAAAElFTkSuQmCC"
+_page_icon = "\U0001F6E0\uFE0F"  # hard-hat emoji fallback
+if PIL_AVAILABLE:
+    try:
+        _page_icon = Image.open(BytesIO(base64.b64decode(_PAGE_ICON_B64)))
+    except Exception:
+        pass  # keep the emoji fallback — a broken tab icon is not worth crashing over
+
 st.set_page_config(
-    page_title="Mine & Workshop Tracker",
-    page_icon="\U0001F6E0\uFE0F",
+    page_title="MWDTS",
+    page_icon=_page_icon,
     layout="wide",
     initial_sidebar_state="expanded"
 )
