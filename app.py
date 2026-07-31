@@ -734,56 +734,6 @@ _CSS_BODY = """
     overflow-wrap: anywhere;
 }
 
-/* ---------- Native top-nav (replaces streamlit_option_menu) ----------
-   The main navigation was originally streamlit_option_menu — a
-   third-party custom component with its own separate JS/CSS bundle
-   fetched at runtime. That fetch can fail behind restrictive corporate
-   networks or proxies ("trouble loading the ... component" errors),
-   and because this WAS the entire top-level nav, that failure locked
-   the whole app, not just one page. st.radio is a native Streamlit
-   widget — no separate asset fetch, it's part of the core frontend
-   bundle that already loaded. Styled here to look like a segmented
-   pill bar instead of a plain radio list. This won't be pixel-identical
-   to option_menu's polish in every Streamlit version (the underlying
-   DOM structure has shifted across releases), but it cannot fail to
-   load — that trade is worth it specifically for the widget that gates
-   access to the entire app. */
-[data-testid="stRadio"] > div[role="radiogroup"] {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.3rem;
-    background: var(--bg-surface);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 6px;
-    box-shadow: var(--shadow-sm);
-    margin-bottom: 1rem;
-}
-[data-testid="stRadio"] label {
-    background: transparent;
-    border-radius: 9px;
-    padding: 0.5rem 0.85rem !important;
-    margin: 0 !important;
-    font-weight: 650;
-    font-size: 13.5px;
-    cursor: pointer;
-    transition: background .15s ease, color .15s ease;
-    color: var(--text-primary);
-}
-[data-testid="stRadio"] label:hover {
-    background: var(--bg-surface-2);
-}
-/* Hide the circular radio indicator itself — only the pill matters */
-[data-testid="stRadio"] label > div:first-child {
-    display: none;
-}
-/* The checked option's label — covers the input[checked] sibling
-   pattern used by recent Streamlit/BaseWeb radio markup */
-[data-testid="stRadio"] label:has(input:checked) {
-    background: var(--accent);
-    color: var(--accent-contrast);
-}
-
 /* ---------- Feedback board ---------- */
 .vote-btn-wrap { display: flex; flex-direction: column; align-items: center; }
 .feedback-response {
@@ -4464,37 +4414,44 @@ if _IS_OWNER:
     nav_options.insert(1, "Owner Console")
     nav_icons.insert(1, "key-fill")
 
-# Emoji icons — deliberately not Font Awesome or Bootstrap Icons here.
-# Emoji render from the OS/browser's own font with zero network
-# request, which matters specifically for the widget that gates
-# access to the whole app (see the CSS comment above for why
-# option_menu was replaced).
-_NAV_ICON = {
-    "Task Dashboard": "📋", "Owner Console": "🔑", "Assets": "🏭",
-    "Permits": "🔒", "Inventory": "📦", "Incidents": "⚠️",
-    "Handover": "🔄", "Contractors": "👷", "Analytics": "📈",
-    "Chat": "💬", "Feedback": "💡", "Admin": "⚙️",
-    "Profile": "👤", "Timeline": "⏱️",
-}
-_nav_labels = [f"{_NAV_ICON.get(o, '•')} {o}" for o in nav_options]
-_label_to_section = dict(zip(_nav_labels, nav_options))
-_NAV_KEY = "main_nav_radio"
-
-# Handle a programmatic jump from navigate_to() (sidebar buttons like
-# "Global Chat" / "My Profile"). Pre-seeding session_state[key] BEFORE
-# instantiating the widget is the correct, native way to control a
-# Streamlit widget's value from code — st.radio reads it on render.
-# This also guards the case where a stored value no longer matches the
-# current option set at all (e.g. first run, or the label set changed).
-_jump_target = st.session_state.pop("_nav_jump_to", None)
-if _jump_target in nav_options:
-    st.session_state[_NAV_KEY] = f"{_NAV_ICON.get(_jump_target, '•')} {_jump_target}"
-elif st.session_state.get(_NAV_KEY) not in _nav_labels:
-    st.session_state[_NAV_KEY] = _nav_labels[0]
-
-selected_label = st.radio("Navigation", _nav_labels, horizontal=True,
-                          key=_NAV_KEY, label_visibility="collapsed")
-selected_section = _label_to_section[selected_label]
+# REVERTED to option_menu on the person's explicit, informed choice —
+# they were told this reintroduces the third-party component's network
+# dependency (the exact cause of the "trouble loading the component"
+# error from before) and chose the original icon set over the
+# guaranteed-reliable native nav anyway. If that error resurfaces, this
+# is why, and st.radio (see git history / earlier version of this file)
+# is the fix that was in place before this revert.
+_manual_select = (nav_options.index(st.session_state["_nav_jump_to"])
+                  if st.session_state.get("_nav_jump_to") in nav_options else None)
+try:
+    selected_section = option_menu(
+        menu_title=None,
+        options=nav_options,
+        icons=nav_icons,
+        orientation="horizontal",
+        default_index=0,
+        manual_select=_manual_select,
+        styles=menu_styles(),
+        key="main_nav",
+    )
+except TypeError:
+    # Older streamlit-option-menu versions (pre ~0.3) don't have
+    # manual_select. Degrade to the un-jumpable behavior rather than
+    # crash the whole app over a nav convenience — upgrade the package
+    # (pip install -U streamlit-option-menu) to restore programmatic
+    # navigation from sidebar buttons.
+    selected_section = option_menu(
+        menu_title=None,
+        options=nav_options,
+        icons=nav_icons,
+        orientation="horizontal",
+        default_index=0,
+        styles=menu_styles(),
+        key="main_nav",
+    )
+# Clear immediately after use — this should only force a jump ONCE,
+# not keep overriding every future click within the nav itself.
+st.session_state.pop("_nav_jump_to", None)
 
 # Load shared datasets used across the new modules
 db_assets = fetch_all_assets()
