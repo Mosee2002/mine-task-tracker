@@ -626,6 +626,9 @@ _CSS_BODY = """
 
 /* ---------- Chat ---------- */
 .chat-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
     background: var(--bg-surface-2);
     color: var(--text-primary);
     border-left: 4px solid var(--accent);
@@ -635,12 +638,93 @@ _CSS_BODY = """
     line-height: 1.5;
 }
 .chat-message.self { background: var(--accent-soft); }
+.chat-avatar {
+    flex: 0 0 auto;
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.72rem; font-weight: 800;
+    background: var(--stat-bg, var(--tone-neutral-soft));
+    color: var(--stat-color, var(--tone-neutral));
+    margin-top: 0.1rem;
+}
+.chat-body { min-width: 0; flex: 1; }
 .chat-message .sender { font-weight: 800; color: var(--text-primary); }
 .chat-message .timestamp {
     font-size: 0.72rem;
     color: var(--text-secondary);
     margin-left: 0.4rem;
 }
+.chat-message .chat-text { margin-top: 0.1rem; overflow-wrap: anywhere; }
+
+/* ---------- Log / activity timeline ----------
+   A third, deliberately distinct shape from the stat-card hexagon and
+   the chat avatar circle: a rounded-square icon chip. The app now has
+   three shape families that each mean one thing consistently —
+   hexagon = status/metric, circle = a person, rounded-square = a
+   logged event — so the shape itself is informative before you even
+   read the icon inside it. */
+.log-list { display: flex; flex-direction: column; }
+.log-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    padding: 0.6rem 0.1rem;
+    border-bottom: 1px solid var(--border);
+}
+.log-entry:last-child { border-bottom: none; }
+.log-icon {
+    flex: 0 0 auto;
+    width: 32px; height: 32px;
+    border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--stat-bg, var(--tone-neutral-soft));
+    color: var(--stat-color, var(--tone-neutral));
+    font-size: 0.82rem;
+    margin-top: 0.1rem;
+}
+.log-body { min-width: 0; flex: 1; }
+.log-line {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 0.6rem; flex-wrap: wrap;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+.log-line b { font-weight: 700; }
+.log-time {
+    font-size: 0.72rem; color: var(--text-secondary);
+    white-space: nowrap; flex-shrink: 0;
+}
+.log-details {
+    font-size: 0.76rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    background: var(--bg-surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.3rem 0.55rem;
+    overflow-wrap: anywhere;
+}
+
+/* ---------- User directory table ---------- */
+.user-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.user-table th {
+    text-align: left; padding: 0.55rem 0.7rem;
+    font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
+    text-transform: uppercase; color: var(--text-secondary);
+    border-bottom: 2px solid var(--border);
+}
+.user-table td {
+    padding: 0.6rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-primary);
+    vertical-align: middle;
+}
+.user-table tr:hover td { background: var(--bg-surface-2); }
+.user-table .u-name { font-weight: 700; }
+.user-table .u-mono { font-family: ui-monospace, monospace; font-size: 0.85rem; color: var(--text-secondary); }
 
 /* ---------- File uploader ---------- */
 [data-testid="stFileUploader"] {
@@ -905,6 +989,119 @@ def render_stat_cards(cards):
         )
     html.append('</div>')
     st.markdown("".join(html), unsafe_allow_html=True)
+
+
+_VALID_TONES = {"info", "ok", "warn", "danger", "neutral"}
+
+# Keyword rules, checked in order, first match wins. Substring-based
+# rather than an exhaustive per-action dict, so an action name added
+# later (a new log_audit(...) call somewhere) degrades to a sensible
+# neutral default instead of needing this list updated in lockstep.
+_LOG_ACTION_RULES = [
+    (("lockout", "denied", "deny"), ("fa-ban", "danger")),
+    (("delete", "remove"), ("fa-trash", "danger")),
+    (("suspend",), ("fa-pause", "warn")),
+    (("permit",), ("fa-shield-halved", "info")),
+    (("password", "reset"), ("fa-key", "warn")),
+    (("mailbox", "workspace"), ("fa-envelope", "ok")),
+    (("approve", "created", "create", "bootstrap", "reinstate"), ("fa-circle-check", "ok")),
+    (("login",), ("fa-right-to-bracket", "neutral")),
+    (("logout",), ("fa-right-from-bracket", "neutral")),
+    (("request",), ("fa-paper-plane", "info")),
+    (("assign", "status_change", "role_change", "update"), ("fa-pen", "info")),
+    (("upload",), ("fa-upload", "info")),
+    (("comment",), ("fa-comment", "neutral")),
+    (("broadcast",), ("fa-bullhorn", "info")),
+    (("meter",), ("fa-gauge", "neutral")),
+    (("incident",), ("fa-triangle-exclamation", "warn")),
+]
+
+
+def log_action_style(action):
+    """Maps an audit/activity action string to (icon, tone)."""
+    a = (action or "").lower()
+    for keywords, style in _LOG_ACTION_RULES:
+        if any(k in a for k in keywords):
+            return style
+    return ("fa-circle-info", "neutral")
+
+
+def _fmt_log_time(value):
+    """Short, readable timestamp for a log line — 'Jul 31, 03:07' instead
+    of a raw ISO string with a microsecond-precision UTC offset."""
+    dt = _parse_dt(value)
+    if not dt:
+        return str(value or "")[:16]
+    return dt.strftime("%b %d, %H:%M")
+
+
+def render_log_entries(entries, actor_key="user_name", action_key="action",
+                       time_key="created_at", details_key="details",
+                       action_verb=None):
+    """Render a list of audit/activity rows as an icon timeline.
+
+    `entries` is the raw list of dicts from Supabase (or the in-memory
+    fallback) — no transformation of the underlying data happens here,
+    this only changes how each row is drawn. `action_verb`, if given,
+    is called as action_verb(entry) to build the human-readable phrase
+    (e.g. to interpolate a task title); otherwise the raw action string
+    is shown with underscores turned to spaces.
+    """
+    if not entries:
+        st.info("Nothing logged yet.")
+        return
+    html = ['<div class="log-list">']
+    for e in entries:
+        action = e.get(action_key, "")
+        icon, tone = log_action_style(action)
+        actor = esc(e.get(actor_key, "Unknown"))
+        when = esc(_fmt_log_time(e.get(time_key)))
+        phrase = esc(action_verb(e)) if action_verb else esc(action.replace("_", " "))
+        details = e.get(details_key)
+        details_html = ""
+        if details:
+            details_str = details if isinstance(details, str) else json.dumps(details)
+            if len(details_str) > 300:
+                details_str = details_str[:300] + "…"
+            details_html = f'<div class="log-details">{esc(details_str)}</div>'
+        html.append(
+            f'<div class="log-entry">'
+            f'<div class="log-icon" style="--stat-color:var(--tone-{tone});'
+            f'--stat-bg:var(--tone-{tone}-soft);"><i class="fas {icon}"></i></div>'
+            f'<div class="log-body">'
+            f'<div class="log-line"><span><b>{actor}</b> {phrase}</span>'
+            f'<span class="log-time">{when}</span></div>'
+            f'{details_html}'
+            f'</div></div>'
+        )
+    html.append('</div>')
+    st.markdown("".join(html), unsafe_allow_html=True)
+
+
+_AVATAR_TONES = ["info", "ok", "warn", "danger", "neutral"]
+
+
+def _person_initials(name):
+    parts = [p for p in (name or "?").strip().split() if p]
+    if not parts:
+        return "?"
+    if len(parts) == 1:
+        return parts[0][0].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
+
+
+def _person_tone(name):
+    """Deterministic tone per name, so the same person always gets the
+    same avatar color across sessions — not random, just hashed."""
+    h = sum(ord(c) for c in (name or "?"))
+    return _AVATAR_TONES[h % len(_AVATAR_TONES)]
+
+
+def render_avatar_html(name):
+    tone = _person_tone(name)
+    initials = esc(_person_initials(name))
+    return (f'<div class="chat-avatar" style="--stat-color:var(--tone-{tone});'
+            f'--stat-bg:var(--tone-{tone}-soft);">{initials}</div>')
 
 # -------------------------------
 # 2B. CENTRAL PERMISSION MATRIX
@@ -5708,9 +5905,19 @@ elif selected_section == "Chat":
             col_text, col_delete = st.columns([5, 1])
             with col_text:
                 if sender == full_name:
-                    st.markdown(f"<div class='chat-message self'><span class='sender'>You</span> <span class='timestamp'>{timestamp}</span><br>{esc(content)}</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='chat-message self'>{render_avatar_html('You')}"
+                        f"<div class='chat-body'><span class='sender'>You</span> "
+                        f"<span class='timestamp'>{timestamp}</span>"
+                        f"<div class='chat-text'>{esc(content)}</div></div></div>",
+                        unsafe_allow_html=True)
                 else:
-                    st.markdown(f"<div class='chat-message'><span class='sender'>{esc(sender)}</span> <span class='timestamp'>{timestamp}</span><br>{esc(content)}</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div class='chat-message'>{render_avatar_html(sender)}"
+                        f"<div class='chat-body'><span class='sender'>{esc(sender)}</span> "
+                        f"<span class='timestamp'>{timestamp}</span>"
+                        f"<div class='chat-text'>{esc(content)}</div></div></div>",
+                        unsafe_allow_html=True)
             with col_delete:
                 if sender == full_name:
                     if st.button("🗑️", key=f"del_msg_{msg['id']}"):
@@ -5767,16 +5974,28 @@ elif selected_section == "Admin":
         st.markdown("### Manage Users")
         all_users = fetch_all_users_from_db()
         if all_users:
-            user_data = []
+            rows = ['<table class="user-table"><thead><tr>'
+                   '<th>User</th><th>Role</th><th>Email</th><th>Status</th>'
+                   '</tr></thead><tbody>']
+            role_tone = {"superintendent": "danger", "supervisor": "warn", "worker": "info"}
             for u in all_users:
-                user_data.append({
-                    "Username": u.get("username"),
-                    "Full Name": u.get("full_name"),
-                    "Role": u.get("role"),
-                    "Email": u.get("email", "Not set"),
-                    "Approved": u.get("is_approved", False)
-                })
-            st.dataframe(user_data, use_container_width=True)
+                r = str(u.get("role", "")).lower()
+                tone = role_tone.get(r, "neutral")
+                approved = u.get("is_approved", False)
+                status_html = ('<span class="stock-badge stock-ok">Approved</span>' if approved
+                               else '<span class="stock-badge stock-low">Pending</span>')
+                rows.append(
+                    '<tr><td>'
+                    f'<div class="u-name">{esc(u.get("full_name"))}</div>'
+                    f'<div class="u-mono">{esc(u.get("username"))}</div>'
+                    '</td>'
+                    f'<td><span class="priority-badge" style="background:var(--tone-{tone});">'
+                    f'{esc(u.get("role"))}</span></td>'
+                    f'<td class="u-mono">{esc(u.get("email") or "Not set")}</td>'
+                    f'<td>{status_html}</td></tr>'
+                )
+            rows.append('</tbody></table>')
+            st.markdown("".join(rows), unsafe_allow_html=True)
         else:
             st.info("No users found in database.")
 
@@ -5784,13 +6003,7 @@ elif selected_section == "Admin":
             st.markdown("### Audit Log (last 50)")
             try:
                 logs = supabase.table("audit_log").select("*").order("created_at", desc=True).limit(50).execute()
-                if logs.data:
-                    for log in logs.data:
-                        st.write(f"**{log['user_name']}** – {log['action']} at {log['created_at']}")
-                        if log['details']:
-                            st.caption(f"Details: {log['details']}")
-                else:
-                    st.info("No audit logs yet.")
+                render_log_entries(logs.data or [])
             except Exception:
                 st.info("Audit log unavailable.")
         else:
@@ -5855,12 +6068,23 @@ elif selected_section == "Timeline":
         try:
             activities = supabase.table("task_activity").select("*").order("created_at", desc=True).limit(50).execute()
             if activities.data:
+                # Resolve each row's task_id to a title. Deduped via
+                # _task_titles so a task with many log entries only
+                # gets looked up once, not once per row — a small
+                # improvement over the original one-query-per-row
+                # version, not just a rendering change.
+                _task_titles = {}
                 for act in activities.data:
-                    task = supabase.table("tasks").select("title").eq("id", act['task_id']).execute()
-                    task_title = task.data[0]['title'] if task.data else f"Task #{act['task_id']}"
-                    st.write(f"**{act['user_name']}** {act['action']} **{task_title}** at {act['created_at']}")
-                    if act['details']:
-                        st.caption(f"Details: {act['details']}")
+                    tid = act.get('task_id')
+                    if tid not in _task_titles:
+                        task = supabase.table("tasks").select("title").eq("id", tid).execute()
+                        _task_titles[tid] = task.data[0]['title'] if task.data else f"Task #{tid}"
+
+                def _activity_phrase(act):
+                    verb = str(act.get('action', '')).replace('_', ' ')
+                    return f"{verb} {_task_titles.get(act.get('task_id'), '')}"
+
+                render_log_entries(activities.data, action_verb=_activity_phrase)
             else:
                 st.info("No activity logs yet.")
         except Exception:
