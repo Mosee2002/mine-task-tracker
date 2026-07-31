@@ -1,16 +1,30 @@
 {
-  "short_name": "MineTracker",
-  "name": "Mine & Electrical Workshop Task Portal",
+  "name": "Mine & Workshop Digital Tracker System",
+  "short_name": "MWDTS",
+  "description": "CMMS maintenance, safety, and incident tracking for mine and workshop operations.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#eef1f6",
+  "theme_color": "#16213e",
+  "orientation": "any",
   "icons": [
     {
-      "src": "https://flaticon.com",
+      "src": "icon-192.png",
+      "sizes": "192x192",
       "type": "image/png",
-      "sizes": "512x512"
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
-  ],
-  "start_url": "/",
-  "background_color": "#0E1117",
-  "theme_color": "#FF4B4B",
-  "display": "standalone",
-  "orientation": "portrait"
+  ]
 }
