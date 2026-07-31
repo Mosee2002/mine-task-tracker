@@ -1,0 +1,38 @@
+{
+  "packageId": "com.gmc.minetracker",
+  "host": "REPLACE-WITH-YOUR-DOMAIN.streamlit.app",
+  "name": "Mine & Workshop Digital Tracker System",
+  "launcherName": "MWDTS",
+  "display": "standalone",
+  "themeColor": "#16213E",
+  "themeColorDark": "#0B1220",
+  "navigationColor": "#16213E",
+  "navigationColorDark": "#0B1220",
+  "backgroundColor": "#EEF1F6",
+  "backgroundColorDark": "#0B1220",
+  "enableNotifications": false,
+  "startUrl": "/",
+  "iconUrl": "REPLACE-WITH-URL-TO/icon-512.png",
+  "maskableIconUrl": "REPLACE-WITH-URL-TO/icon-512-maskable.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "androidkey"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "REPLACE-WITH-URL-TO/manifest.json",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "REPLACE-WITH-YOUR-FULL-APP-URL/",
+  "minSdkVersion": 21,
+  "orientation": "default"
+}
