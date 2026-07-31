@@ -2667,7 +2667,14 @@ def handle_recurring_tasks():
             return
         now = datetime.now()
         for task in res.data:
-            due_date = datetime.fromisoformat(task['due_date']) if task['due_date'] else None
+            # Uses the timezone-safe parser, not datetime.fromisoformat()
+            # directly: Supabase can return timestamps with a UTC offset
+            # (offset-aware), which cannot be compared to datetime.now()
+            # (offset-naive) — Python raises TypeError. This was silently
+            # aborting the ENTIRE recurring-task pass on the first task
+            # that hit it, which also broke the "All Maintenance Tasks"
+            # overdue-badge rendering with the same root cause.
+            due_date = _parse_dt(task['due_date'])
             if not due_date:
                 continue
             if due_date < now:
@@ -2680,7 +2687,7 @@ def handle_recurring_tasks():
                     next_due = due_date + timedelta(days=30)
                 else:
                     continue
-                end_date = datetime.fromisoformat(task['recurrence_end_date']) if task.get('recurrence_end_date') else None
+                end_date = _parse_dt(task.get('recurrence_end_date'))
                 if end_date and next_due > end_date:
                     supabase.table("tasks").update({"is_recurring": False}).eq("id", task["id"]).execute()
                     continue
@@ -3631,7 +3638,14 @@ if not st.session_state.authenticated:
         found = False
         for u in users:
             if u.get("password_reset_token") == reset_token:
-                expiry = datetime.fromisoformat(u["reset_token_expiry"]) if u.get("reset_token_expiry") else datetime.now()
+                # Same timezone-safe parser as everywhere else in this
+                # file — a raw datetime.fromisoformat() here crashed the
+                # UNAUTHENTICATED login page (no surrounding try/except)
+                # for anyone whose reset_token_expiry came back with a
+                # UTC offset. A broken password-reset link is worse than
+                # most instances of this bug since there's no other path
+                # back into the app for that user.
+                expiry = _parse_dt(u.get("reset_token_expiry")) or datetime.now()
                 if expiry > datetime.now():
                     with st.form("reset_password_form"):
                         st.markdown("### Reset Your Password")
@@ -4056,8 +4070,8 @@ if selected_section == "Task Dashboard":
                     status_class = f"status-{task['status'].replace(' ', '')}"
                     overdue = False
                     if task.get('due_date'):
-                        due = datetime.fromisoformat(task['due_date'])
-                        if datetime.now() > due:
+                        due = _parse_dt(task['due_date'])
+                        if due and datetime.now() > due:
                             overdue = True
                     overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
                     st.markdown(f"""
@@ -4192,8 +4206,8 @@ if selected_section == "Task Dashboard":
                     priority_class = f"priority-{task['priority']}"
                     overdue = False
                     if task.get('due_date'):
-                        due = datetime.fromisoformat(task['due_date'])
-                        if datetime.now() > due:
+                        due = _parse_dt(task['due_date'])
+                        if due and datetime.now() > due:
                             overdue = True
                     overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
                     st.markdown(f"""
@@ -4235,8 +4249,8 @@ if selected_section == "Task Dashboard":
                 status_class = f"status-{task['status'].replace(' ', '')}"
                 overdue = False
                 if task.get('due_date'):
-                    due = datetime.fromisoformat(task['due_date'])
-                    if datetime.now() > due:
+                    due = _parse_dt(task['due_date'])
+                    if due and datetime.now() > due:
                         overdue = True
                 overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
                 st.markdown(f"""
@@ -4447,8 +4461,8 @@ if selected_section == "Task Dashboard":
                 status_class = f"status-{task['status'].replace(' ', '')}"
                 overdue = False
                 if task.get('due_date'):
-                    due = datetime.fromisoformat(task['due_date'])
-                    if datetime.now() > due:
+                    due = _parse_dt(task['due_date'])
+                    if due and datetime.now() > due:
                         overdue = True
                 overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
                 st.markdown(f"""
