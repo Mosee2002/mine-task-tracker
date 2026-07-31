@@ -2034,7 +2034,7 @@ def create_first_admin(username, full_name, password, email=None):
     if not strong:
         return False, msg
     try:
-        supabase.table("facility_users").insert({
+        res = supabase.table("facility_users").insert({
             "username": username,
             "full_name": full_name,
             "role": "Superintendent",
@@ -2042,6 +2042,10 @@ def create_first_admin(username, full_name, password, email=None):
             "email": email,
             "is_approved": True,
         }).execute()
+        if not res.data:
+            return False, ("Insert was accepted but created nothing — Row Level Security is "
+                          "most likely blocking writes to facility_users. Run schema_additions.sql "
+                          "Phase 6, then try again.")
         log_audit(full_name, "bootstrap_first_admin", {"username": username})
         return True, ""
     except Exception as e:
@@ -2086,7 +2090,11 @@ def register_user_to_db(username, name, requested_role, password, email=None,
     OPTIONAL = ("requested_role", "job_title", "department", "employee_id",
                 "is_suspended", "requested_at")
     try:
-        supabase.table("facility_users").insert(full_payload).execute()
+        res = supabase.table("facility_users").insert(full_payload).execute()
+        if not res.data:
+            return False, ("Registration was accepted but nothing was created — Row Level "
+                          "Security is most likely blocking writes to facility_users. Run "
+                          "schema_additions.sql Phase 6, then try again.")
         _degraded = False
     except Exception as e:
         if "PGRST204" not in str(e) and "schema cache" not in str(e).lower():
@@ -2094,7 +2102,11 @@ def register_user_to_db(username, name, requested_role, password, email=None,
             return False, str(e)
         minimal = {k: v for k, v in full_payload.items() if k not in OPTIONAL}
         try:
-            supabase.table("facility_users").insert(minimal).execute()
+            res = supabase.table("facility_users").insert(minimal).execute()
+            if not res.data:
+                return False, ("Registration was accepted but nothing was created — Row Level "
+                              "Security is most likely blocking writes to facility_users. Run "
+                              "schema_additions.sql Phase 6, then try again.")
             _degraded = True
         except Exception as e2:
             log_error(str(e2), details={"username": username}, endpoint="register_user_minimal")
@@ -2144,8 +2156,8 @@ def update_user_profile(username, updates):
     if not SUPABASE_AVAILABLE:
         return False
     try:
-        supabase.table("facility_users").update(updates).eq("username", username).execute()
-        return True
+        res = supabase.table("facility_users").update(updates).eq("username", username).execute()
+        return bool(res.data)
     except Exception as e:
         log_error(str(e), details={"username": username, "updates": updates}, endpoint="update_user")
         return False
@@ -2172,10 +2184,21 @@ def generate_reset_token(username, email):
     token = secrets.token_urlsafe(32)
     expiry = datetime.now() + timedelta(hours=1)
     try:
-        supabase.table("facility_users").update({
+        res = supabase.table("facility_users").update({
             "password_reset_token": token,
             "reset_token_expiry": expiry.isoformat()
         }).eq("username", username).eq("email", email).execute()
+        if not res.data:
+            # The token was never actually stored (RLS-blocked write —
+            # HTTP 200, empty result, no exception). Sending the email
+            # anyway would hand out a reset link that can never work,
+            # since nothing in the database matches its token. Log it
+            # for the operator; the requester still sees the same
+            # generic message either way, by design.
+            log_error("Reset token update affected 0 rows — likely RLS blocking "
+                     "writes to facility_users", details={"username": username},
+                     endpoint="generate_reset_token")
+            return False
         reset_link = f"{APP_URL}/?reset_token={token}"
         sent = send_email_notification(
             email, "Password Reset Request",
@@ -2325,7 +2348,9 @@ def delete_task(task_id, deleted_by):
         log_audit(deleted_by, "task_delete_memory", {"task_id": task_id})
         return True
     try:
-        supabase.table("tasks").delete().eq("id", task_id).execute()
+        res = supabase.table("tasks").delete().eq("id", task_id).execute()
+        if not res.data:
+            return False
         log_audit(deleted_by, "task_delete", {"task_id": task_id})
         log_task_activity(task_id, deleted_by, "deleted", {})
         send_external_notifications(f"Task #{task_id} deleted by {deleted_by}")
@@ -2401,6 +2426,19 @@ def mark_notification_read(notification_id):
 # 13. PHOTO FUNCTIONS (with fallback)
 # -------------------------------
 def upload_photo(task_id, file_bytes, filename, uploaded_by):
+    """Upload proof-of-work/safety photo evidence.
+
+    FIXED: this previously returned True unconditionally — even on a
+    failed validation, a failed storage upload, or a caught exception.
+    Nothing that happened in this function's body could ever make it
+    report failure, which is a serious gap for what's often compliance
+    evidence (LOTO isolation photos, incident scenes). The in-session
+    memory fallback below is intentional and kept — it lets a photo
+    still SHOW UP for the current browser session even if the durable
+    write fails — but the return value now reflects whether it was
+    actually saved somewhere that survives a refresh or a different
+    user loading the same task, not just whether this call ran.
+    """
     st.session_state.setdefault("photos_memory", []).append({
         "task_id": task_id,
         "photo_url": f"memory://{filename}",
@@ -2408,27 +2446,38 @@ def upload_photo(task_id, file_bytes, filename, uploaded_by):
         "uploaded_at": datetime.now().isoformat()
     })
     log_audit(uploaded_by, "photo_upload_memory", {"task_id": task_id, "filename": filename})
-    if SUPABASE_AVAILABLE:
+    if not SUPABASE_AVAILABLE:
+        return True  # demo mode — the memory fallback IS the intended store
+    try:
+        valid, msg = validate_image(file_bytes, filename)
+        if not valid:
+            st.error(msg)
+            return False
+        ext = filename.split(".")[-1]
+        safe_name = f"task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
+        storage_res = supabase.storage.from_("task_photos").upload(safe_name, file_bytes)
+        if not storage_res:
+            log_error("Storage upload returned a falsy result", details={"task_id": task_id},
+                     endpoint="photo_upload")
+            return False
+        public_url = supabase.storage.from_("task_photos").get_public_url(safe_name)
         try:
-            valid, msg = validate_image(file_bytes, filename)
-            if not valid:
-                st.error(msg)
-                return True
-            ext = filename.split(".")[-1]
-            safe_name = f"task_{task_id}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
-            res = supabase.storage.from_("task_photos").upload(safe_name, file_bytes)
-            if res:
-                public_url = supabase.storage.from_("task_photos").get_public_url(safe_name)
-                try:
-                    data = {"task_id": task_id, "photo_url": public_url, "uploaded_by": uploaded_by}
-                    supabase.table("task_photos").insert(data).execute()
-                    log_audit(uploaded_by, "photo_upload", {"task_id": task_id, "url": public_url})
-                except Exception as e:
-                    log_error(str(e), endpoint="photo_insert")
+            data = {"task_id": task_id, "photo_url": public_url, "uploaded_by": uploaded_by}
+            res = supabase.table("task_photos").insert(data).execute()
+            if not res.data:
+                log_error("task_photos insert affected 0 rows — likely RLS blocking writes. "
+                         "The file reached Storage but has no metadata row, so it won't "
+                         "appear when this task is loaded again.",
+                         details=data, endpoint="photo_insert")
+                return False
+            log_audit(uploaded_by, "photo_upload", {"task_id": task_id, "url": public_url})
+            return True
         except Exception as e:
-            log_error(str(e), endpoint="photo_upload")
-            pass
-    return True
+            log_error(str(e), endpoint="photo_insert")
+            return False
+    except Exception as e:
+        log_error(str(e), endpoint="photo_upload")
+        return False
 
 def fetch_photos(task_id):
     if not SUPABASE_AVAILABLE:
@@ -2481,7 +2530,12 @@ def upload_attachment(task_id, file_bytes, filename, uploaded_by):
                 "file_type": ext,
                 "uploaded_by": uploaded_by
             }
-            supabase.table("task_attachments").insert(data).execute()
+            res2 = supabase.table("task_attachments").insert(data).execute()
+            if not res2.data:
+                log_error("task_attachments insert affected 0 rows — likely RLS blocking "
+                         "writes. The file reached Storage but has no metadata row.",
+                         details=data, endpoint="attachment_insert")
+                return False
             log_audit(uploaded_by, "attachment_upload", {"task_id": task_id, "filename": filename})
             return True
         else:
@@ -2519,7 +2573,9 @@ def add_comment(task_id, comment, posted_by):
         return True
     try:
         data = {"task_id": task_id, "comment": comment, "posted_by": posted_by}
-        supabase.table("task_comments").insert(data).execute()
+        res = supabase.table("task_comments").insert(data).execute()
+        if not res.data:
+            return False
         log_audit(posted_by, "comment_add", {"task_id": task_id, "comment": comment[:50]})
         log_task_activity(task_id, posted_by, "commented", {"comment": comment[:50]})
         return True
@@ -2569,7 +2625,9 @@ def send_message(sender, receiver, room, message, encrypted=False):
             "message": message,
             "is_encrypted": encrypted
         }
-        supabase.table("chat_messages").insert(payload).execute()
+        res = supabase.table("chat_messages").insert(payload).execute()
+        if not res.data:
+            return False
         return True
     except Exception as e:
         log_error(str(e), endpoint="send_message")
@@ -2606,9 +2664,11 @@ def delete_message(message_id, deleted_by):
             return False
         try:
             msg = supabase.table("chat_messages").select("*").eq("id", message_id).execute()
+            res = supabase.table("chat_messages").delete().eq("id", message_id).execute()
+            if not res.data:
+                return False
             if msg.data:
                 log_audit(deleted_by, "message_delete", {"message_id": message_id, "content": msg.data[0]["message"][:50]})
-            supabase.table("chat_messages").delete().eq("id", message_id).execute()
             return True
         except Exception as e:
             log_error(str(e), details={"message_id": message_id}, endpoint="delete_message")
@@ -2777,7 +2837,11 @@ def handle_recurring_tasks():
                     continue
                 end_date = _parse_dt(task.get('recurrence_end_date'))
                 if end_date and next_due > end_date:
-                    supabase.table("tasks").update({"is_recurring": False}).eq("id", task["id"]).execute()
+                    _stop_res = supabase.table("tasks").update({"is_recurring": False}).eq("id", task["id"]).execute()
+                    if not _stop_res.data:
+                        log_error("Failed to stop expired recurring task — RLS may be "
+                                 "blocking writes to tasks", details={"task_id": task["id"]},
+                                 endpoint="handle_recurring_tasks")
                     continue
                 new_task = {
                     "title": task['title'],
@@ -2792,8 +2856,25 @@ def handle_recurring_tasks():
                     "recurrence_type": recurrence_type,
                     "recurrence_end_date": task.get('recurrence_end_date')
                 }
-                supabase.table("tasks").insert(new_task).execute()
-                supabase.table("tasks").update({"due_date": next_due.isoformat()}).eq("id", task["id"]).execute()
+                _insert_res = supabase.table("tasks").insert(new_task).execute()
+                if not _insert_res.data:
+                    # Do NOT advance the original's due_date if the new
+                    # instance was never actually created — doing so would
+                    # silently skip an entire maintenance cycle with no
+                    # task, no error, and no way to notice short of
+                    # checking the database by hand. Leaving due_date
+                    # alone means this task is picked up and retried on
+                    # the next check instead of vanishing.
+                    log_error("Failed to create next recurring task instance — RLS may be "
+                             "blocking writes to tasks. Schedule NOT advanced, will retry.",
+                             details={"task_id": task["id"], "recurrence_type": recurrence_type},
+                             endpoint="handle_recurring_tasks")
+                    continue
+                _advance_res = supabase.table("tasks").update({"due_date": next_due.isoformat()}).eq("id", task["id"]).execute()
+                if not _advance_res.data:
+                    log_error("New recurring task instance created, but failed to advance "
+                             "the original's due_date — it may be recreated again next check",
+                             details={"task_id": task["id"]}, endpoint="handle_recurring_tasks")
     except Exception as e:
         log_error(str(e), endpoint="handle_recurring_tasks")
 
@@ -2857,7 +2938,9 @@ def update_asset(asset_id, updates, updated_by):
                 return True
         return False
     try:
-        supabase.table("assets").update(updates).eq("id", asset_id).execute()
+        res = supabase.table("assets").update(updates).eq("id", asset_id).execute()
+        if not res.data:
+            return False
         log_audit(updated_by, "asset_update", {"asset_id": asset_id, "new": updates})
         return True
     except Exception as e:
@@ -2870,7 +2953,9 @@ def delete_asset(asset_id, deleted_by):
         log_audit(deleted_by, "asset_delete_memory", {"asset_id": asset_id})
         return True
     try:
-        supabase.table("assets").delete().eq("id", asset_id).execute()
+        res = supabase.table("assets").delete().eq("id", asset_id).execute()
+        if not res.data:
+            return False
         log_audit(deleted_by, "asset_delete", {"asset_id": asset_id})
         return True
     except Exception as e:
@@ -2938,7 +3023,9 @@ def adjust_part_quantity(part_id, delta, adjusted_by, reason="manual adjustment"
         if not current.data:
             return False
         new_qty = max(0, current.data[0]["quantity_on_hand"] + delta)
-        supabase.table("inventory_parts").update({"quantity_on_hand": new_qty}).eq("id", part_id).execute()
+        res = supabase.table("inventory_parts").update({"quantity_on_hand": new_qty}).eq("id", part_id).execute()
+        if not res.data:
+            return False
         log_audit(adjusted_by, "part_adjust", {"part_id": part_id, "delta": delta, "reason": reason})
         return True
     except Exception as e:
@@ -2951,7 +3038,9 @@ def delete_part(part_id, deleted_by):
         log_audit(deleted_by, "part_delete_memory", {"part_id": part_id})
         return True
     try:
-        supabase.table("inventory_parts").delete().eq("id", part_id).execute()
+        res = supabase.table("inventory_parts").delete().eq("id", part_id).execute()
+        if not res.data:
+            return False
         log_audit(deleted_by, "part_delete", {"part_id": part_id})
         return True
     except Exception as e:
@@ -2959,7 +3048,13 @@ def delete_part(part_id, deleted_by):
         return False
 
 def link_part_to_task(task_id, part_id, quantity_used, used_by):
-    """Records parts consumption against a task/work order and decrements stock."""
+    """Records parts consumption against a task/work order and decrements stock.
+
+    Both steps' results are checked now — previously this always
+    returned True regardless of whether the stock adjustment actually
+    happened, which meant a work order could show "parts used" in its
+    activity log while inventory counts silently drifted from reality.
+    """
     payload = {
         "task_id": task_id,
         "part_id": part_id,
@@ -2970,11 +3065,19 @@ def link_part_to_task(task_id, part_id, quantity_used, used_by):
         st.session_state.setdefault("task_parts_memory", []).append(payload)
     else:
         try:
-            supabase.table("task_parts").insert(payload).execute()
+            res = supabase.table("task_parts").insert(payload).execute()
+            if not res.data:
+                log_error("task_parts insert affected 0 rows — likely RLS blocking writes",
+                         details=payload, endpoint="link_part_to_task")
+                return False
         except Exception as e:
             log_error(str(e), details=payload, endpoint="link_part_to_task")
             return False
-    adjust_part_quantity(part_id, -abs(quantity_used), used_by, reason=f"used on task #{task_id}")
+    if not adjust_part_quantity(part_id, -abs(quantity_used), used_by, reason=f"used on task #{task_id}"):
+        log_error("Stock adjustment failed after recording parts usage — inventory count "
+                 "may now be out of sync with what was actually consumed",
+                 details=payload, endpoint="link_part_to_task")
+        return False
     log_task_activity(task_id, used_by, "part_used", {"part_id": part_id, "quantity": quantity_used})
     return True
 
@@ -3205,7 +3308,9 @@ def _update_permit(permit_id, updates, actor, action):
                 return True
         return False
     try:
-        supabase.table("permits").update(updates).eq("id", permit_id).execute()
+        res = supabase.table("permits").update(updates).eq("id", permit_id).execute()
+        if not res.data:
+            return False
         log_audit(actor, action, {"permit_id": permit_id, "updates": updates})
         return True
     except Exception as e:
@@ -3279,7 +3384,9 @@ def acknowledge_handover(handover_id, acknowledged_by):
                 return True
         return False
     try:
-        supabase.table("shift_handovers").update(updates).eq("id", handover_id).execute()
+        res = supabase.table("shift_handovers").update(updates).eq("id", handover_id).execute()
+        if not res.data:
+            return False
         log_audit(acknowledged_by, "handover_acknowledge", {"handover_id": handover_id})
         return True
     except Exception as e:
@@ -3329,7 +3436,9 @@ def update_contractor(contractor_id, updates, updated_by):
                 return True
         return False
     try:
-        supabase.table("contractors").update(updates).eq("id", contractor_id).execute()
+        res = supabase.table("contractors").update(updates).eq("id", contractor_id).execute()
+        if not res.data:
+            return False
         log_audit(updated_by, "contractor_update", {"contractor_id": contractor_id})
         return True
     except Exception as e:
@@ -3388,13 +3497,23 @@ def log_meter_reading(asset_id, reading, meter_unit, recorded_by, notes=None):
         _mem_insert("meter_readings_memory", payload, recorded_by, "meter_reading")
     else:
         try:
-            supabase.table("meter_readings").insert(payload).execute()
+            res = supabase.table("meter_readings").insert(payload).execute()
+            if not res.data:
+                log_error("meter_readings insert affected 0 rows — likely RLS blocking writes",
+                         details=payload, endpoint="log_meter_reading")
+                return False
             log_audit(recorded_by, "meter_reading", {"asset_id": asset_id, "reading": reading})
         except Exception as e:
             log_error(str(e), details=payload, endpoint="log_meter_reading")
             return False
-    # Keep the asset's denormalised current reading in step
-    update_asset(asset_id, {"current_meter": reading}, recorded_by)
+    # Keep the asset's denormalised current reading in step. If THIS part
+    # fails, the reading is still safely recorded in meter_readings (which
+    # is what usage-rate/forecast calculations actually read from) — only
+    # the asset card's displayed "current reading" would lag, not the
+    # underlying history, so this doesn't need to fail the whole call.
+    if not update_asset(asset_id, {"current_meter": reading}, recorded_by):
+        log_error("Reading recorded, but failed to sync assets.current_meter",
+                 details=payload, endpoint="log_meter_reading")
     return True
 
 def meter_usage_rate(asset_id, readings=None):
@@ -4295,8 +4414,10 @@ if selected_section == "Task Dashboard":
                         new_comment = st.text_area("Add comment", key=f"comment_{task['id']}_{idx}", placeholder="Write comment...")
                         if st.button("Post Comment", key=f"post_comment_{task['id']}_{idx}"):
                             if new_comment.strip():
-                                add_comment(task['id'], new_comment, full_name)
-                                st.rerun()
+                                if add_comment(task['id'], new_comment, full_name):
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to post comment.")
 
                     with st.expander("📎 Attachments"):
                         attachments = fetch_attachments(task['id'])
@@ -4442,8 +4563,10 @@ if selected_section == "Task Dashboard":
                     new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
                     if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
                         if new_comment.strip():
-                            add_comment(task['id'], new_comment, full_name)
-                            st.rerun()
+                            if add_comment(task['id'], new_comment, full_name):
+                                st.rerun()
+                            else:
+                                st.error("Failed to post comment.")
                 with st.expander("📎 Attachments"):
                     attachments = fetch_attachments(task['id'])
                     if attachments:
@@ -4647,8 +4770,11 @@ if selected_section == "Task Dashboard":
                     log_audit(full_name, "task_status_change", {"task_id": task['id'], "new_status": new_stat})
                     st.rerun()
                 if cols[2].button('🗑️ Delete', key=f"del_{task['id']}"):
-                    delete_task(task['id'], full_name)
-                    st.rerun()
+                    if delete_task(task['id'], full_name):
+                        st.rerun()
+                    else:
+                        st.error("Delete failed. If this keeps happening, Row Level Security "
+                                "may be blocking writes to the tasks table.")
                 with st.expander("💬 Comments"):
                     comments = fetch_comments(task['id'])
                     if comments:
@@ -4659,8 +4785,10 @@ if selected_section == "Task Dashboard":
                     new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
                     if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
                         if new_comment.strip():
-                            add_comment(task['id'], new_comment, full_name)
-                            st.rerun()
+                            if add_comment(task['id'], new_comment, full_name):
+                                st.rerun()
+                            else:
+                                st.error("Failed to post comment.")
                 with st.expander("📎 Attachments"):
                     attachments = fetch_attachments(task['id'])
                     if attachments:
@@ -4867,9 +4995,12 @@ elif selected_section == "Assets":
                                 st.error("New reading is lower than the current reading. "
                                          "Meters normally only increase — correct the value, or note a meter replacement.")
                             else:
-                                log_meter_reading(a['id'], new_reading, a.get('meter_unit'), full_name, mr_note)
-                                st.success("Reading logged.")
-                                st.rerun()
+                                if log_meter_reading(a['id'], new_reading, a.get('meter_unit'), full_name, mr_note):
+                                    st.success("Reading logged.")
+                                    st.rerun()
+                                else:
+                                    st.error("Failed to log reading. Check Row Level Security "
+                                            "on the meter_readings table.")
                         meter_tasks = [t for t in related_tasks if t.get('meter_interval')]
                         for mt in meter_tasks:
                             interval = mt.get('meter_interval', 0)
@@ -5250,18 +5381,25 @@ elif selected_section == "Permits":
         acols = st.columns(3)
         if status == "Issued" and can(role, "permit.accept"):
             if acols[0].button("✍️ Accept Isolation", key=f"permit_acc_{p['id']}"):
-                accept_permit(p['id'], full_name)
-                st.success("Permit accepted. You are now the responsible person.")
-                st.rerun()
+                if accept_permit(p['id'], full_name):
+                    st.success("Permit accepted. You are now the responsible person.")
+                    st.rerun()
+                else:
+                    st.error("Accept failed — the permit was not updated. Check Row Level "
+                             "Security on the permits table before assuming isolation is in place.")
         if status == "Active" and can(role, "permit.sign_back"):
             if acols[1].button("✅ Sign Back", key=f"permit_sb_{p['id']}"):
-                sign_back_permit(p['id'], full_name)
-                st.success("Permit signed back and closed.")
-                st.rerun()
+                if sign_back_permit(p['id'], full_name):
+                    st.success("Permit signed back and closed.")
+                    st.rerun()
+                else:
+                    st.error("Sign-back failed — the permit is still showing as Active.")
         if status in ("Issued", "Active") and can(role, "permit.cancel"):
             if acols[2].button("🚫 Cancel", key=f"permit_can_{p['id']}"):
-                cancel_permit(p['id'], full_name)
-                st.rerun()
+                if cancel_permit(p['id'], full_name):
+                    st.rerun()
+                else:
+                    st.error("Cancel failed — the permit was not updated.")
 
     if permit_sub == "Active Permits":
         live = [p for p in all_permits if p.get('status') in ("Issued", "Active")]
@@ -5360,9 +5498,12 @@ elif selected_section == "Handover":
             """, unsafe_allow_html=True)
             if not h.get('acknowledged') and can(role, "handover.acknowledge"):
                 if st.button("✅ Acknowledge Handover", key=f"ack_ho_{h['id']}"):
-                    acknowledge_handover(h['id'], full_name)
-                    st.success("Handover acknowledged.")
-                    st.rerun()
+                    if acknowledge_handover(h['id'], full_name):
+                        st.success("Handover acknowledged.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to acknowledge. Check Row Level Security "
+                                "on the shift_handovers table.")
 
     elif handover_sub == "New Handover":
         if require(role, "handover.create"):
@@ -5442,12 +5583,16 @@ elif selected_section == "Contractors":
                         new_ind = ccols[0].date_input("Induction expiry", key=f"ind_{c['id']}")
                         new_ins = ccols[1].date_input("Insurance expiry", key=f"ins_{c['id']}")
                         if ccols[2].button("💾 Save", key=f"csave_{c['id']}"):
-                            update_contractor(c['id'], {
+                            if update_contractor(c['id'], {
                                 "induction_expiry": new_ind.isoformat(),
                                 "insurance_expiry": new_ins.isoformat(),
-                            }, full_name)
-                            st.success("Contractor updated.")
-                            st.rerun()
+                            }, full_name):
+                                st.success("Contractor updated.")
+                                st.rerun()
+                            else:
+                                st.error("Save failed — compliance dates were NOT updated. "
+                                        "Check Row Level Security on the contractors table "
+                                        "before assuming this contractor's status is current.")
 
         elif contractor_sub == "Add Contractor":
             if require(role, "contractor.manage"):
@@ -5767,11 +5912,22 @@ elif selected_section == "Owner Console":
                             ok, err = approve_access(u['username'], _grant, full_name, _note or None)
                             if ok:
                                 if _provisioned_email:
-                                    supabase.table("facility_users").update({
+                                    _sync_res = supabase.table("facility_users").update({
                                         "email": _provisioned_email,
                                         "email_auto_provisioned": True,
                                         "workspace_provision_error": None,
                                     }).eq("username", u['username']).execute()
+                                    if not _sync_res.data:
+                                        # The Workspace mailbox WAS created (a real, billed
+                                        # seat) — only the app's record of its address failed
+                                        # to save. Losing track of that is worse than most
+                                        # instances of this bug class, since undoing it means
+                                        # manually checking the Workspace Admin Console.
+                                        st.error(f"⚠️ A Workspace mailbox was created at "
+                                                f"{_provisioned_email}, but saving that address "
+                                                f"to their profile failed (Row Level Security?). "
+                                                f"Check Workspace Admin Console — the mailbox "
+                                                f"exists even though it's not recorded here.")
                                 st.success(f"{u.get('full_name')} approved as {_grant}.")
                                 st.rerun()
                             else:
