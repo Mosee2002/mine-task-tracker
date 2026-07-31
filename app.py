@@ -1103,6 +1103,46 @@ def render_avatar_html(name):
     return (f'<div class="chat-avatar" style="--stat-color:var(--tone-{tone});'
             f'--stat-bg:var(--tone-{tone}-soft);">{initials}</div>')
 
+
+def selectbox_with_other(label, options, key_prefix, other_option="Other", help_text=None):
+    """A dropdown that lets the person type their own value when none of
+    the fixed options fit.
+
+    IMPORTANT — why this doesn't conditionally show/hide the text field:
+    every call site for this is inside st.form(...), and Streamlit forms
+    do not rerun the script when a widget inside them changes — only
+    st.form_submit_button() does. A "text box appears the instant you
+    pick Other" pattern would silently lag a full submit cycle behind
+    the actual selection, which is worse than not having it at all: the
+    person types their answer into a box that looks live but isn't.
+
+    Instead the companion text field is always visible, with a caption
+    making clear it only takes effect when the dropdown above is set to
+    other_option. This works correctly regardless of Streamlit's form
+    rerun behavior, at the minor cost of one always-present input.
+
+    Returns the single RESOLVED value — call sites don't need their own
+    "if choice == 'Other'" branch, they just get the final string back.
+    Only used for descriptive/display fields (category, type, etc.) —
+    never for a field that drives status logic, badge styling, or
+    analytics bucketing elsewhere in the app, since a free-typed value
+    there would silently fall outside whatever exact strings that logic
+    matches on.
+    """
+    opts = list(options)
+    if other_option not in opts:
+        opts.append(other_option)
+    choice = st.selectbox(label, opts, key=f"{key_prefix}_select", help=help_text)
+    custom = st.text_input(
+        f'If "{other_option}", specify',
+        key=f"{key_prefix}_custom",
+        placeholder=f'Only used when {label} above is set to "{other_option}"',
+    )
+    if choice == other_option:
+        custom = (custom or "").strip()
+        return custom if custom else other_option
+    return choice
+
 # -------------------------------
 # 2B. CENTRAL PERMISSION MATRIX
 # -------------------------------
@@ -4758,7 +4798,9 @@ elif selected_section == "Assets":
             with c1:
                 name = st.text_input("Asset Name *", max_chars=100)
                 asset_tag = st.text_input("Asset Tag / ID *", max_chars=50)
-                category = st.selectbox("Category", ["Heavy Equipment", "Fixed Plant", "Vehicle", "Electrical", "Hydraulic", "Conveyor", "Pump", "Other"])
+                category = selectbox_with_other("Category",
+                    ["Heavy Equipment", "Fixed Plant", "Vehicle", "Electrical",
+                     "Hydraulic", "Conveyor", "Pump"], key_prefix="asset_category")
                 location = st.text_input("Location / Area *", max_chars=100)
                 criticality = st.selectbox("Criticality", ["Low", "Medium", "High", "Critical"])
             with c2:
@@ -4847,7 +4889,9 @@ elif selected_section == "Inventory":
             with c1:
                 part_name = st.text_input("Part Name *", max_chars=100)
                 part_number = st.text_input("Part Number", max_chars=50)
-                category = st.selectbox("Category", ["Bearings", "Belts", "Filters", "Hydraulic", "Electrical", "Fasteners", "Seals", "Lubricants", "Other"])
+                category = selectbox_with_other("Category",
+                    ["Bearings", "Belts", "Filters", "Hydraulic", "Electrical",
+                     "Fasteners", "Seals", "Lubricants"], key_prefix="part_category")
                 supplier = st.text_input("Supplier", max_chars=100)
             with c2:
                 quantity_on_hand = st.number_input("Starting Quantity", min_value=0, value=0)
@@ -4961,7 +5005,9 @@ elif selected_section == "Incidents":
         st.markdown("### Submit New Incident Report")
         st.caption("Report near-misses, injuries, and hazards as soon as possible. All Critical/High severity reports notify supervisors immediately.")
         with st.form("new_incident_form"):
-            incident_type = st.selectbox("Incident Type", ["Near Miss", "Injury", "Property Damage", "Equipment Failure", "Environmental", "Hazard Observation", "Other"])
+            incident_type = selectbox_with_other("Incident Type",
+                ["Near Miss", "Injury", "Property Damage", "Equipment Failure",
+                 "Environmental", "Hazard Observation"], key_prefix="incident_type")
             severity = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"])
             location = st.text_input("Location / Area *", max_chars=100)
             assets_list = st.session_state.get("assets", [])
@@ -5074,9 +5120,10 @@ elif selected_section == "Permits":
                 with st.form("issue_permit_form"):
                     task_map = {f"#{t['id']} {t['title']}": t['id'] for t in open_tasks}
                     sel_task = st.selectbox("Task requiring the permit *", list(task_map.keys()))
-                    permit_type = st.selectbox("Permit Type", [
+                    permit_type = selectbox_with_other("Permit Type", [
                         "General Work Permit", "LOTO / Isolation", "Hot Work", "Confined Space",
-                        "Working at Height", "Excavation", "Electrical Isolation", "Live Line"])
+                        "Working at Height", "Excavation", "Electrical Isolation", "Live Line"],
+                        key_prefix="permit_type")
                     lock_tags = st.text_input("Lock / Tag Numbers *", placeholder="e.g. LT-1042, LT-1043")
                     isolation_points = st.text_area("Isolation Points *", placeholder="List each energy source isolated")
                     hazards = st.text_area("Hazards Identified *", placeholder="Stored energy, residual pressure, etc.")
