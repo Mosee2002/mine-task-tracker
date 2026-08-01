@@ -429,9 +429,16 @@ _CSS_BODY = """
    white/light surface rather than matching the navy gradient — a
    company logo needs to read on its own, not compete with the app's
    own branding color. Renders only when a logo is actually set (see
-   render_logo_bar()); no empty bar before one is uploaded. */
+   render_logo_bar()); no empty bar before one is uploaded.
+
+   Background is a HARDCODED white, not var(--bg-surface) — that
+   variable turns dark navy (#151d2e) in dark mode, which would make
+   any logo using dark text (including the generated app logo, which
+   uses navy) unreadable. Company logos are near-universally designed
+   assuming a white backdrop, so this bar deliberately opts out of the
+   dark theme rather than risk an invisible logo. */
 .logo-bar {
-    background: var(--bg-surface);
+    background: #ffffff;
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 0.7rem 1.2rem;
@@ -445,6 +452,43 @@ _CSS_BODY = """
     max-height: 56px;
     max-width: 100%;
     object-fit: contain;
+}
+
+/* ---------- Detail field grid ----------
+   Replaces the old "<p><i>Label:</i> value</p>" list style used on
+   incident and handover cards — a flat stack of italic labels reads
+   as dated. Each field becomes its own small card: colored accent bar
+   (reusing the tone system), an icon-labeled heading, then the value.
+   Scans as a real detail panel instead of a paragraph of labels. */
+.field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.6rem;
+    margin-top: 0.7rem;
+}
+.field-card {
+    background: var(--bg-surface-2);
+    border-left: 3px solid var(--stat-color, var(--accent));
+    border-radius: 8px;
+    padding: 0.55rem 0.8rem;
+}
+.field-card .field-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.045em;
+    color: var(--text-secondary);
+    margin-bottom: 0.2rem;
+}
+.field-card .field-label i { color: var(--stat-color, var(--accent)); }
+.field-card .field-value {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
 }
 
 /* ---------- Header ---------- */
@@ -1177,6 +1221,35 @@ def render_avatar_html(name):
     initials = esc(_person_initials(name))
     return (f'<div class="chat-avatar" style="--stat-color:var(--tone-{tone});'
             f'--stat-bg:var(--tone-{tone}-soft);">{initials}</div>')
+
+
+def render_field_grid(fields):
+    """Render a set of labeled detail fields as a proper grid instead
+    of the old '<p><i>Label:</i> value</p>' stack (still used before
+    this — see the incident and handover cards).
+
+    `fields` is a list of (icon, label, value, tone) tuples. Any field
+    whose value is empty/None is automatically skipped, so callers
+    don't need their own per-field `if x else ''` conditional — that
+    was the actual source of the old pattern's clutter.
+
+    Returns the HTML string rather than calling st.markdown directly,
+    since callers embed this inside a larger card block rather than
+    rendering it standalone.
+    """
+    items = [(icon, label, value, tone) for icon, label, value, tone in fields if value]
+    if not items:
+        return ""
+    parts = ['<div class="field-grid">']
+    for icon, label, value, tone in items:
+        parts.append(
+            f'<div class="field-card" style="--stat-color:var(--tone-{tone});">'
+            f'<div class="field-label"><i class="fas {icon}"></i>{esc(label)}</div>'
+            f'<div class="field-value">{esc(value)}</div>'
+            f'</div>'
+        )
+    parts.append('</div>')
+    return "".join(parts)
 
 
 def selectbox_with_other(label, options, key_prefix, other_option="Other", help_text=None):
@@ -4127,7 +4200,7 @@ if not st.session_state.authenticated:
         st.warning("**First-run setup.** The database has no administrator yet. "
                    "Create one now — this form disappears permanently once an "
                    "administrator exists.")
-        with st.form("bootstrap_admin"):
+        with st.form("bootstrap_admin", clear_on_submit=True):
             st.markdown("#### Create the first Superintendent account")
             _bs_user = st.text_input("Username", placeholder="e.g. amoses").strip().lower()
             _bs_name = st.text_input("Full Name", placeholder="Your full name")
@@ -4165,7 +4238,7 @@ if not st.session_state.authenticated:
                 # back into the app for that user.
                 expiry = _parse_dt(u.get("reset_token_expiry")) or datetime.now()
                 if expiry > datetime.now():
-                    with st.form("reset_password_form"):
+                    with st.form("reset_password_form", clear_on_submit=True):
                         st.markdown("### Reset Your Password")
                         new_pass = st.text_input("New Password", type="password")
                         if st.form_submit_button("Reset Password"):
@@ -4192,7 +4265,7 @@ if not st.session_state.authenticated:
             st.error("Invalid reset token.")
 
     # Normal login form
-    with st.form("login_form"):
+    with st.form("login_form", clear_on_submit=True):
         user_in = st.text_input("Username", placeholder="Enter your username").strip().lower()
         pass_in = st.text_input("Password", type="password", placeholder="Enter your password")
         login_submitted = st.form_submit_button('🔐 Authenticate Profile', use_container_width=True)
@@ -4243,7 +4316,7 @@ if not st.session_state.authenticated:
 
     # Forgot password link
     with st.expander("Forgot Password?"):
-        with st.form("reset_form"):
+        with st.form("reset_form", clear_on_submit=True):
             reset_email = st.text_input("Enter your registered email", placeholder="email@example.com")
             if st.form_submit_button("Send Reset Link"):
                 if not reset_email or "@" not in reset_email:
@@ -4274,7 +4347,7 @@ if not st.session_state.authenticated:
     st.markdown("---")
     st.markdown('<div class="sub-header"><i class="fas fa-user-plus"></i> Create Account Profile</div>', unsafe_allow_html=True)
 
-    with st.form("register_form"):
+    with st.form("register_form", clear_on_submit=True):
         st.caption("Submitting this creates an **access request**. An administrator "
                    "reviews it and decides your role — selecting a role below is a "
                    "request, not a grant.")
@@ -4331,7 +4404,7 @@ else:
         ''', unsafe_allow_html=True)
         st.warning("An administrator reset your password. Choose a new one to continue — "
                   "you won't be able to use the app until this is done.")
-        with st.form("forced_password_change"):
+        with st.form("forced_password_change", clear_on_submit=True):
             _fp1 = st.text_input("New Password", type="password")
             _fp2 = st.text_input("Confirm New Password", type="password")
             _fp_go = st.form_submit_button("Set New Password", use_container_width=True)
@@ -4709,7 +4782,7 @@ if selected_section == "Task Dashboard":
                     # Closing out work: capture the data the analytics depend on.
                     if new_status != task['status']:
                         if new_status == "Complete":
-                            with st.form(f"close_out_{task['id']}_{idx}"):
+                            with st.form(f"close_out_{task['id']}_{idx}", clear_on_submit=True):
                                 st.markdown("**Close-out details** — these feed the reliability and cost reports.")
                                 fc_options = ["(none)"] + [f"{k} — {v}" for k, v in FAILURE_CODES.items()]
                                 fc_sel = st.selectbox("Failure code (for breakdown work)", fc_options)
@@ -4739,10 +4812,16 @@ if selected_section == "Task Dashboard":
                                 st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
                         else:
                             st.caption("No comments yet.")
-                        new_comment = st.text_area("Add comment", key=f"comment_{task['id']}_{idx}", placeholder="Write comment...")
+                        _comment_val_key = f"_comment_val_{task['id']}_{idx}"
+                        if _comment_val_key not in st.session_state:
+                            st.session_state[_comment_val_key] = ""
+                        new_comment = st.text_area("Add comment", key=f"comment_{task['id']}_{idx}",
+                                                   value=st.session_state[_comment_val_key],
+                                                   placeholder="Write comment...")
                         if st.button("Post Comment", key=f"post_comment_{task['id']}_{idx}"):
                             if new_comment.strip():
                                 if add_comment(task['id'], new_comment, full_name):
+                                    st.session_state[_comment_val_key] = ""
                                     st.rerun()
                                 else:
                                     st.error("Failed to post comment.")
@@ -4888,10 +4967,16 @@ if selected_section == "Task Dashboard":
                             st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
                     else:
                         st.caption("No comments yet.")
-                    new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
+                    _comment_val_key = f"_comment_val_sup_{task['id']}"
+                    if _comment_val_key not in st.session_state:
+                        st.session_state[_comment_val_key] = ""
+                    new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}",
+                                               value=st.session_state[_comment_val_key],
+                                               placeholder="Write comment...")
                     if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
                         if new_comment.strip():
                             if add_comment(task['id'], new_comment, full_name):
+                                st.session_state[_comment_val_key] = ""
                                 st.rerun()
                             else:
                                 st.error("Failed to post comment.")
@@ -4924,7 +5009,7 @@ if selected_section == "Task Dashboard":
 
         elif supervisor_sub == "Create New Task":
             st.markdown("### Dispatch New Work Ticket")
-            with st.form("new_task_form"):
+            with st.form("new_task_form", clear_on_submit=True):
                 title = st.text_input("Task Title *", max_chars=100)
                 location = st.text_input("Location / Area *", max_chars=100)
                 priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
@@ -5110,10 +5195,16 @@ if selected_section == "Task Dashboard":
                             st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
                     else:
                         st.caption("No comments yet.")
-                    new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}", placeholder="Write comment...")
+                    _comment_val_key = f"_comment_val_sup_{task['id']}"
+                    if _comment_val_key not in st.session_state:
+                        st.session_state[_comment_val_key] = ""
+                    new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}",
+                                               value=st.session_state[_comment_val_key],
+                                               placeholder="Write comment...")
                     if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
                         if new_comment.strip():
                             if add_comment(task['id'], new_comment, full_name):
+                                st.session_state[_comment_val_key] = ""
                                 st.rerun()
                             else:
                                 st.error("Failed to post comment.")
@@ -5354,7 +5445,7 @@ elif selected_section == "Assets":
 
     elif asset_sub == "Add Asset":
         st.markdown("### Register New Asset")
-        with st.form("new_asset_form"):
+        with st.form("new_asset_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
                 name = st.text_input("Asset Name *", max_chars=100)
@@ -5445,7 +5536,7 @@ elif selected_section == "Inventory":
 
     elif inv_sub == "Add Part":
         st.markdown("### Add New Part to Inventory")
-        with st.form("new_part_form"):
+        with st.form("new_part_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
                 part_name = st.text_input("Part Name *", max_chars=100)
@@ -5480,7 +5571,7 @@ elif selected_section == "Inventory":
         elif not st.session_state.tasks:
             st.info("No tasks available to link parts to.")
         else:
-            with st.form("use_part_form"):
+            with st.form("use_part_form", clear_on_submit=True):
                 part_names = {f"{p['part_name']} ({p.get('part_number', 'N/A')}) - {p.get('quantity_on_hand', 0)} in stock": p['id'] for p in parts}
                 task_titles = {f"#{t['id']} {t['title']}": t['id'] for t in st.session_state.tasks}
                 selected_part_label = st.selectbox("Part", list(part_names.keys()))
@@ -5542,6 +5633,12 @@ elif selected_section == "Incidents":
             if inc.get('paper_ref_no'):
                 _meta_bits.append(f'<i class="fas fa-book"></i> Paper ref #{esc(inc["paper_ref_no"])}')
             _meta_line = (' &nbsp; ' + ' &nbsp; '.join(_meta_bits)) if _meta_bits else ''
+            _inc_fields = render_field_grid([
+                ("fa-bolt", "Immediate action", inc.get('immediate_action'), "warn"),
+                ("fa-lightbulb", "Reporter's suggestion", inc.get('reporter_suggestion'), "info"),
+                ("fa-magnifying-glass", "Root cause", inc.get('root_cause'), "neutral"),
+                ("fa-check", "Corrective action", inc.get('corrective_action'), "ok"),
+            ])
             st.markdown(f"""
             <div class="custom-card" style="border-left-color: #dc2626;">
                 <strong>#{inc['id']}: {esc(inc.get('incident_type'))}</strong>
@@ -5551,10 +5648,7 @@ elif selected_section == "Incidents":
                 <i class="fas fa-user"></i> Reported by {esc(inc.get('reported_by'))} &nbsp;
                 <i class="fas fa-clock"></i> {str(inc.get('created_at', ''))[:16]}{_meta_line}<br>
                 <p>{esc(inc.get('description'))}</p>
-                {f"<p><i>Immediate action:</i> {esc(inc.get('immediate_action'))}</p>" if inc.get('immediate_action') else ""}
-                {f"<p><i>Reporter's suggestion:</i> {esc(inc.get('reporter_suggestion'))}</p>" if inc.get('reporter_suggestion') else ""}
-                {f"<p><i>Root cause:</i> {esc(inc.get('root_cause'))}</p>" if inc.get('root_cause') else ""}
-                {f"<p><i>Corrective action:</i> {esc(inc.get('corrective_action'))}</p>" if inc.get('corrective_action') else ""}
+                {_inc_fields}
                 {f"<p><small>Acknowledged by {esc(inc.get('acknowledged_by'))} at {str(inc.get('acknowledged_at',''))[:16]}</small></p>" if inc.get('acknowledged_by') else ""}
             </div>
             """, unsafe_allow_html=True)
@@ -5595,7 +5689,7 @@ elif selected_section == "Incidents":
         # different department than the reporter's home one.
         _my_profile = next((u for u in fetch_all_users_from_db() if u.get("username") == username), {})
 
-        with st.form("new_incident_form"):
+        with st.form("new_incident_form", clear_on_submit=True):
             st.markdown("#### Report details")
             _rc1, _rc2 = st.columns(2)
             with _rc1:
@@ -5747,7 +5841,7 @@ elif selected_section == "Permits":
             if not open_tasks:
                 st.info("No open tasks to attach a permit to.")
             else:
-                with st.form("issue_permit_form"):
+                with st.form("issue_permit_form", clear_on_submit=True):
                     task_map = {f"#{t['id']} {t['title']}": t['id'] for t in open_tasks}
                     sel_task = st.selectbox("Task requiring the permit *", list(task_map.keys()))
                     permit_type = selectbox_with_other("Permit Type", [
@@ -5811,16 +5905,19 @@ elif selected_section == "Handover":
             ack_badge = ('<span class="verified-badge">ACKNOWLEDGED</span>' if h.get('acknowledged')
                          else '<span class="pending-badge">AWAITING ACK</span>')
             has_safety = bool((h.get('safety_concerns') or '').strip())
+            _ho_fields = render_field_grid([
+                ("fa-check", "Completed", h.get('work_completed') or "—", "ok"),
+                ("fa-hourglass-half", "Outstanding", h.get('work_outstanding') or "—", "warn"),
+                ("fa-triangle-exclamation", "Safety concerns", h.get('safety_concerns'), "danger"),
+                ("fa-screwdriver-wrench", "Equipment status", h.get('equipment_status') or "—", "neutral"),
+            ])
             st.markdown(f"""
             <div class="custom-card" style="border-left-color: {'#dc2626' if has_safety else '#0f3460'};">
                 <strong>{esc(h.get('shift'))} — {esc(h.get('crew') or 'No crew')}</strong> {ack_badge}<br>
                 <small><i class="fas fa-sign-out-alt"></i> Out: {esc(h.get('outgoing_supervisor'))}
                 &nbsp;<i class="fas fa-sign-in-alt"></i> In: {esc(h.get('incoming_supervisor') or 'TBA')}
                 &nbsp;<i class="fas fa-clock"></i> {str(h.get('created_at',''))[:16]}</small>
-                <p><b>Completed:</b> {esc(h.get('work_completed') or '—')}</p>
-                <p><b>Outstanding:</b> {esc(h.get('work_outstanding') or '—')}</p>
-                {f"<p style='color:#dc2626;'><b>⚠️ Safety concerns:</b> {esc(h.get('safety_concerns'))}</p>" if has_safety else ""}
-                <p><b>Equipment status:</b> {esc(h.get('equipment_status') or '—')}</p>
+                {_ho_fields}
                 {f"<small>Acknowledged by {esc(h.get('acknowledged_by'))} at {str(h.get('acknowledged_at',''))[:16]}</small>" if h.get('acknowledged') else ""}
             </div>
             """, unsafe_allow_html=True)
@@ -5840,7 +5937,7 @@ elif selected_section == "Handover":
             supervisor_names = [u['full_name'] for u in all_users_ho
                                 if u['role'].strip().lower() in ('supervisor', 'superintendent')
                                 and u.get('is_approved') and u['full_name'] != full_name]
-            with st.form("handover_form"):
+            with st.form("handover_form", clear_on_submit=True):
                 shift = st.selectbox("Shift", ["Day Shift", "Night Shift", "Swing Shift", "Weekend Day", "Weekend Night"])
                 crew = st.text_input("Crew / Team", max_chars=100)
                 incoming = st.selectbox("Incoming Supervisor", ["TBA"] + supervisor_names)
@@ -5924,7 +6021,7 @@ elif selected_section == "Contractors":
 
         elif contractor_sub == "Add Contractor":
             if require(role, "contractor.manage"):
-                with st.form("contractor_form"):
+                with st.form("contractor_form", clear_on_submit=True):
                     c1, c2 = st.columns(2)
                     with c1:
                         company_name = st.text_input("Company Name *", max_chars=150)
@@ -6504,7 +6601,7 @@ elif selected_section == "Owner Console":
         else:
             st.success(f"SMTP configured: `{esc(_secret_get('SMTP_SERVER'))}` as "
                       f"`{esc(_secret_get('SMTP_USER'))}`.")
-            with st.form("email_health_check"):
+            with st.form("email_health_check", clear_on_submit=True):
                 _test_to = st.text_input("Send a test email to",
                                         value=_secret_get("SMTP_FROM", ""))
                 _test_go = st.form_submit_button("📤 Send test email")
@@ -6541,7 +6638,7 @@ elif selected_section == "Owner Console":
                       f"impersonating `{esc(_secret_get('GOOGLE_WORKSPACE_ADMIN_EMAIL'))}`.")
             _provisioned_count = sum(1 for u in _all if u.get("email_auto_provisioned"))
             st.metric("Mailboxes auto-created by this app", _provisioned_count)
-            with st.form("workspace_health_check"):
+            with st.form("workspace_health_check", clear_on_submit=True):
                 st.caption("Verifies the service account can authenticate and call the "
                           "Directory API — does NOT create a test mailbox.")
                 _wc_go = st.form_submit_button("🔎 Test Workspace connection")
@@ -6882,7 +6979,7 @@ elif selected_section == "Feedback":
 
     elif fb_sub == "Submit Suggestion":
         st.markdown("### Submit a New Suggestion")
-        with st.form("new_feedback_form"):
+        with st.form("new_feedback_form", clear_on_submit=True):
             fb_title = st.text_input("Title *", max_chars=150,
                                      placeholder="e.g. 'Add offline mode for underground areas'")
             fb_category = selectbox_with_other("Category", FEEDBACK_CATEGORIES,
