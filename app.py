@@ -491,6 +491,40 @@ _CSS_BODY = """
     overflow-wrap: anywhere;
 }
 
+/* ---------- Meta chips ----------
+   Replaces a long inline run like "icon text &nbsp; icon text &nbsp;
+   icon text..." — on a narrow screen that wraps mid-fact with no
+   visual boundary between one piece of metadata and the next (see
+   the incident card on mobile). Each fact becomes its own pill, so
+   wrapping happens BETWEEN facts, never inside one. Two tones only,
+   deliberately grouped by meaning rather than one-color-per-field:
+   "info" for who/organizational-identity facts (reporter, employee
+   ID, department), "neutral" for when/where/reference facts
+   (location, time, shift, paper ref) — enough to let the eye group
+   related facts without turning the row into a rainbow. */
+.meta-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin: 0.55rem 0;
+}
+.meta-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: var(--stat-bg, var(--bg-surface-2));
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.28rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    white-space: nowrap;
+}
+.meta-chip i {
+    color: var(--stat-color, var(--text-secondary));
+    font-size: 0.78rem;
+}
+
 /* ---------- Header ---------- */
 .main-header {
     background: linear-gradient(135deg, #16213e 0%, #1b2b52 55%, #143a63 100%);
@@ -1247,6 +1281,30 @@ def render_field_grid(fields):
             f'<div class="field-label"><i class="fas {icon}"></i>{esc(label)}</div>'
             f'<div class="field-value">{esc(value)}</div>'
             f'</div>'
+        )
+    parts.append('</div>')
+    return "".join(parts)
+
+
+def render_meta_chips(chips):
+    """Render a set of small metadata facts (location, reporter, time,
+    etc.) as wrapping pill chips instead of one long inline text run
+    joined by '&nbsp;' — on a narrow screen that run wraps mid-fact
+    with no visual boundary between one piece of info and the next.
+
+    `chips` is a list of (icon, text, tone) tuples. Empty/None text is
+    skipped automatically. Returns an HTML string for embedding inside
+    a larger card, same convention as render_field_grid.
+    """
+    items = [(icon, text, tone) for icon, text, tone in chips if text]
+    if not items:
+        return ""
+    parts = ['<div class="meta-chips">']
+    for icon, text, tone in items:
+        parts.append(
+            f'<span class="meta-chip" style="--stat-color:var(--tone-{tone});'
+            f'--stat-bg:var(--tone-{tone}-soft);">'
+            f'<i class="fas {icon}"></i>{esc(text)}</span>'
         )
     parts.append('</div>')
     return "".join(parts)
@@ -5623,16 +5681,15 @@ elif selected_section == "Incidents":
                 st.download_button("Download CSV", data=csv, file_name="incidents_export.csv", mime="text/csv", key="dl_incidents_csv")
         for inc in visible:
             sev_class = f"severity-{inc.get('severity', 'Low')}"
-            _meta_bits = []
-            if inc.get('department'):
-                _meta_bits.append(f'<i class="fas fa-building"></i> {esc(inc["department"])}')
-            if inc.get('shift'):
-                _meta_bits.append(f'<i class="fas fa-clock-rotate-left"></i> {esc(inc["shift"])}')
-            if inc.get('reporter_id_no'):
-                _meta_bits.append(f'<i class="fas fa-id-card"></i> ID {esc(inc["reporter_id_no"])}')
-            if inc.get('paper_ref_no'):
-                _meta_bits.append(f'<i class="fas fa-book"></i> Paper ref #{esc(inc["paper_ref_no"])}')
-            _meta_line = (' &nbsp; ' + ' &nbsp; '.join(_meta_bits)) if _meta_bits else ''
+            _meta_chips_html = render_meta_chips([
+                ("fa-map-marker-alt", inc.get('location'), "neutral"),
+                ("fa-user", f"Reported by {inc.get('reported_by')}" if inc.get('reported_by') else None, "info"),
+                ("fa-clock", _fmt_log_time(inc.get('created_at')), "neutral"),
+                ("fa-building", inc.get('department'), "info"),
+                ("fa-clock-rotate-left", inc.get('shift'), "neutral"),
+                ("fa-id-card", f"ID {inc['reporter_id_no']}" if inc.get('reporter_id_no') else None, "info"),
+                ("fa-book", f"Paper ref #{inc['paper_ref_no']}" if inc.get('paper_ref_no') else None, "neutral"),
+            ])
             _inc_fields = render_field_grid([
                 ("fa-bolt", "Immediate action", inc.get('immediate_action'), "warn"),
                 ("fa-lightbulb", "Reporter's suggestion", inc.get('reporter_suggestion'), "info"),
@@ -5643,10 +5700,8 @@ elif selected_section == "Incidents":
             <div class="custom-card" style="border-left-color: #dc2626;">
                 <strong>#{inc['id']}: {esc(inc.get('incident_type'))}</strong>
                 <span class="severity-badge {sev_class}">{esc(inc.get('severity', 'Low'))}</span>
-                <span class="status-badge status-{esc(inc.get('status', 'Open')).replace(' ', '')}">{esc(inc.get('status', 'Open'))}</span><br>
-                <i class="fas fa-map-marker-alt"></i> {esc(inc.get('location'))} &nbsp;
-                <i class="fas fa-user"></i> Reported by {esc(inc.get('reported_by'))} &nbsp;
-                <i class="fas fa-clock"></i> {str(inc.get('created_at', ''))[:16]}{_meta_line}<br>
+                <span class="status-badge status-{esc(inc.get('status', 'Open')).replace(' ', '')}">{esc(inc.get('status', 'Open'))}</span>
+                {_meta_chips_html}
                 <p>{esc(inc.get('description'))}</p>
                 {_inc_fields}
                 {f"<p><small>Acknowledged by {esc(inc.get('acknowledged_by'))} at {str(inc.get('acknowledged_at',''))[:16]}</small></p>" if inc.get('acknowledged_by') else ""}
@@ -5905,6 +5960,11 @@ elif selected_section == "Handover":
             ack_badge = ('<span class="verified-badge">ACKNOWLEDGED</span>' if h.get('acknowledged')
                          else '<span class="pending-badge">AWAITING ACK</span>')
             has_safety = bool((h.get('safety_concerns') or '').strip())
+            _ho_meta_chips = render_meta_chips([
+                ("fa-sign-out-alt", f"Out: {h.get('outgoing_supervisor')}" if h.get('outgoing_supervisor') else None, "info"),
+                ("fa-sign-in-alt", f"In: {h.get('incoming_supervisor')}" if h.get('incoming_supervisor') else "In: TBA", "info"),
+                ("fa-clock", _fmt_log_time(h.get('created_at')), "neutral"),
+            ])
             _ho_fields = render_field_grid([
                 ("fa-check", "Completed", h.get('work_completed') or "—", "ok"),
                 ("fa-hourglass-half", "Outstanding", h.get('work_outstanding') or "—", "warn"),
@@ -5913,10 +5973,8 @@ elif selected_section == "Handover":
             ])
             st.markdown(f"""
             <div class="custom-card" style="border-left-color: {'#dc2626' if has_safety else '#0f3460'};">
-                <strong>{esc(h.get('shift'))} — {esc(h.get('crew') or 'No crew')}</strong> {ack_badge}<br>
-                <small><i class="fas fa-sign-out-alt"></i> Out: {esc(h.get('outgoing_supervisor'))}
-                &nbsp;<i class="fas fa-sign-in-alt"></i> In: {esc(h.get('incoming_supervisor') or 'TBA')}
-                &nbsp;<i class="fas fa-clock"></i> {str(h.get('created_at',''))[:16]}</small>
+                <strong>{esc(h.get('shift'))} — {esc(h.get('crew') or 'No crew')}</strong> {ack_badge}
+                {_ho_meta_chips}
                 {_ho_fields}
                 {f"<small>Acknowledged by {esc(h.get('acknowledged_by'))} at {str(h.get('acknowledged_at',''))[:16]}</small>" if h.get('acknowledged') else ""}
             </div>
