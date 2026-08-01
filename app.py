@@ -424,6 +424,29 @@ _CSS_BODY = """
     color: var(--accent-contrast);
 }
 
+/* ---------- Company logo bar ----------
+   Sits above the app's own navy header, deliberately in a neutral
+   white/light surface rather than matching the navy gradient — a
+   company logo needs to read on its own, not compete with the app's
+   own branding color. Renders only when a logo is actually set (see
+   render_logo_bar()); no empty bar before one is uploaded. */
+.logo-bar {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0.7rem 1.2rem;
+    margin-bottom: 0.8rem;
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.logo-bar img {
+    max-height: 56px;
+    max-width: 100%;
+    object-fit: contain;
+}
+
 /* ---------- Header ---------- */
 .main-header {
     background: linear-gradient(135deg, #16213e 0%, #1b2b52 55%, #143a63 100%);
@@ -3641,6 +3664,97 @@ FEEDBACK_CATEGORIES = ["Feature Request", "Bug Report", "UI/UX Improvement", "Pe
 FEEDBACK_STATUSES = ["New", "Under Review", "Planned", "Implemented", "Declined"]
 
 
+# =====================================================================
+# BRANDING / COMPANY LOGO
+# =====================================================================
+def fetch_branding():
+    """Returns the current logo URL, or None if none has been set."""
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("branding_logo_url")
+    try:
+        res = supabase.table("app_branding").select("*").order("id", desc=True).limit(1).execute()
+        if res.data:
+            return res.data[0].get("logo_url")
+        return None
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_branding")
+        return None
+
+
+def upload_logo(file_bytes, filename, uploaded_by):
+    """Upload a company logo. Reuses validate_image (same rules as
+    task proof-of-work photos) since a logo is an image, not a generic
+    attachment. Stored in the public 'branding' bucket — logos aren't
+    sensitive, same reasoning already applied to task photos."""
+    valid, msg = validate_image(file_bytes, filename)
+    if not valid:
+        st.error(msg)
+        return False
+
+    if not SUPABASE_AVAILABLE:
+        st.session_state["branding_logo_url"] = f"memory://{filename}"
+        log_audit(uploaded_by, "logo_upload_memory", {"filename": filename})
+        return True
+
+    try:
+        ext = filename.split(".")[-1].lower()
+        safe_name = f"logo_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
+        storage_res = supabase.storage.from_("branding").upload(safe_name, file_bytes)
+        if not storage_res:
+            log_error("Storage upload returned a falsy result", endpoint="upload_logo")
+            return False
+        public_url = supabase.storage.from_("branding").get_public_url(safe_name)
+
+        res = supabase.table("app_branding").insert({
+            "logo_url": public_url,
+            "uploaded_by": uploaded_by,
+        }).execute()
+        if not res.data:
+            log_error("app_branding insert affected 0 rows — likely RLS blocking writes. "
+                     "The file reached Storage but has no metadata row.",
+                     endpoint="upload_logo")
+            return False
+        log_audit(uploaded_by, "logo_upload", {"url": public_url})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="upload_logo")
+        return False
+
+
+def remove_logo(removed_by):
+    """Clears the logo by inserting a row with logo_url=None — keeps
+    history (who uploaded/removed what, when) rather than deleting
+    rows, consistent with how this app treats audit trails elsewhere."""
+    if not SUPABASE_AVAILABLE:
+        st.session_state["branding_logo_url"] = None
+        return True
+    try:
+        res = supabase.table("app_branding").insert({
+            "logo_url": None,
+            "uploaded_by": removed_by,
+        }).execute()
+        if not res.data:
+            return False
+        log_audit(removed_by, "logo_remove", {})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="remove_logo")
+        return False
+
+
+def render_logo_bar():
+    """A slim bar above the main header showing the company logo, if
+    one is configured. Renders nothing at all when no logo is set, so
+    it doesn't add empty visual clutter before anyone uploads one."""
+    logo_url = fetch_branding()
+    if not logo_url or logo_url.startswith("memory://"):
+        return
+    st.markdown(
+        f'<div class="logo-bar"><img src="{esc(logo_url)}" alt="Company logo"></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def fetch_all_feedback():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("feedback_memory", [])
@@ -3949,6 +4063,8 @@ if 'feedback_memory' not in st.session_state:
     st.session_state.feedback_memory = []
 if 'feedback_votes_memory' not in st.session_state:
     st.session_state.feedback_votes_memory = []
+if 'branding_logo_url' not in st.session_state:
+    st.session_state.branding_logo_url = None
 
 # -------------------------------
 # 22. SESSION TIMEOUT CHECK
@@ -3977,6 +4093,7 @@ def google_oauth():
 # 24. AUTHENTICATION GATEWAY
 # -------------------------------
 if not st.session_state.authenticated:
+    render_logo_bar()
     st.markdown('''
     <div class="main-header">
         <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
@@ -4206,6 +4323,7 @@ else:
     # is not enough, since the person who set it (the admin) would
     # otherwise still know the account's live password afterward.
     if st.session_state.user_payload.get("must_change_password"):
+        render_logo_bar()
         st.markdown('''
         <div class="main-header">
             <i class="fas fa-key"></i> Password Change Required
@@ -4296,6 +4414,7 @@ user_email = user.get('email', None)
 avatar_url = user.get('avatar_url', None)
 
 # Modern header
+render_logo_bar()
 st.markdown('''
 <div class="main-header">
     <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
@@ -6316,6 +6435,38 @@ elif selected_section == "Owner Console":
 
     # ---------- SETTINGS ----------
     elif owner_sub == "Settings":
+        st.markdown("### 🏢 Company Logo")
+        st.caption("Shown as a bar above the header on every screen, including the login page. "
+                  "Leave empty and nothing extra is shown — the app looks exactly as it does now.")
+
+        if not SUPABASE_AVAILABLE:
+            st.warning("No database connected — a logo can be uploaded here but won't actually "
+                      "persist or display, since there's nowhere real to store the file in demo mode.")
+
+        _current_logo = fetch_branding()
+        if _current_logo and not _current_logo.startswith("memory://"):
+            st.image(_current_logo, width=240, caption="Current logo")
+            if st.button("🗑️ Remove logo"):
+                if remove_logo(full_name):
+                    st.success("Logo removed.")
+                    st.rerun()
+                else:
+                    st.error("Failed to remove logo. Check Row Level Security on app_branding.")
+        else:
+            st.caption("No logo set yet.")
+
+        _logo_file = st.file_uploader("Upload a logo", type=["jpg", "jpeg", "png", "gif", "webp"],
+                                      key="logo_uploader")
+        if _logo_file is not None:
+            if st.button("📤 Set as company logo"):
+                _bytes = _logo_file.getvalue()
+                if upload_logo(_bytes, _logo_file.name, full_name):
+                    st.success("Logo updated.")
+                    st.rerun()
+                else:
+                    st.error("Upload failed.")
+
+        st.markdown("---")
         st.markdown("### Ownership")
         st.info(f"Owner account: **`{esc(OWNER_USERNAME)}`**\n\n"
                 "This is read from `OWNER_USERNAME` in `.streamlit/secrets.toml`. "
