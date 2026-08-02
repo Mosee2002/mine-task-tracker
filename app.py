@@ -199,6 +199,40 @@ else:
     _diag["client_created"] = False
     _diag.setdefault("client_error", "not attempted")
 
+# -------------------------------
+# 0D. SUPABASE ADMIN CLIENT (Phase 2 of the Auth migration only)
+# -------------------------------
+# Uses the service_role key, NOT the anon key — a far more privileged
+# credential that bypasses Row Level Security entirely and can create/
+# delete Auth accounts. Deliberately isolated: this client is used in
+# exactly one place in the whole codebase (provision_auth_accounts, in
+# the Owner Console's Auth Migration tab) and nowhere else. Everything
+# else in the app continues using the ordinary anon-key `supabase`
+# client above.
+#
+# Entirely optional. If SUPABASE_SERVICE_ROLE_KEY isn't set, Phase 2
+# provisioning simply isn't available yet — no startup warning banner,
+# since most people using this app day-to-day have no reason to know
+# this key exists at all. The explanation surfaces only inside the
+# Owner Console screen where it's actually relevant.
+SUPABASE_SERVICE_ROLE_KEY = _secret_get("SUPABASE_SERVICE_ROLE_KEY")
+supabase_admin = None
+SUPABASE_ADMIN_AVAILABLE = False
+_diag["admin_client_error"] = None
+if _diag.get("library_installed") and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    try:
+        supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        SUPABASE_ADMIN_AVAILABLE = True
+    except Exception as _e:
+        SUPABASE_ADMIN_AVAILABLE = False
+        # NOTE: log_error() is not yet defined at this point in the file
+        # (it's Section 3, much later) — calling it here would crash the
+        # entire app at startup for every user the moment this branch is
+        # hit, not just the Owner. Stored in _diag instead, following the
+        # exact same pattern the main anon-key client above already uses
+        # for its own connection errors at this same point in the file.
+        _diag["admin_client_error"] = f"{type(_e).__name__}: {_e}"
+
 # Theme toggle
 if 'dark_mode' not in st.session_state:
     st.session_state.dark_mode = False
@@ -242,6 +276,21 @@ LIGHT_TOKENS = """
     --accent-contrast: #ffffff;
     --accent-soft: #e6ecfb;
 
+    /* Brand colors sampled directly from the company's marketing
+       material (poster: "WORK SMARTER. STAY SAFER. DELIVER MORE.").
+       Theme-invariant by design — a brand identity shouldn't shift
+       between light/dark mode, same reasoning already applied to the
+       logo bar's fixed-white background.
+       IMPORTANT: --brand-lime fails WCAG contrast as text on white
+       (1.84:1, needs 4.5:1) — verified by computing the actual
+       relative-luminance contrast ratio, not assumed. It is safe as
+       a BACKGROUND with dark navy text/icons on top (9.9:1), or as an
+       accent ON TOP of dark navy backgrounds (8.6–9.9:1) — exactly
+       how the source poster itself uses it. Never use it as body text
+       or link color on a light surface. */
+    --brand-lime: #b9c901;
+    --brand-navy: #001530;
+
     /* Stat-card tones — deliberately the SAME hex values already used by
        priority/status/severity badges elsewhere in the app (see the
        .priority-*, .status-*, .severity-* rules below). New components
@@ -277,6 +326,12 @@ DARK_TOKENS = """
     --accent-hover: #a3caff;
     --accent-contrast: #0b1220;
     --accent-soft: #1e2f4d;
+
+    /* Brand colors — identical to LIGHT_TOKENS, deliberately not
+       theme-adaptive. See LIGHT_TOKENS for the contrast-verification
+       notes on where --brand-lime is and isn't safe to use. */
+    --brand-lime: #b9c901;
+    --brand-navy: #001530;
 
     --tone-info: #7cb3ff;    --tone-info-soft: #16233f;
     --tone-ok: #34d399;      --tone-ok-soft: #0f2e21;
@@ -440,6 +495,7 @@ _CSS_BODY = """
 .logo-bar {
     background: #ffffff;
     border: 1px solid var(--border);
+    border-top: 3px solid var(--brand-lime);
     border-radius: 14px;
     padding: 0.7rem 1.2rem;
     margin-bottom: 0.8rem;
@@ -452,6 +508,89 @@ _CSS_BODY = """
     max-height: 56px;
     max-width: 100%;
     object-fit: contain;
+}
+
+/* ---------- Announcement ticker ----------
+   Sits between the logo bar and the main header. Unlike the logo bar,
+   this uses normal theme variables rather than a forced white
+   background — it's native app text, not an uploaded image with
+   fixed colors, so there's no reason to opt out of dark mode here.
+
+   The scroll direction is deliberately LEFT-TO-RIGHT (content enters
+   from the left, exits to the right) — translateX(-100%) starts the
+   content just off-screen to the left (shifted left by its own full
+   width), animating to translateX(100%) which ends it just off-screen
+   to the right. Respects prefers-reduced-motion (WCAG 2.2.2 — content
+   that moves continuously for more than 5 seconds needs a way to
+   stop), and pauses on hover so anyone who wants to actually read it
+   can.
+
+   Background is the brand navy with lime text — deliberately NOT
+   using theme variables here, unlike before. This bar is inherently
+   promotional (announcements, notices), and matches the source
+   marketing poster's own "DOWNLOAD NOW" banner treatment far more
+   honestly than a neutral theme-surface background would. Verified
+   9.93:1 contrast for lime-on-navy — comfortably above the 4.5:1 AA
+   threshold, not just eyeballed. */
+.ticker-bar {
+    overflow: hidden;
+    white-space: nowrap;
+    background: var(--brand-navy);
+    border: 1px solid var(--brand-navy);
+    border-radius: 14px;
+    padding: 0.55rem 0;
+    margin-bottom: 0.8rem;
+    box-shadow: var(--shadow-sm);
+}
+.ticker-content {
+    display: inline-block;
+    white-space: nowrap;
+    font-weight: 650;
+    font-size: 0.88rem;
+    color: var(--brand-lime);
+    transform: translateX(-100%);
+    animation: ticker-scroll-ltr 22s linear infinite;
+}
+.ticker-bar:hover .ticker-content {
+    animation-play-state: paused;
+}
+@keyframes ticker-scroll-ltr {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ticker-content {
+        animation: none;
+        transform: none;
+        padding-left: 1rem;
+    }
+    .ticker-bar { overflow-x: auto; }
+}
+
+/* ---------- Poster slideshow ----------
+   Base styles live here (static, always loaded) rather than solely in
+   the per-render inline <style> block — the multi-image crossfade
+   needs per-render generation since keyframe timing depends on how
+   many posters are active, but the single-image path was skipping
+   that block entirely and rendering completely unstyled. Base sizing/
+   positioning here means both paths are always styled correctly. */
+.poster-slideshow {
+    position: relative;
+    width: 100%;
+    height: 220px;
+    border-radius: 14px;
+    overflow: hidden;
+    margin-bottom: 0.8rem;
+    box-shadow: var(--shadow-md);
+}
+.poster-slide {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    object-fit: cover;
+}
+.poster-slide-solo {
+    opacity: 1;
 }
 
 /* ---------- Detail field grid ----------
@@ -527,7 +666,7 @@ _CSS_BODY = """
 
 /* ---------- Header ---------- */
 .main-header {
-    background: linear-gradient(135deg, #16213e 0%, #1b2b52 55%, #143a63 100%);
+    background: linear-gradient(135deg, var(--brand-navy) 0%, #051d3f 55%, var(--brand-navy) 100%);
     color: #ffffff;
     padding: 1.25rem 1.6rem;
     border-radius: 14px;
@@ -537,8 +676,9 @@ _CSS_BODY = """
     font-weight: 800;
     line-height: 1.25;       /* the actual cause of the clipped title */
     letter-spacing: -0.01em;
+    border-bottom: 3px solid var(--brand-lime);
 }
-.main-header i { color: #7cb3ff; margin-right: 10px; }
+.main-header i { color: var(--brand-lime); margin-right: 10px; }
 .main-header small {
     display: block;
     margin-top: 6px;
@@ -1803,6 +1943,108 @@ def run_auth_email_backfill(usernames_to_migrate, performed_by):
             failures.append((username, "write failed — check Row Level Security"))
     log_audit(performed_by, "auth_email_backfill", {
         "requested": len(usernames_to_migrate), "succeeded": success, "failed": len(failures)
+    })
+    return success, failures
+
+
+# =====================================================================
+# SUPABASE AUTH MIGRATION — PHASE 2 (provision real Auth accounts)
+# =====================================================================
+# See MIGRATION_PLAN.md. Still non-disruptive — these accounts exist
+# in parallel with the old bcrypt login, which keeps working exactly
+# as before until Phase 4 explicitly switches login over. Nobody is
+# forced onto a new account by anything in this phase.
+def preview_auth_provisioning():
+    """Everyone with an auth_email (Phase 1 output) but no
+    auth_user_id yet — i.e. mapped, but no real Supabase Auth account
+    created for them. Read-only; creates nothing."""
+    users = fetch_all_users_from_db()
+    return [u for u in users if u.get("auth_email") and not u.get("auth_user_id")]
+
+
+def provision_auth_accounts(usernames_to_provision, performed_by):
+    """Creates a real Supabase Auth account for each given username,
+    via the Admin API (requires supabase_admin — the service_role/
+    secret-key client, never the ordinary anon-key one). Returns
+    (success_count, failures) — failures is a list of (username,
+    reason), same convention as run_auth_email_backfill.
+
+    email_confirm=True is set at creation time deliberately, rather
+    than relying on a project-wide 'disable email confirmation'
+    setting — this marks only THESE synthetic-address accounts as
+    pre-confirmed without touching how confirmation works for anyone
+    who later signs up with a real, genuinely unconfirmed email.
+
+    Idempotent in the sense that matters: if an account with this
+    email already exists in Supabase Auth (e.g. a retry after a
+    partial previous run), that specific user is reported as a
+    failure with a clear reason rather than guessed-at and silently
+    re-linked — linking the wrong Auth account to the wrong person is
+    exactly the kind of mistake that should require a human to look
+    at it, not code that assumes it knows best.
+    """
+    if not SUPABASE_ADMIN_AVAILABLE:
+        return 0, [("(all)", "Admin client not configured — "
+                   "SUPABASE_SERVICE_ROLE_KEY is missing. See MIGRATION_PLAN.md Phase 2.")]
+
+    users = {u["username"]: u for u in fetch_all_users_from_db()}
+    success, failures = 0, []
+    for username in usernames_to_provision:
+        u = users.get(username)
+        if not u:
+            failures.append((username, "user not found"))
+            continue
+        if u.get("auth_user_id"):
+            failures.append((username, "already provisioned — skipped"))
+            continue
+        auth_email = u.get("auth_email")
+        if not auth_email:
+            failures.append((username, "no auth_email set — run Phase 1 backfill first"))
+            continue
+
+        temp_password = secrets.token_urlsafe(24)
+        try:
+            res = supabase_admin.auth.admin.create_user({
+                "email": auth_email,
+                "password": temp_password,
+                "email_confirm": True,
+            })
+            new_user = getattr(res, "user", None)
+            new_uuid = getattr(new_user, "id", None) if new_user else None
+            if not new_uuid:
+                failures.append((username, "Admin API returned no user ID — unexpected response shape"))
+                continue
+        except Exception as e:
+            msg = str(e)
+            if "already" in msg.lower() or "registered" in msg.lower() or "exists" in msg.lower():
+                failures.append((username, f"an Auth account for {auth_email} already exists — "
+                               "not auto-linked; verify by hand in the Supabase dashboard "
+                               "(Authentication > Users) before deciding how to proceed"))
+            else:
+                log_error(msg, details={"username": username, "auth_email": auth_email},
+                         endpoint="provision_auth_accounts")
+                failures.append((username, f"Admin API error: {msg[:120]}"))
+            continue
+
+        linked = update_user_profile(username, {
+            "auth_user_id": new_uuid,
+            "auth_migrated_at": datetime.now().isoformat(),
+            "must_change_password": True,
+        })
+        if not linked:
+            # The Auth account now genuinely exists even though this
+            # specific write failed — surfaced distinctly so it's clear
+            # this isn't "nothing happened", it's "half happened".
+            failures.append((username, f"Auth account created (id {new_uuid}) but linking it back to "
+                           "facility_users failed — check Row Level Security, then link auth_user_id "
+                           "manually rather than re-running (re-running would try to create a second "
+                           "Auth account for the same email and fail)."))
+            continue
+
+        success += 1
+
+    log_audit(performed_by, "auth_provisioning", {
+        "requested": len(usernames_to_provision), "succeeded": success, "failed": len(failures)
     })
     return success, failures
 
@@ -3988,6 +4230,270 @@ def render_logo_bar():
     )
 
 
+def fetch_active_posters():
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("posters_memory", [])
+    try:
+        res = (supabase.table("app_posters").select("*")
+              .eq("is_active", True).order("display_order", desc=False).execute())
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_active_posters")
+        return []
+
+
+def fetch_all_posters():
+    """Includes inactive ones too — for the management list."""
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("posters_memory", [])
+    try:
+        res = supabase.table("app_posters").select("*").order("display_order", desc=False).execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_all_posters")
+        return []
+
+
+def upload_poster(file_bytes, filename, uploaded_by):
+    """Upload a promotional poster image. Same validation and storage
+    pattern as upload_logo — public 'posters' bucket, since these are
+    marketing material, not sensitive data."""
+    valid, msg = validate_image(file_bytes, filename)
+    if not valid:
+        st.error(msg)
+        return False
+    if not SUPABASE_AVAILABLE:
+        rows = st.session_state.setdefault("posters_memory", [])
+        rows.append({"id": max([r.get("id", 0) for r in rows], default=0) + 1,
+                    "image_url": f"memory://{filename}", "is_active": True,
+                    "display_order": len(rows)})
+        return True
+    try:
+        ext = filename.split(".")[-1].lower()
+        safe_name = f"poster_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hashlib.md5(file_bytes).hexdigest()[:8]}.{ext}"
+        storage_res = supabase.storage.from_("posters").upload(safe_name, file_bytes)
+        if not storage_res:
+            log_error("Storage upload returned a falsy result", endpoint="upload_poster")
+            return False
+        public_url = supabase.storage.from_("posters").get_public_url(safe_name)
+        existing = fetch_all_posters()
+        next_order = max([p.get("display_order", 0) for p in existing], default=-1) + 1
+        res = supabase.table("app_posters").insert({
+            "image_url": public_url, "uploaded_by": uploaded_by,
+            "display_order": next_order,
+        }).execute()
+        if not res.data:
+            log_error("app_posters insert affected 0 rows — likely RLS blocking writes. "
+                     "The file reached Storage but has no metadata row.",
+                     endpoint="upload_poster")
+            return False
+        log_audit(uploaded_by, "poster_upload", {"url": public_url})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="upload_poster")
+        return False
+
+
+def set_poster_active(poster_id, active, updated_by):
+    if not SUPABASE_AVAILABLE:
+        for r in st.session_state.get("posters_memory", []):
+            if r["id"] == poster_id:
+                r["is_active"] = active
+        return True
+    try:
+        res = supabase.table("app_posters").update({"is_active": active}).eq("id", poster_id).execute()
+        if not res.data:
+            return False
+        log_audit(updated_by, "poster_toggle", {"id": poster_id, "active": active})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="set_poster_active")
+        return False
+
+
+def delete_poster(poster_id, deleted_by):
+    if not SUPABASE_AVAILABLE:
+        st.session_state["posters_memory"] = [
+            r for r in st.session_state.get("posters_memory", []) if r["id"] != poster_id]
+        return True
+    try:
+        res = supabase.table("app_posters").delete().eq("id", poster_id).execute()
+        if not res.data:
+            return False
+        log_audit(deleted_by, "poster_delete", {"id": poster_id})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="delete_poster")
+        return False
+
+
+def render_poster_slideshow(seconds_per_slide=5):
+    """Auto-advancing crossfade slideshow, no JavaScript — pure CSS,
+    same reliability reasoning as everything else built this session
+    (no external dependency that can fail to load). Renders nothing
+    when there are 0 or 1 active posters (a single image needs no
+    slideshow machinery at all — just show it).
+
+    The crossfade timing is DYNAMICALLY GENERATED per render rather
+    than a fixed set of keyframes, because the percentage breakpoints
+    for a smooth N-image cycle depend on how many images there
+    actually are — this can't be hardcoded in the CSS body the way
+    the ticker's fixed two-keyframe animation could.
+    """
+    posters = fetch_active_posters()
+    posters = [p for p in posters if p.get("image_url") and not p["image_url"].startswith("memory://")]
+    if len(posters) == 0:
+        return
+    if len(posters) == 1:
+        st.markdown(
+            f'<div class="poster-slideshow"><img class="poster-slide poster-slide-solo" '
+            f'src="{esc(posters[0]["image_url"])}" alt="Poster"></div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    n = len(posters)
+    cycle_seconds = seconds_per_slide * n
+    # Each slide gets an equal-length slot: visible for most of its
+    # slot, with a short crossfade into the next at the boundary.
+    slot_pct = 100 / n
+    fade_pct = min(slot_pct * 0.15, 4)  # crossfade duration, capped so it never eats a whole slot
+
+    style_parts = [f'<style>.poster-slide{{opacity:0;animation:{cycle_seconds}s linear infinite;}}']
+    imgs = []
+    for i, p in enumerate(posters):
+        start_pct = i * slot_pct
+        end_pct = start_pct + slot_pct
+        kf_name = f"poster-fade-{i}"
+        if i == 0:
+            # Slide 0's fade-IN happens at the END of the cycle
+            # (wrapping to its start at 0%), not partway through —
+            # it must already be opacity 1 AT 0% for the loop restart
+            # to be seamless, fade out at its own end like any other
+            # slide, then fade back in during the cycle's final
+            # stretch so it's ready for the next loop. Verified by
+            # simulating rendered opacity at every point in the cycle
+            # before shipping — a naive version of this (no fade-in
+            # keyframe at the wraparound point) left slide 0 popping
+            # into view abruptly instead of fading like every other
+            # slide does at its own start.
+            pts = [(0, 1), (end_pct - fade_pct, 1), (end_pct, 0),
+                  (100 - fade_pct, 0), (100, 1)]
+        else:
+            pts = [(start_pct - fade_pct, 0), (start_pct, 1), (end_pct - fade_pct, 1),
+                  (end_pct if i < n - 1 else 100, 0)]
+        kf_body = "".join(f"{pct:.2f}%{{opacity:{op}}}" for pct, op in pts)
+        style_parts.append(f'@keyframes {kf_name}{{{kf_body}}}')
+        style_parts.append(f'.poster-slide-{i}{{animation-name:{kf_name};animation-duration:{cycle_seconds}s;}}')
+        imgs.append(f'<img class="poster-slide poster-slide-{i}" src="{esc(p["image_url"])}" alt="Poster {i+1}">')
+    style_parts.append('@media (prefers-reduced-motion:reduce){.poster-slide{animation:none!important;opacity:1!important;}}')
+    style_parts.append('</style>')
+
+    st.markdown(
+        "".join(style_parts) + f'<div class="poster-slideshow">{"".join(imgs)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def fetch_active_announcements():
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("announcements_memory", [])
+    try:
+        res = (supabase.table("app_announcements").select("*")
+              .eq("is_active", True).order("id", desc=False).execute())
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_active_announcements")
+        return []
+
+
+def fetch_all_announcements():
+    """Includes inactive ones too — for the management list, so an
+    admin can see and reactivate something they turned off earlier."""
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("announcements_memory", [])
+    try:
+        res = supabase.table("app_announcements").select("*").order("id", desc=True).execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_all_announcements")
+        return []
+
+
+def create_announcement(message, created_by):
+    if not message or not message.strip():
+        return False, "Message can't be empty."
+    if not SUPABASE_AVAILABLE:
+        rows = st.session_state.setdefault("announcements_memory", [])
+        rows.append({"id": max([r.get("id", 0) for r in rows], default=0) + 1,
+                    "message": message.strip(), "is_active": True})
+        return True, ""
+    try:
+        res = supabase.table("app_announcements").insert({
+            "message": message.strip(), "is_active": True, "created_by": created_by,
+        }).execute()
+        if not res.data:
+            return False, ("Saved but nothing was created — Row Level Security is likely "
+                          "blocking writes to app_announcements. Run schema_additions.sql Phase 11.")
+        log_audit(created_by, "announcement_create", {"message": message.strip()[:80]})
+        return True, ""
+    except Exception as e:
+        log_error(str(e), endpoint="create_announcement")
+        return False, str(e)
+
+
+def set_announcement_active(announcement_id, active, updated_by):
+    if not SUPABASE_AVAILABLE:
+        for r in st.session_state.get("announcements_memory", []):
+            if r["id"] == announcement_id:
+                r["is_active"] = active
+        return True
+    try:
+        res = (supabase.table("app_announcements").update({"is_active": active})
+              .eq("id", announcement_id).execute())
+        if not res.data:
+            return False
+        log_audit(updated_by, "announcement_toggle", {"id": announcement_id, "active": active})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="set_announcement_active")
+        return False
+
+
+def delete_announcement(announcement_id, deleted_by):
+    if not SUPABASE_AVAILABLE:
+        st.session_state["announcements_memory"] = [
+            r for r in st.session_state.get("announcements_memory", []) if r["id"] != announcement_id]
+        return True
+    try:
+        res = supabase.table("app_announcements").delete().eq("id", announcement_id).execute()
+        if not res.data:
+            return False
+        log_audit(deleted_by, "announcement_delete", {"id": announcement_id})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="delete_announcement")
+        return False
+
+
+def render_ticker_bar():
+    """Continuously scrolling announcement strip between the logo bar
+    and the main header. Multiple active announcements join into one
+    line separated by a bullet, so they scroll as a single strip
+    rather than needing separate rotation logic. Renders nothing when
+    there are no active announcements, same convention as the logo bar."""
+    items = fetch_active_announcements()
+    if not items:
+        return
+    joined = "   •   ".join(esc(i["message"]) for i in items if i.get("message"))
+    if not joined:
+        return
+    st.markdown(
+        f'<div class="ticker-bar"><div class="ticker-content">{joined}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
 def fetch_all_feedback():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("feedback_memory", [])
@@ -4298,6 +4804,10 @@ if 'feedback_votes_memory' not in st.session_state:
     st.session_state.feedback_votes_memory = []
 if 'branding_logo_url' not in st.session_state:
     st.session_state.branding_logo_url = None
+if 'announcements_memory' not in st.session_state:
+    st.session_state.announcements_memory = []
+if 'posters_memory' not in st.session_state:
+    st.session_state.posters_memory = []
 
 # -------------------------------
 # 22. SESSION TIMEOUT CHECK
@@ -4327,6 +4837,8 @@ def google_oauth():
 # -------------------------------
 if not st.session_state.authenticated:
     render_logo_bar()
+    render_poster_slideshow()
+    render_ticker_bar()
     st.markdown('''
     <div class="main-header">
         <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
@@ -4557,6 +5069,8 @@ else:
     # otherwise still know the account's live password afterward.
     if st.session_state.user_payload.get("must_change_password"):
         render_logo_bar()
+        render_poster_slideshow()
+        render_ticker_bar()
         st.markdown('''
         <div class="main-header">
             <i class="fas fa-key"></i> Password Change Required
@@ -4648,6 +5162,8 @@ avatar_url = user.get('avatar_url', None)
 
 # Modern header
 render_logo_bar()
+render_poster_slideshow()
+render_ticker_bar()
 st.markdown('''
 <div class="main-header">
     <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
@@ -6771,6 +7287,64 @@ elif selected_section == "Owner Console":
             elif rows and not duplicates:
                 st.success("Every account is already mapped. Step 1 is complete.")
 
+        st.markdown("---")
+        st.markdown("### 🔐 Step 2: Provision Real Supabase Auth Accounts")
+        st.info(
+            "**Still non-disruptive.** This creates real Supabase Auth accounts in "
+            "parallel with the existing login — nobody is forced onto anything new "
+            "yet, and today's username/password login keeps working exactly as it "
+            "does now. That switch is a separate, later, deliberate step (Phase 4)."
+        )
+
+        if not SUPABASE_ADMIN_AVAILABLE:
+            st.warning(
+                "**Not available yet.** This step needs a second, more powerful "
+                "credential — your project's `service_role` key (called the "
+                "**secret key** in newer Supabase projects) — added to your app's "
+                "secrets as `SUPABASE_SERVICE_ROLE_KEY`. This is deliberately a "
+                "*different* key from the one the rest of the app uses: it bypasses "
+                "Row Level Security entirely and can create or delete accounts, so "
+                "treat it with the same care as a root password — never share it, "
+                "never commit it, and it should never be the same key used for "
+                "anything client-facing.\n\n"
+                "Find it in Supabase Dashboard → Project Settings → API "
+                "(under **Project API keys** → `service_role`, or under **Secret "
+                "keys** on newer projects)."
+            )
+        else:
+            _prov_candidates = preview_auth_provisioning()
+            _pc1, _pc2 = st.columns(2)
+            _pc1.metric("Ready to provision", len(_prov_candidates))
+            _already_provisioned = sum(1 for u in fetch_all_users_from_db() if u.get("auth_user_id"))
+            _pc2.metric("Already provisioned", _already_provisioned)
+
+            if not _prov_candidates:
+                st.caption("Nobody is waiting on this step — either everyone's already "
+                          "provisioned, or Step 1's email mapping hasn't run for them yet.")
+            else:
+                _prov_email_by_username = {u["username"]: u["auth_email"] for u in _prov_candidates}
+                _prov_selected = st.multiselect(
+                    "Select accounts to provision now",
+                    options=[u["username"] for u in _prov_candidates],
+                    default=[u["username"] for u in _prov_candidates],
+                    help="Defaults to everyone eligible. Remove anyone you want to hold back.",
+                    format_func=lambda uname: f"{uname} → {_prov_email_by_username.get(uname, '?')}",
+                )
+                if st.button(f"🔑 Create {len(_prov_selected)} Supabase Auth account(s)", type="primary"):
+                    if not _prov_selected:
+                        st.warning("Nothing selected.")
+                    else:
+                        with st.spinner("Creating accounts via the Supabase Admin API..."):
+                            p_success, p_failures = provision_auth_accounts(_prov_selected, full_name)
+                        if p_success:
+                            st.success(f"Provisioned {p_success} account(s). Each is set to force a "
+                                      f"password change on first sign-in, once Phase 4 is live.")
+                        if p_failures:
+                            st.error(f"{len(p_failures)} did not complete:")
+                            for uname, reason in p_failures:
+                                st.write(f"- `{uname}`: {reason}")
+                        st.rerun()
+
     # ---------- SETTINGS ----------
     elif owner_sub == "Settings":
         st.markdown("### 🏢 Company Logo")
@@ -6803,6 +7377,92 @@ elif selected_section == "Owner Console":
                     st.rerun()
                 else:
                     st.error("Upload failed.")
+
+        st.markdown("---")
+        st.markdown("### 📢 Announcement Ticker")
+        st.caption("A scrolling strip between the logo and the header, shown on every screen. "
+                  "Multiple active announcements join into one continuous strip. Leave none "
+                  "active and nothing extra is shown.")
+
+        if not SUPABASE_AVAILABLE:
+            st.warning("No database connected — announcements can be added here but won't "
+                      "persist in demo mode.")
+
+        _all_announcements = fetch_all_announcements()
+        if _all_announcements:
+            for _a in _all_announcements:
+                _acol1, _acol2, _acol3 = st.columns([6, 1, 1])
+                _acol1.write(("🟢 " if _a.get("is_active") else "⚪ ") + str(_a.get("message", "")))
+                _toggle_label = "Deactivate" if _a.get("is_active") else "Activate"
+                if _acol2.button(_toggle_label, key=f"ann_toggle_{_a['id']}"):
+                    if set_announcement_active(_a['id'], not _a.get("is_active"), full_name):
+                        st.rerun()
+                    else:
+                        st.error("Update failed — check Row Level Security on app_announcements.")
+                if _acol3.button("🗑️", key=f"ann_del_{_a['id']}"):
+                    if delete_announcement(_a['id'], full_name):
+                        st.rerun()
+                    else:
+                        st.error("Delete failed.")
+        else:
+            st.caption("No announcements yet.")
+
+        with st.form("new_announcement_form", clear_on_submit=True):
+            _new_ann = st.text_input("New announcement", max_chars=200,
+                                     placeholder="e.g. 'Toolbox talk today at 2pm — Workshop B'")
+            if st.form_submit_button("➕ Add announcement"):
+                ok, err = create_announcement(_new_ann, full_name)
+                if ok:
+                    st.success("Added.")
+                    st.rerun()
+                else:
+                    st.error(err or "Failed to add announcement.")
+
+        st.markdown("---")
+        st.markdown("### 🖼️ Poster Slideshow")
+        st.caption(
+            "A large auto-advancing image banner between the logo and the ticker, shown "
+            "on every screen. No hard limit on how many you can add — each one gets an "
+            "equal slot in the rotation, 5 seconds by default, so more posters means a "
+            "longer full cycle before it repeats. 3–6 tends to feel right; a couple dozen "
+            "would still work correctly, just take a while to loop back around. One poster "
+            "shows as a static image with no rotation at all."
+        )
+
+        if not SUPABASE_AVAILABLE:
+            st.warning("No database connected — posters can be uploaded here but won't "
+                      "actually persist or display in demo mode.")
+
+        _all_posters = fetch_all_posters()
+        if _all_posters:
+            for _p in _all_posters:
+                _pcol1, _pcol2, _pcol3 = st.columns([5, 1, 1])
+                with _pcol1:
+                    st.image(_p["image_url"], width=160)
+                    st.caption(("🟢 Active" if _p.get("is_active") else "⚪ Inactive"))
+                _toggle_label = "Deactivate" if _p.get("is_active") else "Activate"
+                if _pcol2.button(_toggle_label, key=f"poster_toggle_{_p['id']}"):
+                    if set_poster_active(_p['id'], not _p.get("is_active"), full_name):
+                        st.rerun()
+                    else:
+                        st.error("Update failed — check Row Level Security on app_posters.")
+                if _pcol3.button("🗑️", key=f"poster_del_{_p['id']}"):
+                    if delete_poster(_p['id'], full_name):
+                        st.rerun()
+                    else:
+                        st.error("Delete failed.")
+        else:
+            st.caption("No posters yet.")
+
+        _poster_file = st.file_uploader("Upload a poster", type=["jpg", "jpeg", "png", "webp"],
+                                        key="poster_uploader")
+        if _poster_file is not None:
+            if st.button("📤 Add poster"):
+                if upload_poster(_poster_file.getvalue(), _poster_file.name, full_name):
+                    st.success("Added.")
+                    st.rerun()
+                else:
+                    st.error("Failed to add poster.")
 
         st.markdown("---")
         st.markdown("### Ownership")
