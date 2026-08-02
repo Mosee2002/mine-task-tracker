@@ -4217,6 +4217,100 @@ def remove_logo(removed_by):
         return False
 
 
+# =====================================================================
+# FEATURE FLAGS
+# =====================================================================
+# Which nav sections can actually be toggled — deliberately excludes
+# Task Dashboard, Admin, and Profile. Task Dashboard is the core
+# reason this app exists; Admin is where these toggles themselves
+# live, so disabling it would lock the Owner out of turning anything
+# back on; Profile is where anyone changes their own password.
+TOGGLEABLE_MODULES = {
+    "Assets": "Equipment register and meter readings.",
+    "Permits": "Permit to Work / LOTO isolation records.",
+    "Inventory": "Spare parts stock and reorder tracking.",
+    "Incidents": "Hazard, near-miss, and injury reporting.",
+    "Handover": "Shift handover logging.",
+    "Contractors": "Contractor induction/insurance compliance tracking.",
+    "Analytics": "KPI dashboards (MTTR, MTBF, PM compliance, etc).",
+    "Chat": "Global, supervisor, and private chat.",
+    "Feedback": "The internal suggestion board.",
+    "Timeline": "Personal activity timeline.",
+}
+
+
+def fetch_feature_flags():
+    """Returns {flag_key: enabled_bool} for every toggleable module.
+    Fail-open by design: any module never explicitly set defaults to
+    enabled, so introducing this system can never silently hide a
+    feature that was already live — an admin has to deliberately turn
+    something off, nothing goes dark on its own."""
+    flags = {key: True for key in TOGGLEABLE_MODULES}  # fail-open defaults
+    if not SUPABASE_AVAILABLE:
+        flags.update(st.session_state.get("feature_flags_memory", {}))
+        return flags
+    try:
+        res = supabase.table("app_feature_flags").select("*").execute()
+        for row in (res.data or []):
+            if row["flag_key"] in flags:
+                flags[row["flag_key"]] = row["enabled"]
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_feature_flags")
+        # Fails open here too — a read error means every module stays
+        # enabled (today's behavior), not a mysteriously empty nav bar.
+    return flags
+
+
+def get_cached_feature_flags(ttl_seconds=30):
+    """Fetches feature flags at most once per ttl_seconds and reuses
+    that result in between — Streamlit re-executes the whole script on
+    almost every interaction, so with no caching at all, every single
+    click would trigger a fresh database read just to decide which nav
+    items to show.
+
+    The TTL matters for a reason beyond performance: each user's
+    session cache is independent, so without SOME expiry, a module the
+    Owner just disabled would stay visible to everyone else until
+    their individual session happened to reset on its own — which
+    could be a very long time. 30 seconds keeps database load low
+    while still making a toggle take effect for everyone within a
+    reasonably short window, not just the person who flipped it.
+    """
+    cached = st.session_state.get("_feature_flags_cache")
+    cached_at = st.session_state.get("_feature_flags_cache_at")
+    now = datetime.now()
+    if cached is not None and cached_at is not None and (now - cached_at).total_seconds() < ttl_seconds:
+        return cached
+    flags = fetch_feature_flags()
+    st.session_state["_feature_flags_cache"] = flags
+    st.session_state["_feature_flags_cache_at"] = now
+    return flags
+
+
+def set_feature_flag(flag_key, enabled, updated_by):
+    if flag_key not in TOGGLEABLE_MODULES:
+        return False
+    if not SUPABASE_AVAILABLE:
+        st.session_state.setdefault("feature_flags_memory", {})[flag_key] = enabled
+        st.session_state.pop("_feature_flags_cache", None)
+        st.session_state.pop("_feature_flags_cache_at", None)
+        return True
+    try:
+        res = supabase.table("app_feature_flags").upsert({
+            "flag_key": flag_key, "enabled": enabled, "updated_by": updated_by,
+            "updated_at": datetime.now().isoformat(),
+        }).execute()
+        if not res.data:
+            return False
+        log_audit(updated_by, "feature_flag_toggle", {"flag": flag_key, "enabled": enabled})
+        st.session_state.pop("_feature_flags_cache", None)  # force a fresh read next time
+        st.session_state.pop("_feature_flags_cache_at", None)
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="set_feature_flag")
+        return False
+
+
 def render_logo_bar():
     """A slim bar above the main header showing the company logo, if
     one is configured. Renders nothing at all when no logo is set, so
@@ -4808,6 +4902,8 @@ if 'announcements_memory' not in st.session_state:
     st.session_state.announcements_memory = []
 if 'posters_memory' not in st.session_state:
     st.session_state.posters_memory = []
+if 'feature_flags_memory' not in st.session_state:
+    st.session_state.feature_flags_memory = {}
 
 # -------------------------------
 # 22. SESSION TIMEOUT CHECK
@@ -5323,6 +5419,17 @@ _filtered = [(o, i) for o, i in zip(nav_options, nav_icons)
 nav_options = [o for o, _ in _filtered]
 nav_icons = [i for _, i in _filtered]
 
+# Feature-flag filtering — separate from the role check above. A
+# module can be hidden from EVERYONE (regardless of role) via Owner
+# Console -> Admin -> Feature Toggles, without touching any code.
+# Applied after the role filter so a disabled module stays hidden
+# even from roles that would otherwise see it.
+_active_flags = get_cached_feature_flags()
+_flag_filtered = [(o, i) for o, i in zip(nav_options, nav_icons)
+                  if o not in TOGGLEABLE_MODULES or _active_flags.get(o, True)]
+nav_options = [o for o, _ in _flag_filtered]
+nav_icons = [i for _, i in _flag_filtered]
+
 # Owner Console — visible ONLY to the configured owner account, and
 # gated again inside the section itself. Hiding a menu item is a UX
 # nicety, not a security control; the real check is is_owner() below.
@@ -5338,6 +5445,15 @@ if _IS_OWNER:
 # guaranteed-reliable native nav anyway. If that error resurfaces, this
 # is why, and st.radio (see git history / earlier version of this file)
 # is the fix that was in place before this revert.
+# Defensive: if a module gets toggled off while someone currently has
+# it selected, their persisted nav widget state ("main_nav" in
+# session_state) would point at a value no longer in nav_options.
+# option_menu's behavior with a stale/invalid persisted value isn't
+# something to gamble on, so reset it to the default before it
+# renders, rather than find out the hard way.
+if st.session_state.get("main_nav") not in nav_options:
+    st.session_state.pop("main_nav", None)
+
 _manual_select = (nav_options.index(st.session_state["_nav_jump_to"])
                   if st.session_state.get("_nav_jump_to") in nav_options else None)
 try:
@@ -6919,8 +7035,10 @@ elif selected_section == "Owner Console":
 
     owner_sub = option_menu(
         menu_title=None,
-        options=["Access Requests", "Active Users", "Decision History", "Auth Migration", "Settings"],
-        icons=["person-plus-fill", "people-fill", "journal-text", "shield-lock-fill", "sliders"],
+        options=["Access Requests", "Active Users", "Decision History", "Auth Migration",
+                "Feature Toggles", "Settings"],
+        icons=["person-plus-fill", "people-fill", "journal-text", "shield-lock-fill",
+              "toggles", "sliders"],
         orientation="horizontal", default_index=0, styles=menu_styles(),
     )
 
@@ -7344,6 +7462,43 @@ elif selected_section == "Owner Console":
                             for uname, reason in p_failures:
                                 st.write(f"- `{uname}`: {reason}")
                         st.rerun()
+
+    # ---------- FEATURE TOGGLES ----------
+    elif owner_sub == "Feature Toggles":
+        st.markdown("### 🎛️ Feature Toggles")
+        st.caption(
+            "Turn whole sections of the app on or off for everyone, instantly — no code "
+            "change, no redeploy, no waiting on a fix. A toggle takes effect the moment "
+            "you flip it; anyone currently on a section you turn off will find it gone "
+            "from their navigation the next time the app reruns (their next click)."
+        )
+        st.info(
+            "Task Dashboard, Admin, and Profile are deliberately not toggleable here — "
+            "Task Dashboard is the core reason this app exists, and Admin is where this "
+            "screen itself lives, so disabling it could lock out the only way to turn "
+            "things back on."
+        )
+
+        if not SUPABASE_AVAILABLE:
+            st.warning("No database connected — toggles work for this session only and "
+                      "won't persist in demo mode.")
+
+        _current_flags = fetch_feature_flags()  # fresh read, not the cached one, so this
+                                                  # screen always shows true current state
+        for _mod_name, _mod_desc in TOGGLEABLE_MODULES.items():
+            _tcol1, _tcol2 = st.columns([5, 1])
+            with _tcol1:
+                st.markdown(f"**{_mod_name}**")
+                st.caption(_mod_desc)
+            with _tcol2:
+                _new_val = st.toggle("Enabled", value=_current_flags[_mod_name],
+                                     key=f"flag_toggle_{_mod_name}", label_visibility="collapsed")
+            if _new_val != _current_flags[_mod_name]:
+                if set_feature_flag(_mod_name, _new_val, full_name):
+                    st.rerun()
+                else:
+                    st.error(f"Failed to update — check Row Level Security on app_feature_flags.")
+            st.markdown("---")
 
     # ---------- SETTINGS ----------
     elif owner_sub == "Settings":
