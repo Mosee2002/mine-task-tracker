@@ -5297,24 +5297,39 @@ _PWA_ICON192_B64 = "iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAFnUlEQVR4nO3d
 _PWA_APPLE_ICON_B64 = "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"
 
 st.markdown(
-    '<link rel="manifest" href="data:application/manifest+json;base64,' + _PWA_MANIFEST_B64 + '">'
-    '<link rel="icon" type="image/png" href="data:image/png;base64,' + _PWA_ICON192_B64 + '">'
-    '<link rel="apple-touch-icon" href="data:image/png;base64,' + _PWA_APPLE_ICON_B64 + '">'
-    '''<meta name="theme-color" content="#16213e">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="MWDTS">
-<script>
-  // Deliberately silent on failure — a missing service worker means
-  // slightly slower repeat loads, not a broken app, so this should
-  // never surface an error to the user or block anything.
-  if (\'serviceWorker\' in navigator) {
-    navigator.serviceWorker.register(\'./app/static/sw.js\').catch(function() {
-      // Static serving not enabled, or sw.js not deployed yet — fine,
-      // the app works normally without it. See PWA_SETUP.md.
-    });
-  }
-</script>''',
+    "<script>"
+    "(function() {"
+    "  document.querySelectorAll('link[rel=\"manifest\"]').forEach(function(el) { el.remove(); });"
+    "  var manifestLink = document.createElement('link');"
+    "  manifestLink.rel = 'manifest';"
+    "  manifestLink.href = 'data:application/manifest+json;base64," + _PWA_MANIFEST_B64 + "';"
+    "  document.head.appendChild(manifestLink);"
+    "  var iconLink = document.createElement('link');"
+    "  iconLink.rel = 'icon';"
+    "  iconLink.type = 'image/png';"
+    "  iconLink.href = 'data:image/png;base64," + _PWA_ICON192_B64 + "';"
+    "  document.head.appendChild(iconLink);"
+    "  var appleIconLink = document.createElement('link');"
+    "  appleIconLink.rel = 'apple-touch-icon';"
+    "  appleIconLink.href = 'data:image/png;base64," + _PWA_APPLE_ICON_B64 + "';"
+    "  document.head.appendChild(appleIconLink);"
+    "  var metaTags = ["
+    "    ['theme-color', '#16213e'],"
+    "    ['apple-mobile-web-app-capable', 'yes'],"
+    "    ['apple-mobile-web-app-status-bar-style', 'black-translucent'],"
+    "    ['apple-mobile-web-app-title', 'MWDTS']"
+    "  ];"
+    "  metaTags.forEach(function(pair) {"
+    "    var m = document.createElement('meta');"
+    "    m.name = pair[0];"
+    "    m.content = pair[1];"
+    "    document.head.appendChild(m);"
+    "  });"
+    "})();"
+    "if ('serviceWorker' in navigator) {"
+    "  navigator.serviceWorker.register('./app/static/sw.js').catch(function() {});"
+    "}"
+    "</script>",
     unsafe_allow_html=True,
 )
 
