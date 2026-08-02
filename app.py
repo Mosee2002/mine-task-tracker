@@ -2596,7 +2596,10 @@ def register_user_to_db(username, name, requested_role, password, email=None,
     full_payload = {
         "username": username,
         "full_name": name,
-        "role": "Worker",                 # lowest privilege until granted
+        "role": "Worker",                 # lowest privilege until granted — TRUE even
+                                           # with auto-approve on; that policy only
+                                           # relaxes whether a human reviews the sign-up,
+                                           # never this separate role-escalation protection
         "requested_role": requested_role,  # what they asked for
         "password_hash": hash_password(password),
         "email": email,
@@ -2604,7 +2607,7 @@ def register_user_to_db(username, name, requested_role, password, email=None,
         "job_title": job_title,
         "department": department,
         "employee_id": employee_id,
-        "is_approved": False,
+        "is_approved": fetch_access_policies()["auto_approve_registration"],
         "is_suspended": False,
         "requested_at": datetime.now().isoformat(),
     }
@@ -4308,6 +4311,80 @@ def set_feature_flag(flag_key, enabled, updated_by):
         return True
     except Exception as e:
         log_error(str(e), endpoint="set_feature_flag")
+        return False
+
+
+# =====================================================================
+# ACCESS POLICIES
+# =====================================================================
+# Deliberately a SEPARATE system from feature flags above, not the
+# same list with more entries. Feature flags hide/show UI sections —
+# turning one off is low-stakes and easily reversible. These change
+# actual security behavior: who gets into the app at all, and
+# whether a human ever looks at that decision. They're stored in the
+# same app_feature_flags table (still just a key-value store) but
+# under their own key prefix and, critically, with the OPPOSITE
+# default philosophy: feature flags fail OPEN (never set = enabled,
+# since an unset UI toggle should never silently vanish a working
+# feature). Access policies fail CLOSED (never set = OFF, i.e.
+# approval IS required) — an unset security policy should never
+# silently become the more permissive option just because a read
+# failed or the row doesn't exist yet.
+ACCESS_POLICIES = {
+    "auto_approve_registration": (
+        "Auto-approve new registrations",
+        "New sign-ups get immediate Worker-level access with no Owner/Superintendent "
+        "review. They still can't self-grant a higher role — that part of the security "
+        "design is untouched — but nobody looks at WHO is signing up before they're in. "
+        "Off by default, and meant to stay off unless you have a specific reason (e.g. "
+        "a closed network only your own people can reach) that makes the review step "
+        "genuinely redundant for your situation."
+    ),
+}
+
+
+def fetch_access_policies():
+    """Returns {policy_key: enabled_bool}. Fails closed: anything
+    never explicitly set, or any read error, resolves to False (the
+    restrictive, safer behavior) — the opposite default direction
+    from fetch_feature_flags() above, and deliberately so."""
+    policies = {key: False for key in ACCESS_POLICIES}
+    if not SUPABASE_AVAILABLE:
+        policies.update(st.session_state.get("access_policies_memory", {}))
+        return policies
+    try:
+        res = supabase.table("app_feature_flags").select("*").execute()
+        for row in (res.data or []):
+            if row["flag_key"] in policies:
+                policies[row["flag_key"]] = row["enabled"]
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_access_policies")
+        # Fails closed here too — a read error means every policy
+        # resolves to "off" (requiring approval), never silently to
+        # the more permissive option.
+    return policies
+
+
+def set_access_policy(policy_key, enabled, updated_by):
+    if policy_key not in ACCESS_POLICIES:
+        return False
+    if not SUPABASE_AVAILABLE:
+        st.session_state.setdefault("access_policies_memory", {})[policy_key] = enabled
+        return True
+    try:
+        res = supabase.table("app_feature_flags").upsert({
+            "flag_key": policy_key, "enabled": enabled, "updated_by": updated_by,
+            "updated_at": datetime.now().isoformat(),
+        }).execute()
+        if not res.data:
+            return False
+        # A distinct, clearly-named audit action from feature_flag_toggle —
+        # this is the kind of change worth being able to find quickly in
+        # the audit log later, not blended in with routine UI toggles.
+        log_audit(updated_by, "access_policy_change", {"policy": policy_key, "enabled": enabled})
+        return True
+    except Exception as e:
+        log_error(str(e), endpoint="set_access_policy")
         return False
 
 
@@ -7035,10 +7112,10 @@ elif selected_section == "Owner Console":
 
     owner_sub = option_menu(
         menu_title=None,
-        options=["Access Requests", "Active Users", "Decision History", "Auth Migration",
-                "Feature Toggles", "Settings"],
-        icons=["person-plus-fill", "people-fill", "journal-text", "shield-lock-fill",
-              "toggles", "sliders"],
+        options=["Access Requests", "Access Policies", "Active Users", "Decision History",
+                "Auth Migration", "Feature Toggles", "Settings"],
+        icons=["person-plus-fill", "shield-exclamation", "people-fill", "journal-text",
+              "shield-lock-fill", "toggles", "sliders"],
         orientation="horizontal", default_index=0, styles=menu_styles(),
     )
 
@@ -7163,6 +7240,57 @@ elif selected_section == "Owner Console":
                                     st.rerun()
                                 else:
                                     st.error(friendly_db_error(err))
+
+    # ---------- ACCESS POLICIES ----------
+    elif owner_sub == "Access Policies":
+        st.markdown("### 🛡️ Access Policies")
+        st.caption(
+            "Different in kind from Feature Toggles — those hide UI sections and are "
+            "easily reversible. These change actual security behavior: who gets into "
+            "the app at all, and whether a human ever looks at that decision."
+        )
+
+        if not SUPABASE_AVAILABLE:
+            st.warning("No database connected — changes here work for this session only "
+                      "and won't persist in demo mode.")
+
+        _policies = fetch_access_policies()
+        for _pol_key, (_pol_title, _pol_desc) in ACCESS_POLICIES.items():
+            _cur = _policies[_pol_key]
+            st.markdown(f"#### {_pol_title}")
+            st.markdown(_pol_desc)
+            if _cur:
+                st.success("Currently **ON** — new sign-ups get immediate access, no review.")
+            else:
+                st.info("Currently **OFF** (default) — every new sign-up waits in "
+                       "Access Requests until an Owner/Superintendent approves it.")
+
+            if not _cur:
+                if st.button("Turn ON — allow sign-in without approval", key=f"pol_on_{_pol_key}"):
+                    st.session_state[f"_confirm_pol_{_pol_key}"] = True
+                if st.session_state.get(f"_confirm_pol_{_pol_key}"):
+                    st.warning("Anyone who reaches your sign-up page will get Worker-level "
+                             "access immediately, with nobody reviewing who they are first. "
+                             "Confirm you actually want this.")
+                    _cc1, _cc2 = st.columns(2)
+                    if _cc1.button("Yes, turn it on", key=f"pol_confirm_{_pol_key}", type="primary"):
+                        if set_access_policy(_pol_key, True, full_name):
+                            st.session_state.pop(f"_confirm_pol_{_pol_key}", None)
+                            st.success("Turned on.")
+                            st.rerun()
+                        else:
+                            st.error("Failed to update — check Row Level Security on app_feature_flags.")
+                    if _cc2.button("Cancel", key=f"pol_cancel_{_pol_key}"):
+                        st.session_state.pop(f"_confirm_pol_{_pol_key}", None)
+                        st.rerun()
+            else:
+                if st.button("Turn OFF — require approval again", key=f"pol_off_{_pol_key}"):
+                    if set_access_policy(_pol_key, False, full_name):
+                        st.success("Turned off. New sign-ups will wait for approval again.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to update — check Row Level Security on app_feature_flags.")
+            st.markdown("---")
 
     # ---------- ACTIVE USERS ----------
     elif owner_sub == "Active Users":
