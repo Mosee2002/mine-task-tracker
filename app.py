@@ -1707,6 +1707,106 @@ def get_default_users():
     ]
 
 
+# =====================================================================
+# SUPABASE AUTH MIGRATION — STEP 1: email mapping (schema-only, no
+# change to login behavior yet)
+# =====================================================================
+def _sanitize_email_localpart(username):
+    """Turn an arbitrary username into a safe email local-part.
+    Usernames have no character restrictions at registration (no
+    regex validation exists there), so this can't assume the input is
+    already email-safe — spaces, apostrophes, anything is possible."""
+    s = (username or "").strip().lower()
+    s = re.sub(r'[^a-z0-9.\-_]', '-', s)
+    s = re.sub(r'-+', '-', s).strip('-.')
+    return s or "user"
+
+
+def _looks_like_real_email(value):
+    """Pragmatic check, not full RFC validation — just enough to
+    decide 'does this look like a real address' vs 'empty/garbage'."""
+    if not value:
+        return False
+    return bool(re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', value.strip()))
+
+
+def compute_auth_email(username, existing_email):
+    """Returns the email Supabase Auth would use for this person.
+    Uses their real email if they have one; otherwise a placeholder
+    that's never shown or emailed anywhere — it exists only because
+    Supabase Auth requires SOME email per account.
+
+    The placeholder always includes a hash of the full original
+    username, not just the sanitized version — this guarantees
+    uniqueness by construction (since username is already unique)
+    rather than needing to detect and react to collisions after the
+    fact. ".invalid" is the IANA-reserved TLD specifically meant for
+    this kind of placeholder use (RFC 2606) — guaranteed to never
+    resolve to a real domain, unlike making up something that could
+    theoretically be real.
+    """
+    if _looks_like_real_email(existing_email):
+        return existing_email.strip().lower()
+    local = _sanitize_email_localpart(username)
+    suffix = hashlib.md5((username or "").encode()).hexdigest()[:6]
+    return f"{local}-{suffix}@placeholder.invalid"
+
+
+def preview_auth_email_backfill():
+    """Computes what EVERY user's auth_email would become, without
+    writing anything — for the owner to review before committing.
+    Also flags real-email duplicates across different accounts, since
+    Supabase Auth requires unique emails and that's a data problem
+    only a human should resolve, not something to silently patch."""
+    users = fetch_all_users_from_db()
+    rows = []
+    seen_real_emails = {}
+    for u in users:
+        username = u.get("username")
+        existing_email = u.get("email")
+        computed = compute_auth_email(username, existing_email)
+        is_placeholder = computed.endswith("@placeholder.invalid")
+        rows.append({
+            "username": username,
+            "full_name": u.get("full_name"),
+            "current_email": existing_email or "",
+            "computed_auth_email": computed,
+            "is_placeholder": is_placeholder,
+            "already_migrated": bool(u.get("auth_email")),
+        })
+        if not is_placeholder:
+            seen_real_emails.setdefault(computed, []).append(username)
+
+    duplicates = {email: usernames for email, usernames in seen_real_emails.items()
+                 if len(usernames) > 1}
+    return rows, duplicates
+
+
+def run_auth_email_backfill(usernames_to_migrate, performed_by):
+    """Writes auth_email for the given usernames only — never all
+    users blindly, so the owner can exclude anything flagged in the
+    preview (like the duplicate-email case) and handle it manually
+    first. Returns (success_count, failures) — failures is a list of
+    (username, reason) so a partial run is fully diagnosable rather
+    than an opaque 'some failed'."""
+    users = {u["username"]: u for u in fetch_all_users_from_db()}
+    success, failures = 0, []
+    for username in usernames_to_migrate:
+        u = users.get(username)
+        if not u:
+            failures.append((username, "user not found"))
+            continue
+        auth_email = compute_auth_email(username, u.get("email"))
+        if update_user_profile(username, {"auth_email": auth_email}):
+            success += 1
+        else:
+            failures.append((username, "write failed — check Row Level Security"))
+    log_audit(performed_by, "auth_email_backfill", {
+        "requested": len(usernames_to_migrate), "succeeded": success, "failed": len(failures)
+    })
+    return success, failures
+
+
 def fetch_all_users_from_db():
     """Return real users. Demo accounts appear only in demo mode.
 
@@ -2222,6 +2322,7 @@ def create_first_admin(username, full_name, password, email=None):
             "role": "Superintendent",
             "password_hash": hash_password(password),
             "email": email,
+            "auth_email": compute_auth_email(username, email),
             "is_approved": True,
         }).execute()
         if not res.data:
@@ -2257,6 +2358,7 @@ def register_user_to_db(username, name, requested_role, password, email=None,
         "requested_role": requested_role,  # what they asked for
         "password_hash": hash_password(password),
         "email": email,
+        "auth_email": compute_auth_email(username, email),
         "job_title": job_title,
         "department": department,
         "employee_id": employee_id,
@@ -2270,7 +2372,7 @@ def register_user_to_db(username, name, requested_role, password, email=None,
     # drop the optional fields and retry with the core ones, then tell the
     # user which migration is outstanding.
     OPTIONAL = ("requested_role", "job_title", "department", "employee_id",
-                "is_suspended", "requested_at")
+                "is_suspended", "requested_at", "auth_email")
     try:
         res = supabase.table("facility_users").insert(full_payload).execute()
         if not res.data:
@@ -6301,8 +6403,8 @@ elif selected_section == "Owner Console":
 
     owner_sub = option_menu(
         menu_title=None,
-        options=["Access Requests", "Active Users", "Decision History", "Settings"],
-        icons=["person-plus-fill", "people-fill", "journal-text", "sliders"],
+        options=["Access Requests", "Active Users", "Decision History", "Auth Migration", "Settings"],
+        icons=["person-plus-fill", "people-fill", "journal-text", "shield-lock-fill", "sliders"],
         orientation="horizontal", default_index=0, styles=menu_styles(),
     )
 
@@ -6587,6 +6689,87 @@ elif selected_section == "Owner Console":
                 _df = pd.DataFrame(_dec)
                 st.download_button("Download CSV", _df.to_csv(index=False),
                                    "access_decisions.csv", "text/csv", key="dl_decisions")
+
+    # ---------- AUTH MIGRATION ----------
+    elif owner_sub == "Auth Migration":
+        st.markdown("### 🔐 Supabase Auth Migration — Step 1: Email Mapping")
+        st.info(
+            "**This step is safe and non-disruptive.** It only computes and stores the "
+            "email each account will use for Supabase Auth later — it does NOT change how "
+            "anyone logs in today. Nothing here affects the live app until a later step "
+            "explicitly switches login over, which will be done separately and deliberately."
+        )
+        st.caption(
+            "Why this exists: Supabase Auth identifies people by email, not username, and "
+            "many workers here don't have one. Accounts without a real email get an internal "
+            "placeholder — never shown or emailed to anyone, it exists only because Supabase "
+            "Auth requires *some* email per account."
+        )
+
+        _all_users = fetch_all_users_from_db()
+        _already = sum(1 for u in _all_users if u.get("auth_email"))
+        _mcol1, _mcol2, _mcol3 = st.columns(3)
+        _mcol1.metric("Total accounts", len(_all_users))
+        _mcol2.metric("Already mapped", _already)
+        _mcol3.metric("Remaining", len(_all_users) - _already)
+
+        if st.button("🔍 Preview email mapping (computes nothing to the database)"):
+            rows, duplicates = preview_auth_email_backfill()
+            st.session_state["_auth_preview_rows"] = rows
+            st.session_state["_auth_preview_duplicates"] = duplicates
+
+        rows = st.session_state.get("_auth_preview_rows")
+        duplicates = st.session_state.get("_auth_preview_duplicates")
+
+        if rows is not None:
+            if duplicates:
+                st.error(
+                    f"⚠️ **{len(duplicates)} real email(s) are shared by more than one "
+                    f"account** — Supabase Auth requires unique emails, so these need "
+                    f"resolving manually before they can be migrated. These accounts are "
+                    f"excluded from the selection below until fixed."
+                )
+                for email, usernames in duplicates.items():
+                    st.markdown(f"- `{esc(email)}` used by: {', '.join(f'`{esc(u)}`' for u in usernames)}")
+
+            if PANDAS_AVAILABLE:
+                _df = pd.DataFrame(rows)[["username", "full_name", "current_email",
+                                          "computed_auth_email", "is_placeholder", "already_migrated"]]
+                st.dataframe(_df, use_container_width=True, hide_index=True)
+            else:
+                for r in rows:
+                    st.write(f"`{r['username']}` → `{r['computed_auth_email']}`"
+                            f"{' (placeholder)' if r['is_placeholder'] else ''}"
+                            f"{' ✓ already mapped' if r['already_migrated'] else ''}")
+
+            _dup_usernames = {u for usernames in duplicates.values() for u in usernames} if duplicates else set()
+            _eligible = [r["username"] for r in rows
+                        if not r["already_migrated"] and r["username"] not in _dup_usernames]
+
+            if _eligible:
+                st.markdown("---")
+                _selected = st.multiselect(
+                    "Select accounts to migrate now",
+                    options=_eligible, default=_eligible,
+                    help="Defaults to everyone eligible. Remove anyone you want to hold back.",
+                )
+                if st.button(f"✅ Write email mapping for {len(_selected)} account(s)", type="primary"):
+                    if not _selected:
+                        st.warning("Nothing selected.")
+                    else:
+                        success, failures = run_auth_email_backfill(_selected, full_name)
+                        if success:
+                            st.success(f"Mapped {success} account(s).")
+                        if failures:
+                            st.error(f"{len(failures)} failed:")
+                            for uname, reason in failures:
+                                st.write(f"- `{uname}`: {reason}")
+                        # Clear the stale preview so the numbers above reflect reality
+                        st.session_state.pop("_auth_preview_rows", None)
+                        st.session_state.pop("_auth_preview_duplicates", None)
+                        st.rerun()
+            elif rows and not duplicates:
+                st.success("Every account is already mapped. Step 1 is complete.")
 
     # ---------- SETTINGS ----------
     elif owner_sub == "Settings":
