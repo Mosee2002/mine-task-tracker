@@ -1912,7 +1912,15 @@ def preview_auth_email_backfill():
             "current_email": existing_email or "",
             "computed_auth_email": computed,
             "is_placeholder": is_placeholder,
-            "already_migrated": bool(u.get("auth_email")),
+            # Renamed from "already_migrated" — that label was genuinely
+            # misleading, since it only ever checked whether Phase 1's
+            # auth_email is set, not whether a real Supabase Auth
+            # account exists (that's Phase 2's separate, correct gate
+            # in preview_auth_provisioning below, which checks
+            # auth_user_id specifically). Someone reading "already
+            # migrated: true" here could reasonably think Phase 2 was
+            # already done, when it wasn't.
+            "email_already_mapped": bool(u.get("auth_email")),
         })
         if not is_placeholder:
             seen_real_emails.setdefault(computed, []).append(username)
@@ -5629,7 +5637,7 @@ if selected_section == "Task Dashboard":
                                     <span><i class="fas fa-map-marker-alt"></i> {esc(task['location'])}</span>
                                     <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
                                     <span><i class="fas fa-circle" style="color: #3b82f6;"></i> <span class="status-badge {status_class}">{task['status']}</span></span>
-                                    {f'<span><i class="fas fa-calendar-alt"></i> Due: {task["due_date"][:10]}</span>' if task.get('due_date') else ''}
+                                    {f'<span><i class="fas fa-calendar-alt"></i> Due: {_fmt_log_time(task["due_date"])}</span>' if task.get('due_date') else ''}
                                 </div>
                             </div>
                         </div>
@@ -5693,7 +5701,7 @@ if selected_section == "Task Dashboard":
                         comments = fetch_comments(task['id'])
                         if comments:
                             for c in comments:
-                                st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
+                                st.markdown(f"**{c['posted_by']}** ({_fmt_log_time(c['posted_at'])}): {c['comment']}")
                         else:
                             st.caption("No comments yet.")
                         _comment_val_key = f"_comment_val_{task['id']}_{idx}"
@@ -5772,7 +5780,7 @@ if selected_section == "Task Dashboard":
                                 <div class="task-meta">
                                     <span><i class="fas fa-map-marker-alt"></i> {esc(task['location'])}</span>
                                     <span><i class="fas fa-tag"></i> <span class="priority-badge {priority_class}">{task['priority']}</span></span>
-                                    {f'<span><i class="fas fa-calendar-alt"></i> Due: {task["due_date"][:10]}</span>' if task.get('due_date') else ''}
+                                    {f'<span><i class="fas fa-calendar-alt"></i> Due: {_fmt_log_time(task["due_date"])}</span>' if task.get('due_date') else ''}
                                 </div>
                             </div>
                             <div>
@@ -5815,7 +5823,7 @@ if selected_section == "Task Dashboard":
                             <i class="fas fa-map-marker-alt"></i> {esc(task['location'])}
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
-                            {f'<i class="fas fa-calendar-alt"></i> {task["due_date"][:10]}' if task.get('due_date') else ''}
+                            {f'<i class="fas fa-calendar-alt"></i> {_fmt_log_time(task["due_date"])}' if task.get('due_date') else ''}
                         </div>
                     </div>
                 </div>
@@ -5848,7 +5856,7 @@ if selected_section == "Task Dashboard":
                     comments = fetch_comments(task['id'])
                     if comments:
                         for c in comments:
-                            st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
+                            st.markdown(f"**{c['posted_by']}** ({_fmt_log_time(c['posted_at'])}): {c['comment']}")
                     else:
                         st.caption("No comments yet.")
                     _comment_val_key = f"_comment_val_sup_{task['id']}"
@@ -6035,7 +6043,7 @@ if selected_section == "Task Dashboard":
                             <i class="fas fa-map-marker-alt"></i> {esc(task['location'])}
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
-                            {f'<i class="fas fa-calendar-alt"></i> {task["due_date"][:10]}' if task.get('due_date') else ''}
+                            {f'<i class="fas fa-calendar-alt"></i> {_fmt_log_time(task["due_date"])}' if task.get('due_date') else ''}
                         </div>
                     </div>
                 </div>
@@ -6076,7 +6084,7 @@ if selected_section == "Task Dashboard":
                     comments = fetch_comments(task['id'])
                     if comments:
                         for c in comments:
-                            st.markdown(f"**{c['posted_by']}** ({c['posted_at'][:16]}): {c['comment']}")
+                            st.markdown(f"**{c['posted_by']}** ({_fmt_log_time(c['posted_at'])}): {c['comment']}")
                     else:
                         st.caption("No comments yet.")
                     _comment_val_key = f"_comment_val_sup_{task['id']}"
@@ -6241,17 +6249,21 @@ elif selected_section == "Assets":
                             or s in str(a.get('location', '')).lower()]
             for a in filtered:
                 status_class = f"asset-status-{a.get('status', 'Operational').replace(' ', '')}"
+                _asset_chips = render_meta_chips([
+                    ("fa-tag", f"Tag: {a['asset_tag']}" if a.get('asset_tag') else None, "neutral"),
+                    ("fa-map-marker-alt", a.get('location'), "neutral"),
+                    ("fa-industry", f"{a.get('manufacturer', '')} {a.get('model_number', '')}".strip() or None, "info"),
+                    ("fa-tachometer-alt", f"Meter: {a.get('current_meter', 0)} {a.get('meter_unit', '')}".strip()
+                    if a.get('current_meter') is not None else None, "info"),
+                ])
                 st.markdown(f"""
                 <div class="custom-card">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <strong>#{a['id']}: {esc(a.get('name'))}</strong>
                             <span class="asset-status-badge {status_class}">{esc(a.get('status', 'Operational'))}</span>
-                            <span class="priority-badge priority-{esc(a.get('criticality', 'Medium'))}">{esc(a.get('criticality', 'Medium'))}</span><br>
-                            <i class="fas fa-tag"></i> Tag: {esc(a.get('asset_tag', 'N/A'))} &nbsp;
-                            <i class="fas fa-map-marker-alt"></i> {esc(a.get('location', 'N/A'))} &nbsp;
-                            <i class="fas fa-industry"></i> {esc(a.get('manufacturer', 'N/A'))} {esc(a.get('model_number', ''))} &nbsp;
-                            <i class="fas fa-tachometer-alt"></i> Meter: {a.get('current_meter', 0)} {esc(a.get('meter_unit', ''))}
+                            <span class="priority-badge priority-{esc(a.get('criticality', 'Medium'))}">{esc(a.get('criticality', 'Medium'))}</span>
+                            {_asset_chips}
                         </div>
                     </div>
                 </div>
@@ -6395,15 +6407,18 @@ elif selected_section == "Inventory":
             is_low = p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0)
             stock_class = "stock-low" if is_low else "stock-ok"
             stock_label = "LOW STOCK" if is_low else "IN STOCK"
+            _part_chips = render_meta_chips([
+                ("fa-cubes", f"Qty on hand: {p.get('quantity_on_hand', 0)}", "danger" if is_low else "ok"),
+                ("fa-bell", f"Reorder at: {p.get('reorder_point', 0)}", "neutral"),
+                ("fa-map-marker-alt", f"Bin: {p['bin_location']}" if p.get('bin_location') else None, "neutral"),
+                ("fa-truck", p.get('supplier'), "info"),
+                ("fa-dollar-sign", f"Unit cost: {p['unit_cost']}" if p.get('unit_cost') is not None else None, "info"),
+            ])
             st.markdown(f"""
             <div class="custom-card">
                 <strong>{esc(p.get('part_name'))}</strong> ({esc(p.get('part_number', 'N/A'))})
-                <span class="stock-badge {stock_class}">{stock_label}</span><br>
-                <i class="fas fa-cubes"></i> Qty on hand: {p.get('quantity_on_hand', 0)} &nbsp;
-                <i class="fas fa-bell"></i> Reorder at: {p.get('reorder_point', 0)} &nbsp;
-                <i class="fas fa-map-marker-alt"></i> Bin: {esc(p.get('bin_location', 'N/A'))} &nbsp;
-                <i class="fas fa-truck"></i> Supplier: {esc(p.get('supplier', 'N/A'))} &nbsp;
-                <i class="fas fa-dollar-sign"></i> Unit cost: {p.get('unit_cost', 0)}
+                <span class="stock-badge {stock_class}">{stock_label}</span>
+                {_part_chips}
             </div>
             """, unsafe_allow_html=True)
             if can_manage_inventory:
@@ -6530,7 +6545,7 @@ elif selected_section == "Incidents":
                 {_meta_chips_html}
                 <p>{esc(inc.get('description'))}</p>
                 {_inc_fields}
-                {f"<p><small>Acknowledged by {esc(inc.get('acknowledged_by'))} at {str(inc.get('acknowledged_at',''))[:16]}</small></p>" if inc.get('acknowledged_by') else ""}
+                {f"<p><small>Acknowledged by {esc(inc.get('acknowledged_by'))} at {_fmt_log_time(inc.get('acknowledged_at'))}</small></p>" if inc.get('acknowledged_by') else ""}
             </div>
             """, unsafe_allow_html=True)
             if can_manage_incidents:
@@ -6661,21 +6676,30 @@ elif selected_section == "Permits":
             if vu and vu < datetime.now() and status in ("Issued", "Active"):
                 expired = True
         linked = task_lookup.get(p.get('task_id'))
+
+        _permit_fields = render_field_grid([
+            ("fa-clipboard-list", "Task", linked['title'] if linked else None, "neutral"),
+            ("fa-lock", "Lock tags", p.get('lock_tag_numbers'), "warn"),
+            ("fa-power-off", "Isolation points", p.get('isolation_points'), "warn"),
+            ("fa-exclamation-triangle", "Hazards", p.get('hazards_identified'), "danger"),
+        ])
+        _permit_chips = render_meta_chips([
+            ("fa-user-check", f"Issued by {p.get('issued_by')}" if p.get('issued_by') else None, "info"),
+            ("fa-clock", _fmt_log_time(p['issued_at']) if p.get('issued_at') else None, "neutral"),
+            ("fa-signature", f"Accepted by {p['accepted_by']}" if p.get('accepted_by') else None, "info"),
+            ("fa-clock", _fmt_log_time(p['accepted_at']) if p.get('accepted_at') else None, "neutral"),
+            ("fa-check-double", f"Signed back by {p['signed_back_by']}" if p.get('signed_back_by') else None, "ok"),
+            ("fa-clock", _fmt_log_time(p['signed_back_at']) if p.get('signed_back_at') else None, "neutral"),
+            ("fa-hourglass-end", f"Valid until {_fmt_log_time(p['valid_until'])}" if p.get('valid_until') else None,
+            "danger" if expired else "neutral"),
+        ])
         st.markdown(f"""
         <div class="custom-card" style="border-left-color: {colour};">
             <strong>Permit #{p['id']} — {esc(p.get('permit_type'))}</strong>
             <span class="status-badge" style="background:{colour};">{esc(status)}</span>
-            {'<span class="overdue-badge">EXPIRED</span>' if expired else ''}<br>
-            <i class="fas fa-clipboard-list"></i> Task: {esc(linked['title']) if linked else 'N/A'}<br>
-            <i class="fas fa-lock"></i> Lock tags: {esc(p.get('lock_tag_numbers') or 'N/A')}<br>
-            <i class="fas fa-power-off"></i> Isolation points: {esc(p.get('isolation_points') or 'N/A')}<br>
-            <i class="fas fa-exclamation-triangle"></i> Hazards: {esc(p.get('hazards_identified') or 'N/A')}<br>
-            <small>
-            Issued by {esc(p.get('issued_by'))} at {str(p.get('issued_at', ''))[:16]}
-            {f" · Accepted by {esc(p.get('accepted_by'))} at {str(p.get('accepted_at',''))[:16]}" if p.get('accepted_by') else ""}
-            {f" · Signed back by {esc(p.get('signed_back_by'))} at {str(p.get('signed_back_at',''))[:16]}" if p.get('signed_back_by') else ""}
-            {f" · Valid until {str(p.get('valid_until',''))[:16]}" if p.get('valid_until') else ""}
-            </small>
+            {'<span class="overdue-badge">EXPIRED</span>' if expired else ''}
+            {_permit_chips}
+            {_permit_fields}
         </div>
         """, unsafe_allow_html=True)
 
@@ -6802,7 +6826,7 @@ elif selected_section == "Handover":
                 <strong>{esc(h.get('shift'))} — {esc(h.get('crew') or 'No crew')}</strong> {ack_badge}
                 {_ho_meta_chips}
                 {_ho_fields}
-                {f"<small>Acknowledged by {esc(h.get('acknowledged_by'))} at {str(h.get('acknowledged_at',''))[:16]}</small>" if h.get('acknowledged') else ""}
+                {f"<small>Acknowledged by {esc(h.get('acknowledged_by'))} at {_fmt_log_time(h.get('acknowledged_at'))}</small>" if h.get('acknowledged') else ""}
             </div>
             """, unsafe_allow_html=True)
             if not h.get('acknowledged') and can(role, "handover.acknowledge"):
@@ -6871,19 +6895,36 @@ elif selected_section == "Contractors":
                 st.error(f"🚫 {len(blocked)} contractor(s) have expired or missing compliance records and should not be granted site access.")
             if not contractors:
                 st.info("No contractors registered yet.")
+
+            def _fmt_date_only(value):
+                # induction_expiry/insurance_expiry are dates, not
+                # timestamps — _fmt_log_time always shows a time
+                # component, which would misleadingly show 00:00
+                # for every one of these. A plain date format is
+                # the honest representation of what's actually stored.
+                dt = _parse_dt(value)
+                return dt.strftime("%b %d, %Y") if dt else "Not set"
+
             for c in contractors:
                 label, is_blocking = contractor_compliance_status(c)
                 badge_colour = "#dc2626" if is_blocking else ("#f59e0b" if label != "Compliant" else "#10b981")
+
+                _contractor_chips = render_meta_chips([
+                    ("fa-user", c.get('contact_person'), "info"),
+                    ("fa-envelope", c.get('contact_email'), "info"),
+                    ("fa-phone", c.get('contact_phone'), "info"),
+                ])
+                _contractor_fields = render_field_grid([
+                    ("fa-id-card", "Induction expires", _fmt_date_only(c.get('induction_expiry')), "neutral"),
+                    ("fa-file-contract", "Insurance expires", _fmt_date_only(c.get('insurance_expiry')), "neutral"),
+                    ("fa-tools", "Competencies", c.get('competencies'), "info"),
+                ])
                 st.markdown(f"""
                 <div class="custom-card" style="border-left-color: {badge_colour};">
                     <strong>{esc(c.get('company_name'))}</strong>
-                    <span class="status-badge" style="background:{badge_colour};">{esc(label)}</span><br>
-                    <i class="fas fa-user"></i> {esc(c.get('contact_person') or 'N/A')}
-                    &nbsp;<i class="fas fa-envelope"></i> {esc(c.get('contact_email') or 'N/A')}
-                    &nbsp;<i class="fas fa-phone"></i> {esc(c.get('contact_phone') or 'N/A')}<br>
-                    <i class="fas fa-id-card"></i> Induction expires: {str(c.get('induction_expiry') or 'Not set')[:10]}
-                    &nbsp;<i class="fas fa-file-contract"></i> Insurance expires: {str(c.get('insurance_expiry') or 'Not set')[:10]}<br>
-                    <i class="fas fa-tools"></i> Competencies: {esc(c.get('competencies') or 'None recorded')}
+                    <span class="status-badge" style="background:{badge_colour};">{esc(label)}</span>
+                    {_contractor_chips}
+                    {_contractor_fields}
                 </div>
                 """, unsafe_allow_html=True)
                 if can(role, "contractor.manage"):
@@ -7163,7 +7204,7 @@ elif selected_section == "Owner Console":
                             f"<i class='fas fa-users'></i> {esc(u.get('department') or 'No department')}<br>"
                             f"<i class='fas fa-id-card'></i> ID: {esc(u.get('employee_id') or 'Not provided')} &nbsp;·&nbsp; "
                             f"<i class='fas fa-envelope'></i> {esc(u.get('email') or 'No email')}<br>"
-                            f"<i class='fas fa-clock'></i> Requested {str(u.get('requested_at') or '')[:16]}"
+                            f"<i class='fas fa-clock'></i> Requested {_fmt_log_time(u.get('requested_at'))}"
                             f"</small>", unsafe_allow_html=True)
                         _req = u.get('requested_role') or 'Worker'
                         st.markdown(f"Requested access level: "
@@ -7458,7 +7499,7 @@ elif selected_section == "Owner Console":
                 st.markdown(
                     f"{_ic} **{esc(d.get('target_full_name') or d.get('target_username'))}** "
                     f"— {esc(d.get('action'))}{_detail} by **{esc(d.get('decided_by'))}** "
-                    f"<small>{str(d.get('decided_at',''))[:16]}</small>",
+                    f"<small>{_fmt_log_time(d.get('decided_at'))}</small>",
                     unsafe_allow_html=True)
                 if d.get("reason"):
                     st.caption(f"↳ {esc(d['reason'])}")
@@ -7511,17 +7552,17 @@ elif selected_section == "Owner Console":
 
             if PANDAS_AVAILABLE:
                 _df = pd.DataFrame(rows)[["username", "full_name", "current_email",
-                                          "computed_auth_email", "is_placeholder", "already_migrated"]]
+                                          "computed_auth_email", "is_placeholder", "email_already_mapped"]]
                 st.dataframe(_df, use_container_width=True, hide_index=True)
             else:
                 for r in rows:
                     st.write(f"`{r['username']}` → `{r['computed_auth_email']}`"
                             f"{' (placeholder)' if r['is_placeholder'] else ''}"
-                            f"{' ✓ already mapped' if r['already_migrated'] else ''}")
+                            f"{' ✓ email mapped' if r['email_already_mapped'] else ''}")
 
             _dup_usernames = {u for usernames in duplicates.values() for u in usernames} if duplicates else set()
             _eligible = [r["username"] for r in rows
-                        if not r["already_migrated"] and r["username"] not in _dup_usernames]
+                        if not r["email_already_mapped"] and r["username"] not in _dup_usernames]
 
             if _eligible:
                 st.markdown("---")
@@ -8152,7 +8193,7 @@ elif selected_section == "Feedback":
                     {f'<span class="priority-badge" style="background:var(--tone-neutral);">{esc(f["category"])}</span>' if f.get('category') else ''}
                     <br>
                     <small><i class="fas fa-user"></i> {esc(f.get('submitted_by'))} &nbsp;
-                    <i class="fas fa-clock"></i> {str(f.get('created_at', ''))[:16]}</small>
+                    <i class="fas fa-clock"></i> {_fmt_log_time(f.get('created_at'))}</small>
                     {f'<p>{esc(f.get("description"))}</p>' if f.get('description') else ''}
                     {f'<div class="feedback-response"><i class="fas fa-reply"></i> <b>{esc(f.get("responded_by"))}:</b> {esc(f.get("admin_response"))}</div>' if f.get('admin_response') else ''}
                 </div>
