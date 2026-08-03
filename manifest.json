@@ -2,10 +2,11 @@
   "name": "Mine & Workshop Digital Tracker System",
   "short_name": "MWDTS",
   "description": "CMMS maintenance, safety, and incident tracking for mine and workshop operations.",
-  "start_url": ".",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#eef1f6",
-  "theme_color": "#16213e",
+  "theme_color": "#001530",
   "orientation": "any",
   "icons": [
     {
