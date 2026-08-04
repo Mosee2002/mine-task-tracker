@@ -15,3 +15,5 @@ plotly
 authlib
 streamlit-option-menu
 fpdf
+reportlab
+opencv-python-headless
