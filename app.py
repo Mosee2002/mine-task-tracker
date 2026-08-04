@@ -4343,6 +4343,62 @@ TRANSLATIONS = {
         "common.delete": "Delete", "common.edit": "Edit", "common.search": "Search",
         "common.close": "Close", "common.back": "Back", "common.yes": "Yes",
         "common.no": "No", "common.welcome": "Welcome",
+        "task.btn_post_comment": "Post Comment",
+        "task.btn_upload_attachment": "Upload Attachment",
+        "task.btn_upload": "Upload",
+        "task.btn_export_csv": "📥 Export Tasks as CSV",
+        "task.caption_full_breakdowns": "Full breakdowns, Pareto analysis, and cost reporting are in the **Analytics** section.",
+        "task.caption_no_attachments": "No attachments.",
+        "task.caption_no_broadcasts": "No broadcasts yet.",
+        "task.caption_no_comments": "No comments yet.",
+        "task.chk_recurring": "Recurring Task (Preventive Maintenance)",
+        "task.chk_requires_jsa": "Requires JSA",
+        "task.chk_requires_loto": "Requires LOTO",
+        "task.chk_jsa_signed": "📋 JSA Signed",
+        "task.chk_loto_isolated": "🔒 LOTO Isolated",
+        "task.err_cannot_move_progress": "Cannot move to In Progress without an accepted permit.",
+        "task.err_delete_failed": "Delete failed. If this keeps happening, Row Level Security may be blocking writes to the tasks table.",
+        "task.err_create_failed": "Failed to create task.",
+        "task.err_comment_failed": "Failed to post comment.",
+        "task.err_title_location_required": "Title and Location are required.",
+        "task.err_upload_failed": "Upload failed.",
+        "task.err_safety_forms_required": "🔒 Safety isolation forms are required before proceeding.",
+        "task.err_permit_required": "🚫 **This task requires an accepted Permit to Work.** No live permit is recorded against it. Ask your supervisor to issue one, then accept it in the Permits section before starting work.",
+        "task.info_no_active_users": "No active users yet.",
+        "task.info_no_data": "No data to display.",
+        "task.info_no_messages": "No messages sent yet.",
+        "task.info_no_tasks_assigned": "No tasks assigned to you.",
+        "task.info_no_tasks_found": "No tasks found.",
+        "task.info_no_tasks_manage": "No tasks to manage.",
+        "task.info_readonly_directory": "This is a read-only directory. Access approvals, role changes, and suspensions are handled by the account owner.",
+        "task.info_owner_note": "You are the owner — approvals and role changes are in **Owner Console → Access Requests**.",
+        "task.info_latest_broadcasts": "📢 Latest Broadcasts:",
+        "task.hdr_all_broadcasts": "All Broadcast Messages",
+        "task.hdr_all_tasks": "All Maintenance Tasks",
+        "task.hdr_dispatch_new": "Dispatch New Work Ticket",
+        "task.hdr_full_control": "Full Task Control",
+        "task.hdr_recent_broadcasts": "Recent Broadcasts",
+        "task.hdr_user_directory": "👥 User Directory",
+        "task.hdr_task_analytics": "📊 Task Analytics",
+        "task.hdr_active_users": "Active users",
+        "task.hdr_suspended": "Suspended",
+        "task.hdr_kpis": "🎯 Key Performance Indicators",
+        "task.txt_closeout_details": "**Close-out details** — these feed the reliability and cost reports.",
+        "task.txt_already_uploaded": "**📸 Already uploaded:**",
+        "task.field_failure_code": "Failure code (for breakdown work)",
+        "task.field_linked_asset": "Linked Asset (optional)",
+        "task.field_priority": "Priority",
+        "task.field_recurrence": "Recurrence Type",
+        "task.field_update_status": "Update Status",
+        "task.field_work_type": "Work Type",
+        "task.success_attachment": "Attachment uploaded!",
+        "task.success_photo": "Photo uploaded!",
+        "task.success_safety_checks": "✅ Safety checks passed.",
+        "task.success_no_unassigned": "🎉 No unassigned tasks at the moment.",
+        "task.field_add_comment": "Add comment",
+        "task.field_location": "Location / Area *",
+        "task.field_task_title": "Task Title *",
+        "task.warn_plotly": "Plotly or pandas not installed. Please run: pip install plotly pandas",
     },
     "fr": {
         "nav.Task Dashboard": "Tableau des tâches", "nav.Assets": "Actifs",
@@ -4355,6 +4411,62 @@ TRANSLATIONS = {
         "common.delete": "Supprimer", "common.edit": "Modifier", "common.search": "Rechercher",
         "common.close": "Fermer", "common.back": "Retour", "common.yes": "Oui",
         "common.no": "Non", "common.welcome": "Bienvenue",
+        "task.btn_post_comment": "Publier le commentaire",
+        "task.btn_upload_attachment": "Téléverser une pièce jointe",
+        "task.btn_upload": "Téléverser",
+        "task.btn_export_csv": "📥 Exporter les tâches en CSV",
+        "task.caption_full_breakdowns": "Les analyses complètes, l'analyse de Pareto et les rapports de coûts se trouvent dans la section **Analytique**.",
+        "task.caption_no_attachments": "Aucune pièce jointe.",
+        "task.caption_no_broadcasts": "Aucune diffusion pour le moment.",
+        "task.caption_no_comments": "Aucun commentaire pour le moment.",
+        "task.chk_recurring": "Tâche récurrente (maintenance préventive)",
+        "task.chk_requires_jsa": "Nécessite une AST",
+        "task.chk_requires_loto": "Nécessite une consignation LOTO",
+        "task.chk_jsa_signed": "📋 AST signée",
+        "task.chk_loto_isolated": "🔒 Consignation LOTO effectuée",
+        "task.err_cannot_move_progress": "Impossible de passer à « En cours » sans permis accepté.",
+        "task.err_delete_failed": "Échec de la suppression. Si cela persiste, la sécurité au niveau des lignes (RLS) bloque peut-être les écritures sur la table des tâches.",
+        "task.err_create_failed": "Échec de la création de la tâche.",
+        "task.err_comment_failed": "Échec de la publication du commentaire.",
+        "task.err_title_location_required": "Le titre et le lieu sont requis.",
+        "task.err_upload_failed": "Échec du téléversement.",
+        "task.err_safety_forms_required": "🔒 Les formulaires de consignation de sécurité sont requis avant de continuer.",
+        "task.err_permit_required": "🚫 **Cette tâche nécessite un permis de travail accepté.** Aucun permis actif n'est enregistré. Demandez à votre superviseur d'en émettre un, puis acceptez-le dans la section Permis avant de commencer le travail.",
+        "task.info_no_active_users": "Aucun utilisateur actif pour le moment.",
+        "task.info_no_data": "Aucune donnée à afficher.",
+        "task.info_no_messages": "Aucun message envoyé pour le moment.",
+        "task.info_no_tasks_assigned": "Aucune tâche ne vous est assignée.",
+        "task.info_no_tasks_found": "Aucune tâche trouvée.",
+        "task.info_no_tasks_manage": "Aucune tâche à gérer.",
+        "task.info_readonly_directory": "Ceci est un répertoire en lecture seule. Les approbations d'accès, les changements de rôle et les suspensions sont gérés par le propriétaire du compte.",
+        "task.info_owner_note": "Vous êtes le propriétaire — les approbations et les changements de rôle se trouvent dans **Console propriétaire → Demandes d'accès**.",
+        "task.info_latest_broadcasts": "📢 Dernières diffusions :",
+        "task.hdr_all_broadcasts": "Tous les messages diffusés",
+        "task.hdr_all_tasks": "Toutes les tâches de maintenance",
+        "task.hdr_dispatch_new": "Créer un nouveau bon de travail",
+        "task.hdr_full_control": "Contrôle complet des tâches",
+        "task.hdr_recent_broadcasts": "Diffusions récentes",
+        "task.hdr_user_directory": "👥 Répertoire des utilisateurs",
+        "task.hdr_task_analytics": "📊 Analytique des tâches",
+        "task.hdr_active_users": "Utilisateurs actifs",
+        "task.hdr_suspended": "Suspendu",
+        "task.hdr_kpis": "🎯 Indicateurs clés de performance",
+        "task.txt_closeout_details": "**Détails de clôture** — ces informations alimentent les rapports de fiabilité et de coûts.",
+        "task.txt_already_uploaded": "**📸 Déjà téléversé :**",
+        "task.field_failure_code": "Code de défaillance (pour panne)",
+        "task.field_linked_asset": "Actif lié (facultatif)",
+        "task.field_priority": "Priorité",
+        "task.field_recurrence": "Type de récurrence",
+        "task.field_update_status": "Mettre à jour le statut",
+        "task.field_work_type": "Type de travail",
+        "task.success_attachment": "Pièce jointe téléversée !",
+        "task.success_photo": "Photo téléversée !",
+        "task.success_safety_checks": "✅ Vérifications de sécurité réussies.",
+        "task.success_no_unassigned": "🎉 Aucune tâche non assignée pour le moment.",
+        "task.field_add_comment": "Ajouter un commentaire",
+        "task.field_location": "Emplacement / Zone *",
+        "task.field_task_title": "Titre de la tâche *",
+        "task.warn_plotly": "Plotly ou pandas non installés. Veuillez exécuter : pip install plotly pandas",
     },
     "es": {
         "nav.Task Dashboard": "Panel de tareas", "nav.Assets": "Activos",
@@ -4367,6 +4479,62 @@ TRANSLATIONS = {
         "common.delete": "Eliminar", "common.edit": "Editar", "common.search": "Buscar",
         "common.close": "Cerrar", "common.back": "Atrás", "common.yes": "Sí",
         "common.no": "No", "common.welcome": "Bienvenido",
+        "task.btn_post_comment": "Publicar comentario",
+        "task.btn_upload_attachment": "Subir archivo adjunto",
+        "task.btn_upload": "Subir",
+        "task.btn_export_csv": "📥 Exportar tareas como CSV",
+        "task.caption_full_breakdowns": "Los desgloses completos, el análisis de Pareto y los informes de costos están en la sección **Analítica**.",
+        "task.caption_no_attachments": "Sin archivos adjuntos.",
+        "task.caption_no_broadcasts": "Aún no hay difusiones.",
+        "task.caption_no_comments": "Aún no hay comentarios.",
+        "task.chk_recurring": "Tarea recurrente (mantenimiento preventivo)",
+        "task.chk_requires_jsa": "Requiere AST",
+        "task.chk_requires_loto": "Requiere bloqueo LOTO",
+        "task.chk_jsa_signed": "📋 AST firmado",
+        "task.chk_loto_isolated": "🔒 Bloqueo LOTO realizado",
+        "task.err_cannot_move_progress": "No se puede pasar a «En curso» sin un permiso aceptado.",
+        "task.err_delete_failed": "Error al eliminar. Si esto continúa, la seguridad a nivel de fila (RLS) podría estar bloqueando las escrituras en la tabla de tareas.",
+        "task.err_create_failed": "Error al crear la tarea.",
+        "task.err_comment_failed": "Error al publicar el comentario.",
+        "task.err_title_location_required": "Se requieren el título y la ubicación.",
+        "task.err_upload_failed": "Error al subir el archivo.",
+        "task.err_safety_forms_required": "🔒 Se requieren los formularios de bloqueo de seguridad antes de continuar.",
+        "task.err_permit_required": "🚫 **Esta tarea requiere un permiso de trabajo aceptado.** No hay ningún permiso activo registrado. Pida a su supervisor que emita uno y luego acéptelo en la sección Permisos antes de comenzar el trabajo.",
+        "task.info_no_active_users": "Aún no hay usuarios activos.",
+        "task.info_no_data": "No hay datos para mostrar.",
+        "task.info_no_messages": "Aún no se han enviado mensajes.",
+        "task.info_no_tasks_assigned": "No tiene tareas asignadas.",
+        "task.info_no_tasks_found": "No se encontraron tareas.",
+        "task.info_no_tasks_manage": "No hay tareas que gestionar.",
+        "task.info_readonly_directory": "Este es un directorio de solo lectura. Las aprobaciones de acceso, los cambios de rol y las suspensiones las gestiona el propietario de la cuenta.",
+        "task.info_owner_note": "Usted es el propietario — las aprobaciones y los cambios de rol están en **Consola del propietario → Solicitudes de acceso**.",
+        "task.info_latest_broadcasts": "📢 Últimas difusiones:",
+        "task.hdr_all_broadcasts": "Todos los mensajes difundidos",
+        "task.hdr_all_tasks": "Todas las tareas de mantenimiento",
+        "task.hdr_dispatch_new": "Crear nueva orden de trabajo",
+        "task.hdr_full_control": "Control total de tareas",
+        "task.hdr_recent_broadcasts": "Difusiones recientes",
+        "task.hdr_user_directory": "👥 Directorio de usuarios",
+        "task.hdr_task_analytics": "📊 Analítica de tareas",
+        "task.hdr_active_users": "Usuarios activos",
+        "task.hdr_suspended": "Suspendido",
+        "task.hdr_kpis": "🎯 Indicadores clave de rendimiento",
+        "task.txt_closeout_details": "**Detalles de cierre** — esta información alimenta los informes de fiabilidad y costos.",
+        "task.txt_already_uploaded": "**📸 Ya subido:**",
+        "task.field_failure_code": "Código de falla (para averías)",
+        "task.field_linked_asset": "Activo vinculado (opcional)",
+        "task.field_priority": "Prioridad",
+        "task.field_recurrence": "Tipo de recurrencia",
+        "task.field_update_status": "Actualizar estado",
+        "task.field_work_type": "Tipo de trabajo",
+        "task.success_attachment": "¡Archivo adjunto subido!",
+        "task.success_photo": "¡Foto subida!",
+        "task.success_safety_checks": "✅ Verificaciones de seguridad superadas.",
+        "task.success_no_unassigned": "🎉 No hay tareas sin asignar por el momento.",
+        "task.field_add_comment": "Agregar comentario",
+        "task.field_location": "Ubicación / Área *",
+        "task.field_task_title": "Título de la tarea *",
+        "task.warn_plotly": "Plotly o pandas no están instalados. Ejecute: pip install plotly pandas",
     },
     "pt": {
         "nav.Task Dashboard": "Painel de tarefas", "nav.Assets": "Ativos",
@@ -4379,6 +4547,62 @@ TRANSLATIONS = {
         "common.delete": "Excluir", "common.edit": "Editar", "common.search": "Pesquisar",
         "common.close": "Fechar", "common.back": "Voltar", "common.yes": "Sim",
         "common.no": "Não", "common.welcome": "Bem-vindo",
+        "task.btn_post_comment": "Publicar comentário",
+        "task.btn_upload_attachment": "Enviar anexo",
+        "task.btn_upload": "Enviar",
+        "task.btn_export_csv": "📥 Exportar tarefas como CSV",
+        "task.caption_full_breakdowns": "As análises completas, análise de Pareto e relatórios de custos estão na seção **Análises**.",
+        "task.caption_no_attachments": "Sem anexos.",
+        "task.caption_no_broadcasts": "Ainda não há transmissões.",
+        "task.caption_no_comments": "Ainda não há comentários.",
+        "task.chk_recurring": "Tarefa recorrente (manutenção preventiva)",
+        "task.chk_requires_jsa": "Requer AST",
+        "task.chk_requires_loto": "Requer bloqueio LOTO",
+        "task.chk_jsa_signed": "📋 AST assinada",
+        "task.chk_loto_isolated": "🔒 Bloqueio LOTO realizado",
+        "task.err_cannot_move_progress": "Não é possível mover para \"Em andamento\" sem uma licença aceita.",
+        "task.err_delete_failed": "Falha ao excluir. Se isso continuar, a Segurança em Nível de Linha (RLS) pode estar bloqueando gravações na tabela de tarefas.",
+        "task.err_create_failed": "Falha ao criar a tarefa.",
+        "task.err_comment_failed": "Falha ao publicar o comentário.",
+        "task.err_title_location_required": "Título e localização são obrigatórios.",
+        "task.err_upload_failed": "Falha no envio.",
+        "task.err_safety_forms_required": "🔒 Os formulários de bloqueio de segurança são obrigatórios antes de continuar.",
+        "task.err_permit_required": "🚫 **Esta tarefa requer uma licença de trabalho aceita.** Nenhuma licença ativa está registrada. Peça ao seu supervisor para emitir uma e depois aceite-a na seção Licenças antes de iniciar o trabalho.",
+        "task.info_no_active_users": "Ainda não há usuários ativos.",
+        "task.info_no_data": "Sem dados para exibir.",
+        "task.info_no_messages": "Ainda não foram enviadas mensagens.",
+        "task.info_no_tasks_assigned": "Nenhuma tarefa atribuída a você.",
+        "task.info_no_tasks_found": "Nenhuma tarefa encontrada.",
+        "task.info_no_tasks_manage": "Nenhuma tarefa para gerenciar.",
+        "task.info_readonly_directory": "Este é um diretório somente leitura. Aprovações de acesso, mudanças de função e suspensões são gerenciadas pelo proprietário da conta.",
+        "task.info_owner_note": "Você é o proprietário — aprovações e mudanças de função estão em **Console do Proprietário → Solicitações de Acesso**.",
+        "task.info_latest_broadcasts": "📢 Últimas transmissões:",
+        "task.hdr_all_broadcasts": "Todas as mensagens transmitidas",
+        "task.hdr_all_tasks": "Todas as tarefas de manutenção",
+        "task.hdr_dispatch_new": "Criar nova ordem de serviço",
+        "task.hdr_full_control": "Controle total de tarefas",
+        "task.hdr_recent_broadcasts": "Transmissões recentes",
+        "task.hdr_user_directory": "👥 Diretório de usuários",
+        "task.hdr_task_analytics": "📊 Análises de tarefas",
+        "task.hdr_active_users": "Usuários ativos",
+        "task.hdr_suspended": "Suspenso",
+        "task.hdr_kpis": "🎯 Indicadores-chave de desempenho",
+        "task.txt_closeout_details": "**Detalhes de encerramento** — essas informações alimentam os relatórios de confiabilidade e custos.",
+        "task.txt_already_uploaded": "**📸 Já enviado:**",
+        "task.field_failure_code": "Código de falha (para quebras)",
+        "task.field_linked_asset": "Ativo vinculado (opcional)",
+        "task.field_priority": "Prioridade",
+        "task.field_recurrence": "Tipo de recorrência",
+        "task.field_update_status": "Atualizar status",
+        "task.field_work_type": "Tipo de trabalho",
+        "task.success_attachment": "Anexo enviado!",
+        "task.success_photo": "Foto enviada!",
+        "task.success_safety_checks": "✅ Verificações de segurança aprovadas.",
+        "task.success_no_unassigned": "🎉 Nenhuma tarefa não atribuída no momento.",
+        "task.field_add_comment": "Adicionar comentário",
+        "task.field_location": "Local / Área *",
+        "task.field_task_title": "Título da tarefa *",
+        "task.warn_plotly": "Plotly ou pandas não instalados. Execute: pip install plotly pandas",
     },
     "zh": {
         "nav.Task Dashboard": "任务看板", "nav.Assets": "资产",
@@ -4391,6 +4615,62 @@ TRANSLATIONS = {
         "common.delete": "删除", "common.edit": "编辑", "common.search": "搜索",
         "common.close": "关闭", "common.back": "返回", "common.yes": "是",
         "common.no": "否", "common.welcome": "欢迎",
+        "task.btn_post_comment": "发布评论",
+        "task.btn_upload_attachment": "上传附件",
+        "task.btn_upload": "上传",
+        "task.btn_export_csv": "📥 导出任务为CSV",
+        "task.caption_full_breakdowns": "完整明细、帕累托分析和成本报告请见**分析**部分。",
+        "task.caption_no_attachments": "暂无附件。",
+        "task.caption_no_broadcasts": "暂无广播消息。",
+        "task.caption_no_comments": "暂无评论。",
+        "task.chk_recurring": "周期性任务（预防性维护）",
+        "task.chk_requires_jsa": "需要工作安全分析（JSA）",
+        "task.chk_requires_loto": "需要上锁挂牌（LOTO）",
+        "task.chk_jsa_signed": "📋 工作安全分析已签署",
+        "task.chk_loto_isolated": "🔒 已完成上锁挂牌隔离",
+        "task.err_cannot_move_progress": "没有已批准的许可证，无法移至“进行中”。",
+        "task.err_delete_failed": "删除失败。如果持续出现此问题，可能是行级安全策略（RLS）阻止了对任务表的写入。",
+        "task.err_create_failed": "创建任务失败。",
+        "task.err_comment_failed": "发布评论失败。",
+        "task.err_title_location_required": "标题和位置为必填项。",
+        "task.err_upload_failed": "上传失败。",
+        "task.err_safety_forms_required": "🔒 继续之前需要填写安全隔离表格。",
+        "task.err_permit_required": "🚫 **此任务需要已批准的工作许可证。** 目前没有有效的许可证记录。请让您的主管签发许可证，然后在“许可证”部分接受后再开始工作。",
+        "task.info_no_active_users": "暂无活跃用户。",
+        "task.info_no_data": "暂无数据可显示。",
+        "task.info_no_messages": "暂未发送任何消息。",
+        "task.info_no_tasks_assigned": "没有分配给您的任务。",
+        "task.info_no_tasks_found": "未找到任务。",
+        "task.info_no_tasks_manage": "没有需要管理的任务。",
+        "task.info_readonly_directory": "这是一个只读目录。访问审批、角色变更和账户暂停由账户所有者管理。",
+        "task.info_owner_note": "您是所有者——审批和角色变更请前往 **所有者控制台 → 访问请求**。",
+        "task.info_latest_broadcasts": "📢 最新广播：",
+        "task.hdr_all_broadcasts": "所有广播消息",
+        "task.hdr_all_tasks": "所有维护任务",
+        "task.hdr_dispatch_new": "创建新工单",
+        "task.hdr_full_control": "任务完全控制",
+        "task.hdr_recent_broadcasts": "近期广播",
+        "task.hdr_user_directory": "👥 用户目录",
+        "task.hdr_task_analytics": "📊 任务分析",
+        "task.hdr_active_users": "活跃用户",
+        "task.hdr_suspended": "已暂停",
+        "task.hdr_kpis": "🎯 关键绩效指标",
+        "task.txt_closeout_details": "**结案详情** —— 这些信息将用于可靠性和成本报告。",
+        "task.txt_already_uploaded": "**📸 已上传：**",
+        "task.field_failure_code": "故障代码（用于故障维修）",
+        "task.field_linked_asset": "关联资产（可选）",
+        "task.field_priority": "优先级",
+        "task.field_recurrence": "重复类型",
+        "task.field_update_status": "更新状态",
+        "task.field_work_type": "工作类型",
+        "task.success_attachment": "附件已上传！",
+        "task.success_photo": "照片已上传！",
+        "task.success_safety_checks": "✅ 安全检查已通过。",
+        "task.success_no_unassigned": "🎉 目前没有未分配的任务。",
+        "task.field_add_comment": "添加评论",
+        "task.field_location": "位置/区域 *",
+        "task.field_task_title": "任务标题 *",
+        "task.warn_plotly": "未安装 Plotly 或 pandas。请运行：pip install plotly pandas",
     },
     "hi": {
         "nav.Task Dashboard": "कार्य डैशबोर्ड", "nav.Assets": "संपत्ति",
@@ -4403,6 +4683,62 @@ TRANSLATIONS = {
         "common.delete": "हटाएं", "common.edit": "संपादित करें", "common.search": "खोजें",
         "common.close": "बंद करें", "common.back": "वापस", "common.yes": "हाँ",
         "common.no": "नहीं", "common.welcome": "स्वागत है",
+        "task.btn_post_comment": "टिप्पणी पोस्ट करें",
+        "task.btn_upload_attachment": "अटैचमेंट अपलोड करें",
+        "task.btn_upload": "अपलोड करें",
+        "task.btn_export_csv": "📥 कार्यों को CSV के रूप में निर्यात करें",
+        "task.caption_full_breakdowns": "पूर्ण विवरण, पैरेटो विश्लेषण और लागत रिपोर्टिंग **विश्लेषण** सेक्शन में हैं।",
+        "task.caption_no_attachments": "कोई अटैचमेंट नहीं।",
+        "task.caption_no_broadcasts": "अभी तक कोई प्रसारण नहीं।",
+        "task.caption_no_comments": "अभी तक कोई टिप्पणी नहीं।",
+        "task.chk_recurring": "आवर्ती कार्य (निवारक रखरखाव)",
+        "task.chk_requires_jsa": "JSA आवश्यक है",
+        "task.chk_requires_loto": "LOTO आवश्यक है",
+        "task.chk_jsa_signed": "📋 JSA पर हस्ताक्षर किए गए",
+        "task.chk_loto_isolated": "🔒 LOTO आइसोलेशन पूर्ण",
+        "task.err_cannot_move_progress": "स्वीकृत परमिट के बिना 'प्रगति पर' में स्थानांतरित नहीं किया जा सकता।",
+        "task.err_delete_failed": "हटाना विफल रहा। यदि यह बार-बार हो रहा है, तो हो सकता है कि Row Level Security (RLS) tasks टेबल में लेखन को रोक रही हो।",
+        "task.err_create_failed": "कार्य बनाने में विफल।",
+        "task.err_comment_failed": "टिप्पणी पोस्ट करने में विफल।",
+        "task.err_title_location_required": "शीर्षक और स्थान आवश्यक हैं।",
+        "task.err_upload_failed": "अपलोड विफल रहा।",
+        "task.err_safety_forms_required": "🔒 आगे बढ़ने से पहले सुरक्षा आइसोलेशन फॉर्म आवश्यक हैं।",
+        "task.err_permit_required": "🚫 **इस कार्य के लिए स्वीकृत वर्क परमिट आवश्यक है।** इसके विरुद्ध कोई सक्रिय परमिट दर्ज नहीं है। अपने सुपरवाइज़र से परमिट जारी करने के लिए कहें, फिर काम शुरू करने से पहले परमिट सेक्शन में उसे स्वीकार करें।",
+        "task.info_no_active_users": "अभी तक कोई सक्रिय उपयोगकर्ता नहीं।",
+        "task.info_no_data": "दिखाने के लिए कोई डेटा नहीं।",
+        "task.info_no_messages": "अभी तक कोई संदेश नहीं भेजा गया।",
+        "task.info_no_tasks_assigned": "आपको कोई कार्य नहीं सौंपा गया है।",
+        "task.info_no_tasks_found": "कोई कार्य नहीं मिला।",
+        "task.info_no_tasks_manage": "प्रबंधित करने के लिए कोई कार्य नहीं।",
+        "task.info_readonly_directory": "यह केवल पढ़ने योग्य निर्देशिका है। एक्सेस अनुमोदन, भूमिका परिवर्तन और निलंबन खाता स्वामी द्वारा संभाले जाते हैं।",
+        "task.info_owner_note": "आप स्वामी हैं — अनुमोदन और भूमिका परिवर्तन **स्वामी कंसोल → एक्सेस अनुरोध** में हैं।",
+        "task.info_latest_broadcasts": "📢 नवीनतम प्रसारण:",
+        "task.hdr_all_broadcasts": "सभी प्रसारण संदेश",
+        "task.hdr_all_tasks": "सभी रखरखाव कार्य",
+        "task.hdr_dispatch_new": "नया कार्य आदेश भेजें",
+        "task.hdr_full_control": "पूर्ण कार्य नियंत्रण",
+        "task.hdr_recent_broadcasts": "हाल के प्रसारण",
+        "task.hdr_user_directory": "👥 उपयोगकर्ता निर्देशिका",
+        "task.hdr_task_analytics": "📊 कार्य विश्लेषण",
+        "task.hdr_active_users": "सक्रिय उपयोगकर्ता",
+        "task.hdr_suspended": "निलंबित",
+        "task.hdr_kpis": "🎯 प्रमुख प्रदर्शन संकेतक",
+        "task.txt_closeout_details": "**समापन विवरण** — यह जानकारी विश्वसनीयता और लागत रिपोर्ट में उपयोग होती है।",
+        "task.txt_already_uploaded": "**📸 पहले से अपलोड किया गया:**",
+        "task.field_failure_code": "विफलता कोड (खराबी के काम के लिए)",
+        "task.field_linked_asset": "जुड़ी हुई संपत्ति (वैकल्पिक)",
+        "task.field_priority": "प्राथमिकता",
+        "task.field_recurrence": "पुनरावृत्ति प्रकार",
+        "task.field_update_status": "स्थिति अपडेट करें",
+        "task.field_work_type": "कार्य प्रकार",
+        "task.success_attachment": "अटैचमेंट अपलोड हो गया!",
+        "task.success_photo": "फोटो अपलोड हो गई!",
+        "task.success_safety_checks": "✅ सुरक्षा जांच पास हो गई।",
+        "task.success_no_unassigned": "🎉 फिलहाल कोई अनसाइन्ड कार्य नहीं है।",
+        "task.field_add_comment": "टिप्पणी जोड़ें",
+        "task.field_location": "स्थान / क्षेत्र *",
+        "task.field_task_title": "कार्य शीर्षक *",
+        "task.warn_plotly": "Plotly या pandas इंस्टॉल नहीं है। कृपया चलाएँ: pip install plotly pandas",
     },
 }
 
@@ -5924,7 +6260,7 @@ if selected_section == "Task Dashboard":
     if role == "worker":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
         if st.session_state.broadcast_messages:
-            st.info("📢 Latest Broadcasts:")
+            st.info(t("task.info_latest_broadcasts"))
             for msg in reversed(st.session_state.broadcast_messages[-5:]):
                 st.warning(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
 
@@ -5942,7 +6278,7 @@ if selected_section == "Task Dashboard":
             # Fetch permits ONCE for the whole loop instead of per task.
             _all_permits = fetch_permits() if any(t.get('loto') for t in my_tasks) else []
             if not my_tasks:
-                st.info("No tasks assigned to you.")
+                st.info(t("task.info_no_tasks_assigned"))
             else:
                 for idx, task in enumerate(my_tasks):
                     priority_class = f"priority-{task['priority']}"
@@ -5976,33 +6312,31 @@ if selected_section == "Task Dashboard":
 
                     col1, col2 = st.columns([2, 3])
                     with col1:
-                        loto = st.checkbox("🔒 LOTO Isolated", value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
-                        jsa = st.checkbox("📋 JSA Signed", value=task.get('jsa', False), key=f"jsa_{task['id']}_{idx}")
+                        loto = st.checkbox(t("task.chk_loto_isolated"), value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
+                        jsa = st.checkbox(t("task.chk_jsa_signed"), value=task.get('jsa', False), key=f"jsa_{task['id']}_{idx}")
                     with col2:
                         status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
                         current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
-                        new_status = st.selectbox("Update Status", status_options, index=current_idx, key=f"stat_{task['id']}_{idx}")
+                        new_status = st.selectbox(t("task.field_update_status"), status_options, index=current_idx, key=f"stat_{task['id']}_{idx}")
 
                     if loto != task.get('loto') or jsa != task.get('jsa'):
                         update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
                         st.rerun()
 
                     if requires_permit and not has_permit:
-                        st.error("🚫 **This task requires an accepted Permit to Work.** No live permit is recorded "
-                                 "against it. Ask your supervisor to issue one, then accept it in the Permits section "
-                                 "before starting work.")
+                        st.error(t("task.err_permit_required"))
                     elif not loto or not jsa:
-                        st.error("🔒 Safety isolation forms are required before proceeding.")
+                        st.error(t("task.err_safety_forms_required"))
                     else:
-                        st.success("✅ Safety checks passed.")
+                        st.success(t("task.success_safety_checks"))
 
                     # Closing out work: capture the data the analytics depend on.
                     if new_status != task['status']:
                         if new_status == "Complete":
                             with st.form(f"close_out_{task['id']}_{idx}", clear_on_submit=True):
-                                st.markdown("**Close-out details** — these feed the reliability and cost reports.")
+                                st.markdown(t("task.txt_closeout_details"))
                                 fc_options = ["(none)"] + [f"{k} — {v}" for k, v in FAILURE_CODES.items()]
-                                fc_sel = st.selectbox("Failure code (for breakdown work)", fc_options)
+                                fc_sel = st.selectbox(t("task.field_failure_code"), fc_options)
                                 lh = st.number_input("Labour hours spent", min_value=0.0, value=0.0, step=0.5)
                                 confirm_close = st.form_submit_button("✅ Complete Task")
                                 if confirm_close:
@@ -6015,7 +6349,7 @@ if selected_section == "Task Dashboard":
                                     st.rerun()
                         else:
                             if requires_permit and not has_permit and new_status == "In Progress":
-                                st.error("Cannot move to In Progress without an accepted permit.")
+                                st.error(t("task.err_cannot_move_progress"))
                             else:
                                 update_task(task['id'], {"status": new_status}, full_name)
                                 log_audit(full_name, "task_status_change",
@@ -6028,20 +6362,20 @@ if selected_section == "Task Dashboard":
                             for c in comments:
                                 st.markdown(f"**{c['posted_by']}** ({_fmt_log_time(c['posted_at'])}): {c['comment']}")
                         else:
-                            st.caption("No comments yet.")
+                            st.caption(t("task.caption_no_comments"))
                         _comment_val_key = f"_comment_val_{task['id']}_{idx}"
                         if _comment_val_key not in st.session_state:
                             st.session_state[_comment_val_key] = ""
-                        new_comment = st.text_area("Add comment", key=f"comment_{task['id']}_{idx}",
+                        new_comment = st.text_area(t("task.field_add_comment"), key=f"comment_{task['id']}_{idx}",
                                                    value=st.session_state[_comment_val_key],
                                                    placeholder="Write comment...")
-                        if st.button("Post Comment", key=f"post_comment_{task['id']}_{idx}"):
+                        if st.button(t("task.btn_post_comment"), key=f"post_comment_{task['id']}_{idx}"):
                             if new_comment.strip():
                                 if add_comment(task['id'], new_comment, full_name):
                                     st.session_state[_comment_val_key] = ""
                                     st.rerun()
                                 else:
-                                    st.error("Failed to post comment.")
+                                    st.error(t("task.err_comment_failed"))
 
                     with st.expander("📎 Attachments"):
                         attachments = fetch_attachments(task['id'])
@@ -6049,13 +6383,13 @@ if selected_section == "Task Dashboard":
                             for a in attachments:
                                 st.markdown(f"[{a['file_name']}]({a['file_url']}) (uploaded by {a['uploaded_by']})")
                         else:
-                            st.caption("No attachments.")
+                            st.caption(t("task.caption_no_attachments"))
                         uploaded_file = st.file_uploader("Upload attachment (PDF, DOC, etc.)", type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_{task['id']}_{idx}")
                         if uploaded_file is not None:
-                            if st.button("Upload Attachment", key=f"attach_btn_{task['id']}_{idx}"):
+                            if st.button(t("task.btn_upload_attachment"), key=f"attach_btn_{task['id']}_{idx}"):
                                 bytes_data = uploaded_file.getvalue()
                                 if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
-                                    st.success("Attachment uploaded!")
+                                    st.success(t("task.success_attachment"))
                                     st.rerun()
 
                     st.markdown("---")
@@ -6066,13 +6400,13 @@ if selected_section == "Task Dashboard":
                             bytes_data = uploaded_file.getvalue()
                             success = upload_photo(task['id'], bytes_data, uploaded_file.name, full_name)
                             if success:
-                                st.success("Photo uploaded!")
+                                st.success(t("task.success_photo"))
                                 st.rerun()
                             else:
-                                st.error("Upload failed.")
+                                st.error(t("task.err_upload_failed"))
                     photos = fetch_photos(task['id'])
                     if photos:
-                        st.markdown("**📸 Already uploaded:**")
+                        st.markdown(t("task.txt_already_uploaded"))
                         cols = st.columns(min(4, len(photos)))
                         for pic_idx, photo in enumerate(photos):
                             with cols[pic_idx % len(cols)]:
@@ -6087,7 +6421,7 @@ if selected_section == "Task Dashboard":
         elif worker_sub == "Unassigned Board":
             unassigned = [t for t in st.session_state.tasks if t['assigned_to'] == "Unassigned" or t['status'] == "Unassigned"]
             if not unassigned:
-                st.success("🎉 No unassigned tasks at the moment.")
+                st.success(t("task.success_no_unassigned"))
             else:
                 for task in unassigned:
                     priority_class = f"priority-{task['priority']}"
@@ -6126,11 +6460,11 @@ if selected_section == "Task Dashboard":
             styles=menu_styles(),
         )
         if supervisor_sub == "Manage All Tasks":
-            st.markdown("### All Maintenance Tasks")
+            st.markdown(f"### {t('task.hdr_all_tasks')}")
             all_users = fetch_all_users_from_db()
             worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
             if not st.session_state.tasks:
-                st.info("No tasks found.")
+                st.info(t("task.info_no_tasks_found"))
             for task in st.session_state.tasks:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
@@ -6183,33 +6517,33 @@ if selected_section == "Task Dashboard":
                         for c in comments:
                             st.markdown(f"**{c['posted_by']}** ({_fmt_log_time(c['posted_at'])}): {c['comment']}")
                     else:
-                        st.caption("No comments yet.")
+                        st.caption(t("task.caption_no_comments"))
                     _comment_val_key = f"_comment_val_sup_{task['id']}"
                     if _comment_val_key not in st.session_state:
                         st.session_state[_comment_val_key] = ""
-                    new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}",
+                    new_comment = st.text_area(t("task.field_add_comment"), key=f"comment_sup_{task['id']}",
                                                value=st.session_state[_comment_val_key],
                                                placeholder="Write comment...")
-                    if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
+                    if st.button(t("task.btn_post_comment"), key=f"post_comment_sup_{task['id']}"):
                         if new_comment.strip():
                             if add_comment(task['id'], new_comment, full_name):
                                 st.session_state[_comment_val_key] = ""
                                 st.rerun()
                             else:
-                                st.error("Failed to post comment.")
+                                st.error(t("task.err_comment_failed"))
                 with st.expander("📎 Attachments"):
                     attachments = fetch_attachments(task['id'])
                     if attachments:
                         for a in attachments:
                             st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
                     else:
-                        st.caption("No attachments.")
+                        st.caption(t("task.caption_no_attachments"))
                     uploaded_file = st.file_uploader("Upload attachment", type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_sup_{task['id']}")
                     if uploaded_file is not None:
-                        if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
+                        if st.button(t("task.btn_upload"), key=f"attach_btn_sup_{task['id']}"):
                             bytes_data = uploaded_file.getvalue()
                             if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
-                                st.success("Attachment uploaded!")
+                                st.success(t("task.success_attachment"))
                                 st.rerun()
                 photos = fetch_photos(task['id'])
                 if photos:
@@ -6225,23 +6559,23 @@ if selected_section == "Task Dashboard":
                                 st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
 
         elif supervisor_sub == "Create New Task":
-            st.markdown("### Dispatch New Work Ticket")
+            st.markdown(f"### {t('task.hdr_dispatch_new')}")
             with st.form("new_task_form", clear_on_submit=True):
-                title = st.text_input("Task Title *", max_chars=100)
-                location = st.text_input("Location / Area *", max_chars=100)
-                priority = st.selectbox("Priority", ["Low", "Medium", "High", "Critical"])
+                title = st.text_input(t("task.field_task_title"), max_chars=100)
+                location = st.text_input(t("task.field_location"), max_chars=100)
+                priority = st.selectbox(t("task.field_priority"), ["Low", "Medium", "High", "Critical"])
                 due_date = st.date_input("Due Date", value=datetime.now() + timedelta(days=7))
                 asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in st.session_state.get("assets", [])]
-                selected_asset = st.selectbox("Linked Asset (optional)", asset_options)
-                work_type = st.selectbox("Work Type", ["Reactive", "Preventive", "Planned", "Predictive", "Improvement"],
+                selected_asset = st.selectbox(t("task.field_linked_asset"), asset_options)
+                work_type = st.selectbox(t("task.field_work_type"), ["Reactive", "Preventive", "Planned", "Predictive", "Improvement"],
                                           help="Drives the planned-vs-reactive benchmark. Reactive = breakdown response.")
                 labour_rate = st.number_input("Labour rate (per hour, for costing)", min_value=0.0, value=0.0, step=1.0)
-                is_recurring = st.checkbox("Recurring Task (Preventive Maintenance)")
-                recurrence_type = st.selectbox("Recurrence Type", ["daily", "weekly", "monthly", "meter-based"], disabled=not is_recurring)
+                is_recurring = st.checkbox(t("task.chk_recurring"))
+                recurrence_type = st.selectbox(t("task.field_recurrence"), ["daily", "weekly", "monthly", "meter-based"], disabled=not is_recurring)
                 recurrence_end_date = st.date_input("End Date (optional)", value=datetime.now() + timedelta(days=30), disabled=not is_recurring)
                 meter_interval = st.number_input("Meter Interval (e.g. every N hours, only if meter-based)", min_value=0, value=0, disabled=not is_recurring)
-                loto = st.checkbox("Requires LOTO")
-                jsa = st.checkbox("Requires JSA")
+                loto = st.checkbox(t("task.chk_requires_loto"))
+                jsa = st.checkbox(t("task.chk_requires_jsa"))
                 submitted = st.form_submit_button('➕ Create Work Ticket')
                 if submitted:
                     if title and location:
@@ -6263,14 +6597,14 @@ if selected_section == "Task Dashboard":
                             st.success(f"Task #{new_task['id']} created!")
                             st.rerun()
                         else:
-                            st.error("Failed to create task.")
+                            st.error(t("task.err_create_failed"))
                     else:
-                        st.error("Title and Location are required.")
+                        st.error(t("task.err_title_location_required"))
 
         elif supervisor_sub == "Dashboard":
-            st.markdown("### 📊 Task Analytics")
+            st.markdown(f"### {t('task.hdr_task_analytics')}")
             tasks = st.session_state.tasks
-            st.markdown("#### 🎯 Key Performance Indicators")
+            st.markdown(f"#### {t('task.hdr_kpis')}")
             kcol1, kcol2, kcol3, kcol4 = st.columns(4)
             mttr, mttr_n = compute_mttr_hours_v2(tasks)
             kcol1.metric("MTTR (avg hrs)", f"{mttr:.1f}" if mttr is not None else "No data")
@@ -6282,7 +6616,7 @@ if selected_section == "Task Dashboard":
             kcol4.metric("Low Stock Parts", low_stock_count)
             if mttr_n and mttr_n < 10:
                 st.caption(f"⚠️ MTTR is based on only {mttr_n} completed task(s) — indicative, not yet reliable.")
-            st.caption("Full breakdowns, Pareto analysis, and cost reporting are in the **Analytics** section.")
+            st.caption(t("task.caption_full_breakdowns"))
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
@@ -6296,10 +6630,10 @@ if selected_section == "Task Dashboard":
                     fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
                     st.plotly_chart(fig3, use_container_width=True)
             elif not PANDAS_AVAILABLE or not PLOTLY_AVAILABLE:
-                st.warning("Plotly or pandas not installed. Please run: pip install plotly pandas")
+                st.warning(t("task.warn_plotly"))
             else:
-                st.info("No data to display.")
-            if st.button("📥 Export Tasks as CSV"):
+                st.info(t("task.info_no_data"))
+            if st.button(t("task.btn_export_csv")):
                 csv = export_tasks_csv(st.session_state.tasks)
                 if csv:
                     st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
@@ -6338,19 +6672,19 @@ if selected_section == "Task Dashboard":
                 {"icon": "fa-bell", "label": "Open Incidents", "value": open_incidents, "tone": "warn"},
             ])
 
-            st.markdown("### Recent Broadcasts")
+            st.markdown(f"### {t('task.hdr_recent_broadcasts')}")
             if st.session_state.broadcast_messages:
                 for msg in reversed(st.session_state.broadcast_messages[-3:]):
                     st.info(f"**{msg['sender']}** at {msg['timestamp']}: {msg['message']}")
             else:
-                st.caption("No broadcasts yet.")
+                st.caption(t("task.caption_no_broadcasts"))
 
         elif superintendent_sub == "Manage Tasks":
-            st.markdown("### Full Task Control")
+            st.markdown(f"### {t('task.hdr_full_control')}")
             all_users = fetch_all_users_from_db()
             worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
             if not st.session_state.tasks:
-                st.info("No tasks to manage.")
+                st.info(t("task.info_no_tasks_manage"))
             for task in st.session_state.tasks:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
@@ -6403,41 +6737,40 @@ if selected_section == "Task Dashboard":
                     if delete_task(task['id'], full_name):
                         st.rerun()
                     else:
-                        st.error("Delete failed. If this keeps happening, Row Level Security "
-                                "may be blocking writes to the tasks table.")
+                        st.error(t("task.err_delete_failed"))
                 with st.expander("💬 Comments"):
                     comments = fetch_comments(task['id'])
                     if comments:
                         for c in comments:
                             st.markdown(f"**{c['posted_by']}** ({_fmt_log_time(c['posted_at'])}): {c['comment']}")
                     else:
-                        st.caption("No comments yet.")
+                        st.caption(t("task.caption_no_comments"))
                     _comment_val_key = f"_comment_val_sup_{task['id']}"
                     if _comment_val_key not in st.session_state:
                         st.session_state[_comment_val_key] = ""
-                    new_comment = st.text_area("Add comment", key=f"comment_sup_{task['id']}",
+                    new_comment = st.text_area(t("task.field_add_comment"), key=f"comment_sup_{task['id']}",
                                                value=st.session_state[_comment_val_key],
                                                placeholder="Write comment...")
-                    if st.button("Post Comment", key=f"post_comment_sup_{task['id']}"):
+                    if st.button(t("task.btn_post_comment"), key=f"post_comment_sup_{task['id']}"):
                         if new_comment.strip():
                             if add_comment(task['id'], new_comment, full_name):
                                 st.session_state[_comment_val_key] = ""
                                 st.rerun()
                             else:
-                                st.error("Failed to post comment.")
+                                st.error(t("task.err_comment_failed"))
                 with st.expander("📎 Attachments"):
                     attachments = fetch_attachments(task['id'])
                     if attachments:
                         for a in attachments:
                             st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
                     else:
-                        st.caption("No attachments.")
+                        st.caption(t("task.caption_no_attachments"))
                     uploaded_file = st.file_uploader("Upload attachment", type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_sup_{task['id']}")
                     if uploaded_file is not None:
-                        if st.button("Upload", key=f"attach_btn_sup_{task['id']}"):
+                        if st.button(t("task.btn_upload"), key=f"attach_btn_sup_{task['id']}"):
                             bytes_data = uploaded_file.getvalue()
                             if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
-                                st.success("Attachment uploaded!")
+                                st.success(t("task.success_attachment"))
                                 st.rerun()
                 photos = fetch_photos(task['id'])
                 if photos:
@@ -6453,17 +6786,17 @@ if selected_section == "Task Dashboard":
                                 st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
 
         elif superintendent_sub == "Broadcast Log":
-            st.markdown("### All Broadcast Messages")
+            st.markdown(f"### {t('task.hdr_all_broadcasts')}")
             if st.session_state.broadcast_messages:
                 for msg in reversed(st.session_state.broadcast_messages):
                     st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
             else:
-                st.info("No messages sent yet.")
+                st.info(t("task.info_no_messages"))
 
         elif superintendent_sub == "Dashboard":
-            st.markdown("### 📊 Task Analytics")
+            st.markdown(f"### {t('task.hdr_task_analytics')}")
             tasks = st.session_state.tasks
-            st.markdown("#### 🎯 Key Performance Indicators")
+            st.markdown(f"#### {t('task.hdr_kpis')}")
             kcol1, kcol2, kcol3, kcol4 = st.columns(4)
             mttr, mttr_n = compute_mttr_hours_v2(tasks)
             kcol1.metric("MTTR (avg hrs)", f"{mttr:.1f}" if mttr is not None else "No data")
@@ -6475,7 +6808,7 @@ if selected_section == "Task Dashboard":
             kcol4.metric("Low Stock Parts", low_stock_count)
             if mttr_n and mttr_n < 10:
                 st.caption(f"⚠️ MTTR is based on only {mttr_n} completed task(s) — indicative, not yet reliable.")
-            st.caption("Full breakdowns, Pareto analysis, and cost reporting are in the **Analytics** section.")
+            st.caption(t("task.caption_full_breakdowns"))
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
@@ -6489,26 +6822,24 @@ if selected_section == "Task Dashboard":
                     fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
                     st.plotly_chart(fig3, use_container_width=True)
             elif not PANDAS_AVAILABLE or not PLOTLY_AVAILABLE:
-                st.warning("Plotly or pandas not installed. Please run: pip install plotly pandas")
+                st.warning(t("task.warn_plotly"))
             else:
-                st.info("No data to display.")
-            if st.button("📥 Export Tasks as CSV"):
+                st.info(t("task.info_no_data"))
+            if st.button(t("task.btn_export_csv")):
                 csv = export_tasks_csv(st.session_state.tasks)
                 if csv:
                     st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
 
         elif superintendent_sub == "User Management":
-            st.markdown("### 👥 User Directory")
+            st.markdown(f"### {t('task.hdr_user_directory')}")
             # Access decisions moved to the owner-only console. Granting
             # roles is the most privilege-sensitive action in the app, so
             # it sits with one accountable person rather than with every
             # Superintendent.
             if is_owner(username):
-                st.info("You are the owner — approvals and role changes are in "
-                        "**Owner Console → Access Requests**.")
+                st.info(t("task.info_owner_note"))
             else:
-                st.info("This is a read-only directory. Access approvals, role "
-                        "changes, and suspensions are handled by the account owner.")
+                st.info(t("task.info_readonly_directory"))
 
             all_users = fetch_all_users_from_db()
             pending_users = [u for u in all_users if not u.get("is_approved", False)
@@ -6525,7 +6856,7 @@ if selected_section == "Task Dashboard":
             if pending_users:
                 st.warning(f"⏳ {len(pending_users)} request(s) awaiting the owner's decision.")
 
-            st.markdown("#### Active users")
+            st.markdown(f"#### {t('task.hdr_active_users')}")
             if approved_users:
                 st.dataframe([{
                     "Name": u.get("full_name"),
@@ -6535,10 +6866,10 @@ if selected_section == "Task Dashboard":
                     "Department": u.get("department") or "—",
                 } for u in approved_users], use_container_width=True)
             else:
-                st.info("No active users yet.")
+                st.info(t("task.info_no_active_users"))
 
             if suspended_users:
-                st.markdown("#### Suspended")
+                st.markdown(f"#### {t('task.hdr_suspended')}")
                 for u in suspended_users:
                     st.write(f"- {esc(u.get('full_name'))} (`{esc(u.get('username'))}`)")
 
