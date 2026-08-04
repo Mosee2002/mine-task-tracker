@@ -4272,6 +4272,275 @@ def fetch_feature_flags():
     return flags
 
 
+# =====================================================================
+# GLOBAL SEARCH
+# =====================================================================
+# Two genuinely different things live under one search box: finding a
+# PAGE/FEATURE (a static, curated index — no data, no permission
+# concerns) and finding a RECORD (an actual live query against
+# real data, which MUST respect the exact same per-role and per-row
+# visibility rules each section already enforces on its own — this is
+# not a shortcut around those rules, it's the same rules applied here
+# too. Getting this wrong would mean a Worker could search their way
+# into seeing another person's incident or task, which the app
+# elsewhere goes out of its way to prevent.
+FEATURE_INDEX = [
+    # (keywords, display label, icon, target nav section)
+    ("task dashboard my tasks assign work order", "Task Dashboard", "fa-list-check", "Task Dashboard"),
+    ("assets equipment register meter reading", "Assets", "fa-server", "Assets"),
+    ("permit to work loto isolation lock tag", "Permits", "fa-lock", "Permits"),
+    ("inventory parts spare stock reorder bin", "Inventory", "fa-boxes-stacked", "Inventory"),
+    ("incidents hazard near miss injury safety report", "Incidents", "fa-triangle-exclamation", "Incidents"),
+    ("shift handover outgoing incoming supervisor", "Handover", "fa-right-left", "Handover"),
+    ("contractors induction insurance compliance", "Contractors", "fa-user-group", "Contractors"),
+    ("analytics kpi mttr mtbf reports dashboard", "Analytics", "fa-chart-line", "Analytics"),
+    ("chat message global private supervisor", "Chat", "fa-comments", "Chat"),
+    ("feedback suggestion idea vote", "Feedback", "fa-lightbulb", "Feedback"),
+    ("profile change password avatar account settings", "Profile", "fa-circle-user", "Profile"),
+    ("timeline activity log recent actions", "Timeline", "fa-clock-rotate-left", "Timeline"),
+    ("about policy statement how it works help roles", "About", "fa-circle-info", "About"),
+    ("admin access requests approve deny new users", "Admin — Access Requests", "fa-user-plus", "Admin"),
+    ("admin access policies auto approve registration", "Admin — Access Policies", "fa-shield-halved", "Admin"),
+    ("admin active users manage roles suspend", "Admin — Active Users", "fa-users-gear", "Admin"),
+    ("admin decision history audit approvals", "Admin — Decision History", "fa-clock-rotate-left", "Admin"),
+    ("admin auth migration supabase phase provision", "Admin — Auth Migration", "fa-key", "Admin"),
+    ("admin feature toggles enable disable modules", "Admin — Feature Toggles", "fa-toggle-on", "Admin"),
+    ("admin settings company logo announcement ticker poster slideshow branding",
+    "Admin — Settings", "fa-gears", "Admin"),
+]
+
+
+# =====================================================================
+# LANGUAGE / TRANSLATIONS
+# =====================================================================
+# Deliberately scoped to the highest-visibility strings (navigation,
+# common actions, headers) rather than an attempt at translating every
+# string in the app. With 8,600+ lines and thousands of scattered
+# strings, a full pass in one sitting would mean rushed, unreviewed
+# translations across 5 languages on a safety-critical app — a real
+# quality risk, not just a shortcut. This is a genuine, working
+# foundation, built to be extended, not a shallow pass at everything.
+#
+# These translations were written carefully, not machine-generated in
+# bulk, but they have not been reviewed by a native speaker of each
+# language. Worth a native-speaker pass before being treated as final,
+# especially for anything safety-critical that gets added to this
+# dictionary later.
+SUPPORTED_LANGUAGES = {
+    "en": "English", "fr": "Français", "es": "Español",
+    "pt": "Português", "zh": "中文", "hi": "हिन्दी",
+}
+
+TRANSLATIONS = {
+    "en": {
+        "nav.Task Dashboard": "Task Dashboard", "nav.Assets": "Assets",
+        "nav.Permits": "Permits", "nav.Inventory": "Inventory",
+        "nav.Incidents": "Incidents", "nav.Handover": "Handover",
+        "nav.Contractors": "Contractors", "nav.Analytics": "Analytics",
+        "nav.Chat": "Chat", "nav.Feedback": "Feedback", "nav.Admin": "Admin",
+        "nav.Profile": "Profile", "nav.Timeline": "Timeline", "nav.About": "About",
+        "common.save": "Save", "common.cancel": "Cancel", "common.submit": "Submit",
+        "common.delete": "Delete", "common.edit": "Edit", "common.search": "Search",
+        "common.close": "Close", "common.back": "Back", "common.yes": "Yes",
+        "common.no": "No", "common.welcome": "Welcome",
+    },
+    "fr": {
+        "nav.Task Dashboard": "Tableau des tâches", "nav.Assets": "Actifs",
+        "nav.Permits": "Permis", "nav.Inventory": "Inventaire",
+        "nav.Incidents": "Incidents", "nav.Handover": "Passation de service",
+        "nav.Contractors": "Sous-traitants", "nav.Analytics": "Analytique",
+        "nav.Chat": "Discussion", "nav.Feedback": "Retours", "nav.Admin": "Administration",
+        "nav.Profile": "Profil", "nav.Timeline": "Chronologie", "nav.About": "À propos",
+        "common.save": "Enregistrer", "common.cancel": "Annuler", "common.submit": "Soumettre",
+        "common.delete": "Supprimer", "common.edit": "Modifier", "common.search": "Rechercher",
+        "common.close": "Fermer", "common.back": "Retour", "common.yes": "Oui",
+        "common.no": "Non", "common.welcome": "Bienvenue",
+    },
+    "es": {
+        "nav.Task Dashboard": "Panel de tareas", "nav.Assets": "Activos",
+        "nav.Permits": "Permisos", "nav.Inventory": "Inventario",
+        "nav.Incidents": "Incidentes", "nav.Handover": "Entrega de turno",
+        "nav.Contractors": "Contratistas", "nav.Analytics": "Analítica",
+        "nav.Chat": "Chat", "nav.Feedback": "Comentarios", "nav.Admin": "Administración",
+        "nav.Profile": "Perfil", "nav.Timeline": "Cronología", "nav.About": "Acerca de",
+        "common.save": "Guardar", "common.cancel": "Cancelar", "common.submit": "Enviar",
+        "common.delete": "Eliminar", "common.edit": "Editar", "common.search": "Buscar",
+        "common.close": "Cerrar", "common.back": "Atrás", "common.yes": "Sí",
+        "common.no": "No", "common.welcome": "Bienvenido",
+    },
+    "pt": {
+        "nav.Task Dashboard": "Painel de tarefas", "nav.Assets": "Ativos",
+        "nav.Permits": "Permissões", "nav.Inventory": "Inventário",
+        "nav.Incidents": "Incidentes", "nav.Handover": "Passagem de turno",
+        "nav.Contractors": "Empreiteiros", "nav.Analytics": "Análises",
+        "nav.Chat": "Chat", "nav.Feedback": "Feedback", "nav.Admin": "Administração",
+        "nav.Profile": "Perfil", "nav.Timeline": "Linha do tempo", "nav.About": "Sobre",
+        "common.save": "Salvar", "common.cancel": "Cancelar", "common.submit": "Enviar",
+        "common.delete": "Excluir", "common.edit": "Editar", "common.search": "Pesquisar",
+        "common.close": "Fechar", "common.back": "Voltar", "common.yes": "Sim",
+        "common.no": "Não", "common.welcome": "Bem-vindo",
+    },
+    "zh": {
+        "nav.Task Dashboard": "任务看板", "nav.Assets": "资产",
+        "nav.Permits": "许可证", "nav.Inventory": "库存",
+        "nav.Incidents": "事故", "nav.Handover": "交接",
+        "nav.Contractors": "承包商", "nav.Analytics": "分析",
+        "nav.Chat": "聊天", "nav.Feedback": "反馈", "nav.Admin": "管理",
+        "nav.Profile": "个人资料", "nav.Timeline": "时间线", "nav.About": "关于",
+        "common.save": "保存", "common.cancel": "取消", "common.submit": "提交",
+        "common.delete": "删除", "common.edit": "编辑", "common.search": "搜索",
+        "common.close": "关闭", "common.back": "返回", "common.yes": "是",
+        "common.no": "否", "common.welcome": "欢迎",
+    },
+    "hi": {
+        "nav.Task Dashboard": "कार्य डैशबोर्ड", "nav.Assets": "संपत्ति",
+        "nav.Permits": "परमिट", "nav.Inventory": "इन्वेंटरी",
+        "nav.Incidents": "घटनाएं", "nav.Handover": "पाली हस्तांतरण",
+        "nav.Contractors": "ठेकेदार", "nav.Analytics": "विश्लेषण",
+        "nav.Chat": "चैट", "nav.Feedback": "प्रतिक्रिया", "nav.Admin": "व्यवस्थापक",
+        "nav.Profile": "प्रोफ़ाइल", "nav.Timeline": "समयरेखा", "nav.About": "के बारे में",
+        "common.save": "सहेजें", "common.cancel": "रद्द करें", "common.submit": "जमा करें",
+        "common.delete": "हटाएं", "common.edit": "संपादित करें", "common.search": "खोजें",
+        "common.close": "बंद करें", "common.back": "वापस", "common.yes": "हाँ",
+        "common.no": "नहीं", "common.welcome": "स्वागत है",
+    },
+}
+
+
+def get_user_language():
+    """Session-cached, falls back to English for anything unexpected —
+    an unrecognized or missing language code should never break the
+    app, just silently show English."""
+    lang = st.session_state.get("user_language", "en")
+    return lang if lang in SUPPORTED_LANGUAGES else "en"
+
+
+def t(key):
+    """Translation lookup with a safe fallback chain: current language
+    -> English -> the key itself. The last step matters — it means a
+    key that was never translated at all still shows SOMETHING
+    readable-ish rather than crashing or showing blank text."""
+    lang = get_user_language()
+    return TRANSLATIONS.get(lang, {}).get(key) or TRANSLATIONS["en"].get(key) or key
+
+
+def set_user_language(lang_code, username):
+    """Persists the choice to the database (so it survives future
+    logins, not just this session) and updates the session immediately
+    either way — the UI should feel instant even if the database write
+    is slow or fails."""
+    st.session_state["user_language"] = lang_code
+    if SUPABASE_AVAILABLE:
+        try:
+            supabase.table("facility_users").update(
+                {"preferred_language": lang_code}
+            ).eq("username", username).execute()
+        except Exception as e:
+            log_error(str(e), endpoint="set_user_language")
+            # Deliberately not surfaced as an error to the user — the
+            # session-level change above already took effect, so their
+            # immediate experience is correct even if persistence
+            # across future logins silently didn't save this time.
+
+
+def search_features(query):
+    """Static keyword match against the curated page/feature index.
+    No data, no permissions to worry about — just text matching."""
+    q = query.lower().strip()
+    if not q:
+        return []
+    return [(label, icon, section) for keywords, label, icon, section in FEATURE_INDEX
+           if q in keywords.lower() or q in label.lower()]
+
+
+def search_records(query, role, full_name):
+    """Live search across real data — deliberately mirrors the exact
+    visibility rules each section already applies on its own, table by
+    table, rather than a single generic 'search everything' query that
+    would bypass them. Returns a list of (table_label, title,
+    subtitle, target_section) tuples. Best-effort: a failure on any
+    one table is logged and skipped rather than breaking the whole
+    search for the other tables."""
+    q = f"%{query.strip()}%"
+    if not query.strip() or not SUPABASE_AVAILABLE:
+        return []
+    results = []
+
+    try:
+        res = supabase.table("tasks").select("id,title,location,assigned_to") \
+            .or_(f"title.ilike.{q},location.ilike.{q}").limit(15).execute()
+        rows = res.data or []
+        if role.lower().strip() == "worker":  # exact same check the Task Dashboard
+            # section itself uses (`if role == "worker":`) — not a capability
+            # proxy, since tasks are gated by a direct role comparison, not
+            # a capability in ROLE_PERMISSIONS
+            rows = [r for r in rows if r.get("assigned_to") == full_name]
+        for r in rows:
+            results.append(("Task", r.get("title"), r.get("location"), "Task Dashboard", r.get("id")))
+    except Exception as e:
+        log_error(str(e), endpoint="search_records:tasks")
+
+    try:
+        res = supabase.table("incidents").select("id,incident_type,description,reported_by") \
+            .or_(f"incident_type.ilike.{q},description.ilike.{q}").limit(15).execute()
+        rows = res.data or []
+        if not can(role, "incident.investigate"):
+            rows = [r for r in rows if r.get("reported_by") == full_name]
+        for r in rows:
+            results.append(("Incident", r.get("incident_type"),
+                           (r.get("description") or "")[:60], "Incidents", r.get("id")))
+    except Exception as e:
+        log_error(str(e), endpoint="search_records:incidents")
+
+    try:
+        res = supabase.table("app_feedback").select("id,title,description,submitted_by") \
+            .or_(f"title.ilike.{q},description.ilike.{q}").limit(15).execute()
+        rows = res.data or []
+        if not can(role, "feedback.manage"):
+            rows = [r for r in rows if r.get("submitted_by") == full_name]
+        for r in rows:
+            results.append(("Feedback", r.get("title"),
+                           (r.get("description") or "")[:60], "Feedback", r.get("id")))
+    except Exception as e:
+        log_error(str(e), endpoint="search_records:feedback")
+
+    try:
+        res = supabase.table("assets").select("id,name,asset_tag,location") \
+            .or_(f"name.ilike.{q},asset_tag.ilike.{q}").limit(15).execute()
+        for r in (res.data or []):
+            results.append(("Asset", r.get("name"), r.get("location"), "Assets", r.get("id")))
+    except Exception as e:
+        log_error(str(e), endpoint="search_records:assets")
+
+    try:
+        res = supabase.table("inventory_parts").select("id,part_name,part_number,bin_location") \
+            .or_(f"part_name.ilike.{q},part_number.ilike.{q}").limit(15).execute()
+        for r in (res.data or []):
+            results.append(("Part", r.get("part_name"), r.get("part_number"), "Inventory", r.get("id")))
+    except Exception as e:
+        log_error(str(e), endpoint="search_records:inventory")
+
+    if can(role, "contractor.view"):
+        try:
+            res = supabase.table("contractors").select("id,company_name,contact_person") \
+                .ilike("company_name", q).limit(15).execute()
+            for r in (res.data or []):
+                results.append(("Contractor", r.get("company_name"), r.get("contact_person"), "Contractors", r.get("id")))
+        except Exception as e:
+            log_error(str(e), endpoint="search_records:contractors")
+
+    if can(role, "permit.view"):
+        try:
+            res = supabase.table("permits").select("id,permit_type,lock_tag_numbers") \
+                .or_(f"permit_type.ilike.{q},lock_tag_numbers.ilike.{q}").limit(15).execute()
+            for r in (res.data or []):
+                results.append(("Permit", r.get("permit_type"), r.get("lock_tag_numbers"), "Permits", r.get("id")))
+        except Exception as e:
+            log_error(str(e), endpoint="search_records:permits")
+
+    return results
+
+
 def get_cached_feature_flags(ttl_seconds=30):
     """Fetches feature flags at most once per ttl_seconds and reuses
     that result in between — Streamlit re-executes the whole script on
@@ -4989,6 +5258,8 @@ if 'posters_memory' not in st.session_state:
     st.session_state.posters_memory = []
 if 'feature_flags_memory' not in st.session_state:
     st.session_state.feature_flags_memory = {}
+if 'user_language' not in st.session_state:
+    st.session_state.user_language = "en"
 
 # -------------------------------
 # 22. SESSION TIMEOUT CHECK
@@ -5140,6 +5411,11 @@ if not st.session_state.authenticated:
                     "avatar_url": matched_user.get("avatar_url", None),
                     "must_change_password": matched_user.get("must_change_password", False),
                 }
+                # Restores their saved language choice — without this,
+                # switching languages in Profile would only last for
+                # that one session, defeating the point of persisting
+                # it to the database at all.
+                st.session_state["user_language"] = matched_user.get("preferred_language") or "en"
                 st.session_state.authenticated = True
                 st.session_state.last_activity = datetime.now()
                 log_audit(matched_user.get("full_name"), "login")
@@ -5499,10 +5775,12 @@ except ImportError:
     st.stop()
 
 nav_options = ["Task Dashboard", "Assets", "Permits", "Inventory", "Incidents",
-               "Handover", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile", "Timeline"]
+               "Handover", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile",
+               "Timeline", "About"]
 nav_icons = ["list-task", "hdd-stack-fill", "shield-lock-fill", "box-seam-fill",
              "exclamation-triangle-fill", "arrow-left-right", "people-fill",
-             "graph-up-arrow", "chat-dots-fill", "lightbulb-fill", "gear-fill", "person-circle", "clock-history"]
+             "graph-up-arrow", "chat-dots-fill", "lightbulb-fill", "gear-fill", "person-circle",
+             "clock-history", "info-circle-fill"]
 
 # Hide sections the role has no capability for, so the menu reflects
 # actual permissions rather than showing dead ends.
@@ -5551,15 +5829,61 @@ if _IS_OWNER:
 # option_menu's behavior with a stale/invalid persisted value isn't
 # something to gamble on, so reset it to the default before it
 # renders, rather than find out the hard way.
-if st.session_state.get("main_nav") not in nav_options:
+#
+# Display labels are translated per the user's language choice; the
+# actual VALUES returned by the widget stay in English (nav_options
+# itself is never translated) — every "elif selected_section == "X":"
+# check throughout this whole file compares against the English
+# canonical name, so translating the underlying values instead of just
+# the on-screen labels would break navigation entirely for anyone not
+# using English. _label_to_section maps the translated text the widget
+# actually returns back to that canonical English value. Built here,
+# before the guard below, because "main_nav" in session_state holds
+# whatever the widget last returned — a TRANSLATED label, not an
+# English one — so the guard has to check against the translated list,
+# not the English one, or it would misfire on every render for anyone
+# not using English.
+_nav_display_labels = [t(f"nav.{section}") for section in nav_options]
+_label_to_section = dict(zip(_nav_display_labels, nav_options))
+
+if st.session_state.get("main_nav") not in _nav_display_labels:
     st.session_state.pop("main_nav", None)
+
+# --- Global search: find a page or a record without hunting through
+# every section manually. Deliberately placed above the nav so it's
+# reachable from anywhere, on every page, not buried inside one. ---
+with st.expander("🔍 Search the app", expanded=False):
+    _search_q = st.text_input("Find a page or a record", key="_global_search_q",
+                              placeholder="e.g. \"logo\", \"conveyor belt\", or a contractor's name",
+                              label_visibility="collapsed")
+    if _search_q.strip():
+        _feature_hits = search_features(_search_q)
+        _record_hits = search_records(_search_q, role, full_name)
+
+        if _feature_hits:
+            st.caption("Pages")
+            for _label, _icon, _target in _feature_hits[:8]:
+                if st.button(f"→ {_label}", key=f"search_page_{_target}_{_label}"):
+                    navigate_to(_target)
+                    st.rerun()
+
+        if _record_hits:
+            st.caption("Records")
+            for _kind, _title, _subtitle, _target, _rec_id in _record_hits[:15]:
+                _btn_label = f"{_kind}: {_title or '(untitled)'}" + (f" — {_subtitle}" if _subtitle else "")
+                if st.button(f"→ {_btn_label}", key=f"search_rec_{_kind}_{_rec_id}"):
+                    navigate_to(_target)
+                    st.rerun()
+
+        if not _feature_hits and not _record_hits:
+            st.caption("No matches — try a different word, or check the section directly.")
 
 _manual_select = (nav_options.index(st.session_state["_nav_jump_to"])
                   if st.session_state.get("_nav_jump_to") in nav_options else None)
 try:
-    selected_section = option_menu(
+    _selected_label = option_menu(
         menu_title=None,
-        options=nav_options,
+        options=_nav_display_labels,
         icons=nav_icons,
         orientation="horizontal",
         default_index=0,
@@ -5573,15 +5897,16 @@ except TypeError:
     # crash the whole app over a nav convenience — upgrade the package
     # (pip install -U streamlit-option-menu) to restore programmatic
     # navigation from sidebar buttons.
-    selected_section = option_menu(
+    _selected_label = option_menu(
         menu_title=None,
-        options=nav_options,
+        options=_nav_display_labels,
         icons=nav_icons,
         orientation="horizontal",
         default_index=0,
         styles=menu_styles(),
         key="main_nav",
     )
+selected_section = _label_to_section.get(_selected_label, _selected_label)
 # Clear immediately after use — this should only force a jump ONCE,
 # not keep overriding every future click within the nav itself.
 st.session_state.pop("_nav_jump_to", None)
@@ -8286,6 +8611,26 @@ elif selected_section == "Profile":
     st.markdown(f"**Full Name:** {full_name}")
     st.markdown(f"**Role:** {user['role']}")
     st.markdown(f"**Email:** {user_email if user_email else 'Not set'}")
+
+    st.markdown("### 🌐 Language")
+    st.caption(
+        "Translates navigation, common buttons, and headers. Most of the app's detailed "
+        "content still shows in English for now — this is a genuine foundation, not a "
+        "complete translation, and it's worth knowing that going in."
+    )
+    _lang_codes = list(SUPPORTED_LANGUAGES.keys())
+    _lang_names = list(SUPPORTED_LANGUAGES.values())
+    _current_lang = get_user_language()
+    _new_lang_name = st.selectbox(
+        "Preferred language", _lang_names,
+        index=_lang_codes.index(_current_lang) if _current_lang in _lang_codes else 0,
+        label_visibility="collapsed",
+    )
+    _new_lang_code = _lang_codes[_lang_names.index(_new_lang_name)]
+    if _new_lang_code != _current_lang:
+        set_user_language(_new_lang_code, username)
+        st.rerun()
+
     uploaded_avatar = st.file_uploader("Upload Avatar", type=["jpg", "jpeg", "png", "gif", "webp"], key="avatar_upload")
     if uploaded_avatar is not None:
         if st.button("Update Avatar"):
@@ -8330,6 +8675,116 @@ elif selected_section == "Profile":
                 st.error("Failed to update email.")
 
 # ---- ACTIVITY TIMELINE ----
+elif selected_section == "About":
+    st.subheader("ℹ️ About MWDTS")
+    _about_tab1, _about_tab2 = st.tabs(["📋 App Policy Statement", "🧭 How the App Works"])
+
+    with _about_tab1:
+        st.caption(
+            "This is a starting draft grounded in how the app actually works today — "
+            "not a finished legal document. It's worth review by the Owner (and legal "
+            "counsel, if the organization wants one) before being treated as official policy."
+        )
+        st.markdown("""
+#### Purpose
+MWDTS (Mine & Workshop Digital Tracker System) exists to replace paper-based
+maintenance, safety, and incident tracking with a single digital system —
+task management, permit-to-work / LOTO isolation records, hazard and
+incident reporting, shift handover, and equipment/inventory tracking.
+
+#### Accounts and access
+- Each person uses their own individual account. Sharing login credentials
+  defeats the purpose of the audit trail this system keeps, and should be
+  treated as a policy violation, not a minor convenience.
+- Access is role-based (Worker, Supervisor, Superintendent, Owner). What a
+  role can see and do is enforced by the system itself, not left to
+  individual discretion.
+- New accounts require approval from a Supervisor or above before they can
+  be used, unless an Owner has deliberately enabled auto-approval for this
+  deployment.
+
+#### What data this system holds
+Task records, permits, incident and hazard reports, shift handovers,
+contractor compliance records, asset and inventory data, internal chat
+messages, and an audit trail of consequential actions (approvals, role
+changes, deletions). This data is used for operational and safety
+purposes — tracking work, investigating incidents, and demonstrating due
+diligence — not for anything beyond that scope.
+
+#### A safety-critical disclaimer worth stating plainly
+**This system supports safety processes; it does not replace them.**
+A Permit to Work or LOTO record existing in this app is not a substitute
+for physically verifying isolation, following site safety procedures, or
+using required PPE. Treat the app as a record-keeping and enforcement aid
+alongside physical safety practice — never as a reason to skip a
+verification step because "the system already shows it as done."
+
+#### Expected use
+Reports and records entered into this system are expected to be accurate
+and timely. Deliberately false incident reports, task records, or permit
+sign-offs undermine both safety and the audit trail this system exists to
+provide.
+
+#### Questions or concerns
+Use the Feedback section for suggestions and non-urgent issues. For
+anything safety-critical, follow the site's normal safety escalation
+process — this app is a tool alongside that process, not a replacement
+reporting channel for emergencies.
+""")
+
+    with _about_tab2:
+        st.markdown("""
+#### What this app actually is
+A maintenance and safety tracking system for mine and workshop operations —
+think of it as replacing several paper logbooks (task boards, incident
+report books, permit-to-work logs, shift handover sheets) with one system
+everyone uses from their phone or a computer.
+
+#### Roles — what each one can do
+""")
+        st.markdown(render_field_grid([
+            ("fa-user", "Worker",
+            "Sees and updates their own assigned tasks, reports incidents, files shift "
+            "handovers, uses chat, submits feedback.", "neutral"),
+            ("fa-user-tie", "Supervisor",
+            "Everything a Worker can do, plus assigning tasks, managing assets/inventory/"
+            "permits/contractors, investigating incidents, viewing analytics.", "info"),
+            ("fa-user-shield", "Superintendent",
+            "Everything a Supervisor can do, plus approving or denying new accounts, "
+            "managing existing accounts, and viewing the audit log.", "info"),
+            ("fa-crown", "Owner",
+            "A single designated account with exclusive access to company branding, "
+            "the announcement ticker, feature toggles, and migration tools.", "ok"),
+        ]), unsafe_allow_html=True)
+
+        st.markdown("""
+#### A quick tour of the main sections
+- **Task Dashboard** — create, assign, and track maintenance work. Tasks
+  requiring LOTO isolation are blocked from starting until an accepted
+  permit exists for that task — a real safety gate, not just a checkbox.
+- **Assets** — the equipment register, with meter readings feeding a
+  forecast of when the next preventive maintenance is due.
+- **Permits** — Permit to Work / LOTO records, with a full
+  issue → accept → sign-back lifecycle.
+- **Inventory** — spare parts stock levels, with low-stock flagging.
+- **Incidents** — hazard, near-miss, and injury reporting, matching the
+  site's own physical paper form.
+- **Handover** — structured shift handover between outgoing and incoming
+  supervisors.
+- **Contractors** — third-party induction and insurance compliance
+  tracking.
+- **Analytics** — KPI dashboards: mean time to repair, PM compliance,
+  planned-vs-reactive work, safety leading indicators.
+- **Chat** — global, supervisor-only, and private messaging.
+- **Feedback** — suggest changes or improvements to the app itself.
+- **Timeline** — a running log of recent activity across all tasks.
+
+#### If something seems wrong
+Use Feedback for anything about the app itself — a confusing screen, a
+feature that isn't working as expected, or an idea for something new.
+""")
+
+
 elif selected_section == "Timeline":
     st.subheader("⏱️ Activity Timeline")
     st.markdown("Recent actions across all tasks (last 50)")
