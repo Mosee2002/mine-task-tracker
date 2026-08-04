@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 from datetime import datetime, timedelta
 import hashlib
@@ -9461,11 +9462,24 @@ elif selected_section == "Profile":
                   "this only activates if you tap the button below and approve your "
                   "browser's own permission prompt.")
         _push_username_js = username.replace("'", "\\'")
-        st.markdown(
+        # components.html() instead of st.markdown(unsafe_allow_html=True)
+        # — this is deliberate, not a style preference. st.markdown still
+        # runs content through markdown processing even with
+        # unsafe_allow_html=True, and markdown treats underscores as
+        # emphasis/italic markers. A real VAPID public key contains
+        # underscores (it's base64url-encoded), and when one landed
+        # inside this <script> block, the markdown parser corrupted it —
+        # the script's tail end leaked out as literal visible page text
+        # instead of executing. components.html() renders in an isolated
+        # iframe with NO markdown processing at all, which is what this
+        # actually needs. The tradeoff: iframe content can't see the
+        # page's CSS custom properties, so the button below uses a
+        # hardcoded color instead of var(--accent).
+        components.html(
             "<button id='mwdts-enable-push' style='padding:0.5rem 1rem;border-radius:8px;"
-            "border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);"
-            "cursor:pointer;font-weight:600;'>🔔 Enable notifications on this device</button>"
-            "<div id='mwdts-push-status' style='margin-top:0.5rem;font-size:0.85rem;'></div>"
+            "border:1px solid #1d4ed8;background:#e6ecfb;color:#1d4ed8;"
+            "cursor:pointer;font-weight:600;font-family:inherit;'>🔔 Enable notifications on this device</button>"
+            "<div id='mwdts-push-status' style='margin-top:0.5rem;font-size:0.85rem;font-family:sans-serif;'></div>"
             "<script>"
             "(function() {"
             "  var btn = document.getElementById('mwdts-enable-push');"
@@ -9507,7 +9521,7 @@ elif selected_section == "Profile":
             "  });"
             "})();"
             "</script>",
-            unsafe_allow_html=True,
+            height=90,
         )
 
     uploaded_avatar = st.file_uploader("Upload Avatar", type=["jpg", "jpeg", "png", "gif", "webp"], key="avatar_upload")
