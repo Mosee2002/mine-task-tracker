@@ -760,6 +760,7 @@ _CSS_BODY = """
     border: 1px solid var(--stat-color, var(--accent));
     border-radius: 16px;
     padding: 1.1rem 1rem;
+    min-height: 148px;
     transition: transform .15s ease, box-shadow .15s ease;
 }
 .action-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
@@ -782,6 +783,36 @@ _CSS_BODY = """
     font-size: 0.83rem;
     color: var(--text-secondary);
     line-height: 1.35;
+}
+/* Makes the whole action-card clickable: the real click target is a
+   Streamlit button, immediately following the card in the DOM, pulled
+   up over the card with a negative margin and made invisible. This
+   is deliberately NOT position:absolute — the card and button are
+   SIBLING elements (both direct children of the same column), and
+   position:absolute only anchors to an ANCESTOR's positioning
+   context, not a sibling's — it would end up positioned against the
+   whole column, not the card specifically. A negative margin pull-up
+   works correctly for siblings, which is why the card above was
+   given a fixed min-height: this technique only lines up reliably
+   when both sides agree on the same height, rather than the button
+   guessing at a card whose height changes with its description text.
+   Built on div[data-testid="stButton"], a long-stable Streamlit
+   internal attribute already relied on elsewhere in this app's CSS. */
+div[data-testid="element-container"]:has(> div.action-grid) {
+    margin-bottom: -148px;
+    position: relative;
+    z-index: 0;
+}
+div[data-testid="element-container"]:has(> div.action-grid) + div[data-testid="element-container"] {
+    position: relative;
+    z-index: 1;
+}
+div[data-testid="element-container"]:has(> div.action-grid) + div[data-testid="element-container"] div[data-testid="stButton"] button {
+    width: 100%;
+    height: 148px;
+    opacity: 0;
+    cursor: pointer;
+    margin: 0;
 }
 .stat-value {
     font-size: 1.65rem;
@@ -4412,6 +4443,7 @@ TRANSLATIONS = {
         "nav.Contractors": "Contractors", "nav.Analytics": "Analytics",
         "nav.Chat": "Chat", "nav.Feedback": "Feedback", "nav.Admin": "Admin",
         "nav.Profile": "Profile", "nav.Timeline": "Timeline", "nav.About": "About",
+        "nav.Owner Console": "Owner Console",
         "common.save": "Save", "common.cancel": "Cancel", "common.submit": "Submit",
         "common.delete": "Delete", "common.edit": "Edit", "common.search": "Search",
         "common.close": "Close", "common.back": "Back", "common.yes": "Yes",
@@ -4480,6 +4512,7 @@ TRANSLATIONS = {
         "nav.Contractors": "Sous-traitants", "nav.Analytics": "Analytique",
         "nav.Chat": "Discussion", "nav.Feedback": "Retours", "nav.Admin": "Administration",
         "nav.Profile": "Profil", "nav.Timeline": "Chronologie", "nav.About": "À propos",
+        "nav.Owner Console": "Console propriétaire",
         "common.save": "Enregistrer", "common.cancel": "Annuler", "common.submit": "Soumettre",
         "common.delete": "Supprimer", "common.edit": "Modifier", "common.search": "Rechercher",
         "common.close": "Fermer", "common.back": "Retour", "common.yes": "Oui",
@@ -4548,6 +4581,7 @@ TRANSLATIONS = {
         "nav.Contractors": "Contratistas", "nav.Analytics": "Analítica",
         "nav.Chat": "Chat", "nav.Feedback": "Comentarios", "nav.Admin": "Administración",
         "nav.Profile": "Perfil", "nav.Timeline": "Cronología", "nav.About": "Acerca de",
+        "nav.Owner Console": "Consola del propietario",
         "common.save": "Guardar", "common.cancel": "Cancelar", "common.submit": "Enviar",
         "common.delete": "Eliminar", "common.edit": "Editar", "common.search": "Buscar",
         "common.close": "Cerrar", "common.back": "Atrás", "common.yes": "Sí",
@@ -4616,6 +4650,7 @@ TRANSLATIONS = {
         "nav.Contractors": "Empreiteiros", "nav.Analytics": "Análises",
         "nav.Chat": "Chat", "nav.Feedback": "Feedback", "nav.Admin": "Administração",
         "nav.Profile": "Perfil", "nav.Timeline": "Linha do tempo", "nav.About": "Sobre",
+        "nav.Owner Console": "Console do Proprietário",
         "common.save": "Salvar", "common.cancel": "Cancelar", "common.submit": "Enviar",
         "common.delete": "Excluir", "common.edit": "Editar", "common.search": "Pesquisar",
         "common.close": "Fechar", "common.back": "Voltar", "common.yes": "Sim",
@@ -4684,6 +4719,7 @@ TRANSLATIONS = {
         "nav.Contractors": "承包商", "nav.Analytics": "分析",
         "nav.Chat": "聊天", "nav.Feedback": "反馈", "nav.Admin": "管理",
         "nav.Profile": "个人资料", "nav.Timeline": "时间线", "nav.About": "关于",
+        "nav.Owner Console": "所有者控制台",
         "common.save": "保存", "common.cancel": "取消", "common.submit": "提交",
         "common.delete": "删除", "common.edit": "编辑", "common.search": "搜索",
         "common.close": "关闭", "common.back": "返回", "common.yes": "是",
@@ -4752,6 +4788,7 @@ TRANSLATIONS = {
         "nav.Contractors": "ठेकेदार", "nav.Analytics": "विश्लेषण",
         "nav.Chat": "चैट", "nav.Feedback": "प्रतिक्रिया", "nav.Admin": "व्यवस्थापक",
         "nav.Profile": "प्रोफ़ाइल", "nav.Timeline": "समयरेखा", "nav.About": "के बारे में",
+        "nav.Owner Console": "स्वामी कंसोल",
         "common.save": "सहेजें", "common.cancel": "रद्द करें", "common.submit": "जमा करें",
         "common.delete": "हटाएं", "common.edit": "संपादित करें", "common.search": "खोजें",
         "common.close": "बंद करें", "common.back": "वापस", "common.yes": "हाँ",
@@ -6320,6 +6357,33 @@ selected_section = _label_to_section.get(_selected_label, _selected_label)
 # not keep overriding every future click within the nav itself.
 st.session_state.pop("_nav_jump_to", None)
 
+# Single-step back-navigation — remembers only the ONE section you
+# were just on, not a full history stack. That's a deliberate choice:
+# it correctly handles the actual use case (clicked a Quick Action
+# card, want to return to Task Dashboard) without the added
+# complexity and edge cases of a real undo-history (cycles, stale
+# entries after a role change, etc). Updated only when the section
+# actually changes between runs, not on every rerun.
+if "_last_known_section" not in st.session_state:
+    st.session_state["_last_known_section"] = selected_section
+elif st.session_state["_last_known_section"] != selected_section:
+    st.session_state["previous_section"] = st.session_state["_last_known_section"]
+    st.session_state["_last_known_section"] = selected_section
+
+_prev = st.session_state.get("previous_section")
+if _prev and _prev != selected_section and _prev in nav_options:
+    if st.button(f"← Back to {t(f'nav.{_prev}')}", key="back_button"):
+        navigate_to(_prev)
+        st.session_state.pop("previous_section", None)
+        # Also updated here, not just popped — otherwise the tracking
+        # logic above would see selected_section change (to _prev) on
+        # the next run and immediately create a NEW previous_section
+        # pointing back to where the user just left, turning a clean
+        # "go back and you're done" button into an unwanted ping-pong
+        # toggle between the two pages.
+        st.session_state["_last_known_section"] = _prev
+        st.rerun()
+
 # Load shared datasets used across the new modules
 db_assets = fetch_all_assets()
 st.session_state.assets = db_assets if db_assets else st.session_state.assets_memory
@@ -6330,23 +6394,39 @@ st.session_state.incidents = db_incidents if db_incidents else st.session_state.
 
 # ---- TASK DASHBOARD ----
 if selected_section == "Task Dashboard":
-    # Quick Actions — the highest-traffic page in the app, so this is
-    # where a shortcut grid like this earns its place the most. Shown
-    # to every role. Each card is HTML for the visual, paired with a
-    # real button underneath for the actual navigation — Streamlit
-    # can't make arbitrary HTML clickable on its own.
-    _qa_cols = st.columns(4)
+    # Quick Actions — the highest-traffic page in the app. Built
+    # dynamically from the ACTUAL filtered nav_options (already
+    # respects role permissions and Feature Toggles) rather than a
+    # hardcoded list — a Worker never sees a shortcut card for Admin
+    # or Contractors just because a fixed list included it; whatever
+    # already doesn't show in the real nav doesn't show here either.
+    _qa_meta = {
+        "Assets": ("fa-server", "Equipment register & meter readings", "info"),
+        "Permits": ("fa-lock", "Permit to Work / LOTO", "warn"),
+        "Inventory": ("fa-boxes-stacked", "Spare parts & stock levels", "info"),
+        "Incidents": ("fa-triangle-exclamation", "Log a hazard or near-miss", "danger"),
+        "Handover": ("fa-right-left", "Shift handover log", "neutral"),
+        "Contractors": ("fa-user-group", "Induction & insurance compliance", "info"),
+        "Analytics": ("fa-chart-line", "KPIs & performance reports", "ok"),
+        "Chat": ("fa-comments", "Message your team", "ok"),
+        "Feedback": ("fa-lightbulb", "Suggest an improvement", "info"),
+        "Admin": ("fa-gear", "Access, users, and settings", "neutral"),
+        "Owner Console": ("fa-key", "Branding, migration, feature toggles", "warn"),
+        "Profile": ("fa-circle-user", "Your account & language", "neutral"),
+        "Timeline": ("fa-clock-rotate-left", "Recent activity across all tasks", "neutral"),
+        "About": ("fa-circle-info", "Policy statement & how it works", "neutral"),
+    }
     _quick_actions = [
-        {"icon": "fa-triangle-exclamation", "title": "Report Incident",
-        "desc": "Log a hazard or near-miss", "tone": "danger", "target": "Incidents"},
-        {"icon": "fa-lock", "title": "Permits", "desc": "Permit to Work / LOTO", "tone": "warn", "target": "Permits"},
-        {"icon": "fa-lightbulb", "title": "Feedback", "desc": "Suggest an improvement", "tone": "info", "target": "Feedback"},
-        {"icon": "fa-comments", "title": "Chat", "desc": "Message your team", "tone": "ok", "target": "Chat"},
+        {"icon": icon, "title": t(f"nav.{section}"), "desc": desc, "tone": tone, "target": section}
+        for section in nav_options
+        if section != "Task Dashboard" and section in _qa_meta
+        for icon, desc, tone in [_qa_meta[section]]
     ]
-    for _qa_col, _qa in zip(_qa_cols, _quick_actions):
-        with _qa_col:
+    _qa_col1, _qa_col2 = st.columns(2)
+    for _i, _qa in enumerate(_quick_actions):
+        with (_qa_col1 if _i % 2 == 0 else _qa_col2):
             st.markdown(render_action_cards([_qa]), unsafe_allow_html=True)
-            if st.button("Open →", key=f"quick_action_{_qa['target']}", use_container_width=True):
+            if st.button(f"Open {_qa['title']}", key=f"quick_action_{_qa['target']}", use_container_width=True):
                 navigate_to(_qa["target"])
                 st.rerun()
 
