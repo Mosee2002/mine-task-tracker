@@ -8509,11 +8509,12 @@ elif selected_section == "Owner Console":
             _owner_row = is_owner(u.get("username"))
             _colour = "#4b5563" if _suspended else "#15803d"
             with st.container(border=True):
+                _owner_badge = " <span class='verified-badge'>OWNER</span>" if _owner_row else ""
                 st.markdown(
                     f"**{esc(u.get('full_name'))}** `{esc(u.get('username'))}` "
                     f"<span class='status-badge' style='background:{_colour};'>"
                     f"{'SUSPENDED' if _suspended else esc(u.get('role', 'Worker'))}</span>"
-                    f"{' <span class=\"verified-badge\">OWNER</span>' if _owner_row else ''}",
+                    f"{_owner_badge}",
                     unsafe_allow_html=True)
                 st.markdown(
                     f"<small>{esc(u.get('job_title') or '—')} · "
