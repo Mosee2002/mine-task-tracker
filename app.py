@@ -719,7 +719,7 @@ _CSS_BODY = """
     gap: 0.85rem;
     background: var(--bg-surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 0.95rem 1.05rem;
     box-shadow: var(--shadow-sm);
     overflow: hidden;
@@ -737,12 +737,52 @@ _CSS_BODY = """
     flex: 0 0 auto;
     width: 42px; height: 42px;
     display: flex; align-items: center; justify-content: center;
-    clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0% 50%);
+    border-radius: 12px;
     background: var(--stat-bg, var(--accent-soft));
     color: var(--stat-color, var(--accent));
     font-size: 1rem;
 }
 .stat-body { min-width: 0; }
+
+/* Action-card grid — a tappable-feeling card with a colored icon box,
+   bold title, and a short description underneath, in a responsive
+   2-column grid. New pattern, not a rename of anything existing;
+   built for the "Quick Actions" style shortcut grids this app didn't
+   have a component for before. */
+.action-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.85rem;
+    margin-bottom: 1rem;
+}
+.action-card {
+    background: var(--stat-bg, var(--accent-soft));
+    border: 1px solid var(--stat-color, var(--accent));
+    border-radius: 16px;
+    padding: 1.1rem 1rem;
+    transition: transform .15s ease, box-shadow .15s ease;
+}
+.action-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.action-card .action-icon {
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 12px;
+    background: var(--bg-surface);
+    color: var(--stat-color, var(--accent));
+    font-size: 1.15rem;
+    margin-bottom: 0.6rem;
+}
+.action-card .action-title {
+    font-weight: 700;
+    font-size: 0.98rem;
+    color: var(--text-primary);
+    margin-bottom: 0.2rem;
+}
+.action-card .action-desc {
+    font-size: 0.83rem;
+    color: var(--text-secondary);
+    line-height: 1.35;
+}
 .stat-value {
     font-size: 1.65rem;
     font-weight: 800;
@@ -1395,6 +1435,39 @@ def render_avatar_html(name):
     initials = esc(_person_initials(name))
     return (f'<div class="chat-avatar" style="--stat-color:var(--tone-{tone});'
             f'--stat-bg:var(--tone-{tone}-soft);">{initials}</div>')
+
+
+def render_action_cards(cards):
+    """Renders a responsive grid of tappable-feeling shortcut cards —
+    icon in a colored box, bold title, short description underneath.
+    `cards` is a list of dicts with icon/title/desc/tone (tone is one
+    of the same five established tones as render_stat_cards, so a
+    shortcut card's color always means the same thing a badge or stat
+    card's color already means elsewhere in the app).
+
+    This doesn't navigate anywhere by itself — Streamlit can't make an
+    arbitrary chunk of HTML clickable and trigger a rerun, so each
+    card is paired with a real st.button by the caller. This function
+    only renders the visual card; wiring it to navigate_to() is the
+    caller's job, same division of responsibility as every other
+    render_* helper in this file.
+    """
+    valid_tones = {"info", "ok", "warn", "danger", "neutral"}
+    html = ['<div class="action-grid">']
+    for c in cards:
+        tone = c.get("tone", "info")
+        if tone not in valid_tones:
+            tone = "info"
+        html.append(
+            f'<div class="action-card" style="--stat-color:var(--tone-{tone});'
+            f'--stat-bg:var(--tone-{tone}-soft);">'
+            f'<div class="action-icon"><i class="fas {esc(c.get("icon", "fa-bolt"))}"></i></div>'
+            f'<div class="action-title">{esc(c.get("title", ""))}</div>'
+            f'<div class="action-desc">{esc(c.get("desc", ""))}</div>'
+            f'</div>'
+        )
+    html.append('</div>')
+    return "".join(html)
 
 
 def render_field_grid(fields):
@@ -6257,6 +6330,26 @@ st.session_state.incidents = db_incidents if db_incidents else st.session_state.
 
 # ---- TASK DASHBOARD ----
 if selected_section == "Task Dashboard":
+    # Quick Actions — the highest-traffic page in the app, so this is
+    # where a shortcut grid like this earns its place the most. Shown
+    # to every role. Each card is HTML for the visual, paired with a
+    # real button underneath for the actual navigation — Streamlit
+    # can't make arbitrary HTML clickable on its own.
+    _qa_cols = st.columns(4)
+    _quick_actions = [
+        {"icon": "fa-triangle-exclamation", "title": "Report Incident",
+        "desc": "Log a hazard or near-miss", "tone": "danger", "target": "Incidents"},
+        {"icon": "fa-lock", "title": "Permits", "desc": "Permit to Work / LOTO", "tone": "warn", "target": "Permits"},
+        {"icon": "fa-lightbulb", "title": "Feedback", "desc": "Suggest an improvement", "tone": "info", "target": "Feedback"},
+        {"icon": "fa-comments", "title": "Chat", "desc": "Message your team", "tone": "ok", "target": "Chat"},
+    ]
+    for _qa_col, _qa in zip(_qa_cols, _quick_actions):
+        with _qa_col:
+            st.markdown(render_action_cards([_qa]), unsafe_allow_html=True)
+            if st.button("Open →", key=f"quick_action_{_qa['target']}", use_container_width=True):
+                navigate_to(_qa["target"])
+                st.rerun()
+
     if role == "worker":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
         if st.session_state.broadcast_messages:
@@ -8938,10 +9031,12 @@ elif selected_section == "Admin":
 # ---- PROFILE TAB ----
 elif selected_section == "Profile":
     st.subheader("👤 User Profile")
-    st.markdown(f"**Username:** {username}")
-    st.markdown(f"**Full Name:** {full_name}")
-    st.markdown(f"**Role:** {user['role']}")
-    st.markdown(f"**Email:** {user_email if user_email else 'Not set'}")
+    st.markdown(render_meta_chips([
+        ("fa-user", f"Username: {username}", "neutral"),
+        ("fa-id-badge", f"Full name: {full_name}", "neutral"),
+        ("fa-user-tag", f"Role: {user['role']}", "info"),
+        ("fa-envelope", f"Email: {user_email}" if user_email else "Email: Not set", "neutral"),
+    ]), unsafe_allow_html=True)
 
     st.markdown("### 🌐 Language")
     st.caption(
