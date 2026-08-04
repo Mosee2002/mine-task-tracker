@@ -58,6 +58,39 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
+# Optional: QR code generation for asset labels (Print QR Label).
+# reportlab is a real, tested QR encoder — same one already proven out
+# for the app's own install QR codes — used here only for computing
+# the correct module grid; PIL (already available above) does the
+# actual image rendering, so this is the one new dependency needed
+# for generation specifically.
+try:
+    from reportlab.graphics.barcode import qr as _qr_encoder
+    QR_GENERATION_AVAILABLE = PIL_AVAILABLE
+except ImportError:
+    QR_GENERATION_AVAILABLE = False
+
+# Optional: QR code SCANNING (decoding a photo of a printed label back
+# into an asset lookup). opencv-python-headless specifically — the
+# headless variant, not the full opencv-python package, since this is
+# a server/cloud deployment with no display; the headless build skips
+# GUI dependencies neither Streamlit Cloud nor this feature need.
+try:
+    import cv2
+    import numpy as np
+    QR_SCANNING_AVAILABLE = True
+except ImportError:
+    QR_SCANNING_AVAILABLE = False
+
+# Optional: Web Push notifications (real, device-level alerts, not
+# just the in-app notifications list). Needs VAPID keys generated
+# once and stored as secrets — see PUSH_NOTIFICATIONS_SETUP.md.
+try:
+    from pywebpush import webpush, WebPushException
+    PUSH_AVAILABLE = True
+except ImportError:
+    PUSH_AVAILABLE = False
+
 # Optional: Google Workspace mailbox auto-provisioning
 try:
     from google.oauth2 import service_account as _gws_service_account
@@ -232,6 +265,16 @@ if _diag.get("library_installed") and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY
         # exact same pattern the main anon-key client above already uses
         # for its own connection errors at this same point in the file.
         _diag["admin_client_error"] = f"{type(_e).__name__}: {_e}"
+
+# VAPID keys for Web Push — generated once (see
+# PUSH_NOTIFICATIONS_SETUP.md), never per-user or per-session. The
+# public key is safe to embed in client-side JS (that's its whole
+# purpose — the browser needs it to subscribe); the private key stays
+# server-side only, used to sign outgoing push messages.
+VAPID_PUBLIC_KEY = _secret_get("VAPID_PUBLIC_KEY")
+VAPID_PRIVATE_KEY = _secret_get("VAPID_PRIVATE_KEY")
+VAPID_CLAIMS_EMAIL = _secret_get("VAPID_CLAIMS_EMAIL") or "admin@example.com"
+PUSH_CONFIGURED = bool(PUSH_AVAILABLE and VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY)
 
 # Theme toggle
 if 'dark_mode' not in st.session_state:
@@ -1468,6 +1511,68 @@ def render_avatar_html(name):
             f'--stat-bg:var(--tone-{tone}-soft);">{initials}</div>')
 
 
+def generate_asset_qr(asset_id):
+    """Generates a QR code encoding a structured, unambiguous asset
+    identifier — 'MWDTS-ASSET:<id>' rather than the bare id or the
+    asset_tag, so a scan can never be confused with some unrelated QR
+    code someone happens to photograph, and doesn't depend on
+    asset_tag being unique (only the database id is guaranteed to be).
+    Uses the exact same proven method as the app's own install QR
+    codes: reportlab's real encoder for the module grid, rendered with
+    PIL using NEAREST-neighbor scaling specifically — smoothing/
+    anti-aliasing is what silently broke a QR code earlier this
+    project by blurring the sharp module edges decoding depends on.
+    Returns a PIL Image, or None if the optional dependencies aren't
+    installed.
+    """
+    if not QR_GENERATION_AVAILABLE:
+        return None
+    payload = f"MWDTS-ASSET:{asset_id}"
+    widget = _qr_encoder.QrCodeWidget(payload)
+    widget.qr.make()
+    inner = widget.qr
+    module_count = inner.getModuleCount()
+
+    px_per_module = 10
+    quiet_zone = 4
+    size = (module_count + quiet_zone * 2) * px_per_module
+    img = Image.new("RGB", (size, size), "white")
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(img)
+    for row in range(module_count):
+        for col in range(module_count):
+            if inner.isDark(row, col):
+                x0 = (col + quiet_zone) * px_per_module
+                y0 = (row + quiet_zone) * px_per_module
+                d.rectangle([x0, y0, x0 + px_per_module, y0 + px_per_module], fill="black")
+    return img
+
+
+def decode_asset_qr(image_bytes):
+    """Decodes a photographed QR label back into an asset id. Returns
+    the asset id (int) on a genuine MWDTS asset QR, None on anything
+    else — an unrelated QR code, a blurry photo, or no QR code at all
+    all return None rather than raising, since a failed scan is an
+    expected, ordinary outcome here, not an error condition."""
+    if not QR_SCANNING_AVAILABLE:
+        return None
+    try:
+        arr = np.frombuffer(image_bytes, dtype=np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if img is None:
+            return None
+        detector = cv2.QRCodeDetector()
+        data, points, _ = detector.detectAndDecode(img)
+        if data and data.startswith("MWDTS-ASSET:"):
+            try:
+                return int(data.split(":", 1)[1])
+            except ValueError:
+                return None
+        return None
+    except Exception:
+        return None
+
+
 def render_action_cards(cards):
     """Renders a responsive grid of tappable-feeling shortcut cards —
     icon in a colored box, bold title, short description underneath.
@@ -1746,7 +1851,31 @@ def clear_login_failures(username):
 # 3. ERROR LOGGING
 # -------------------------------
 def log_error(error_message, details=None, user_name=None, endpoint=None):
-    """Log errors to the app_errors table for monitoring."""
+    """Log errors to the app_errors table for monitoring.
+
+    Also classifies whether this specific failure looks like a
+    connectivity problem (dropped connection, timeout, DNS failure)
+    rather than a genuine data/permission issue, setting a session
+    flag the UI can check right after a failed save to show "check
+    your connection" instead of a generic failure message. This is
+    the one shared place nearly every backend function's exception
+    handler already calls — extending it here reaches all of them
+    without changing any function's return signature or touching each
+    call site individually, which would have been a much larger,
+    riskier change for the same result.
+    """
+    _err_lower = str(error_message).lower()
+    _connectivity_signals = [
+        "connection", "timeout", "timed out", "max retries exceeded",
+        "failed to establish a new connection", "network is unreachable",
+        "name or service not known", "getaddrinfo failed", "temporary failure in name resolution",
+    ]
+    try:
+        st.session_state["_last_error_was_connectivity"] = any(
+            sig in _err_lower for sig in _connectivity_signals)
+    except Exception:
+        pass  # log_error must never itself be the thing that crashes a page
+
     if not SUPABASE_AVAILABLE:
         return
     try:
@@ -2223,6 +2352,19 @@ def friendly_db_error(err):
     then hit a DIFFERENT missing column later from a different feature,
     and not recognize it as the same root cause each time. This makes
     that connection explicit instead of showing a bare PGRST204.
+
+    Also catches connection/timeout failures specifically — the
+    difference between "your save failed because of a real problem"
+    and "your save failed because your connection dropped" matters:
+    the first needs a report or a fix, the second just needs a retry.
+    Streamlit is server-rendered, so there's no way to genuinely queue
+    an action and sync it later when truly offline (see
+    MIGRATION_PLAN.md-adjacent notes on this) — but telling someone
+    plainly "check your connection and try again" instead of a vague
+    failure message is a real, honest improvement within that limit.
+    Checked by message content rather than one specific exception
+    class, since the exact type raised depends on which HTTP library
+    is active underneath supabase-py at any given version.
     """
     err_str = str(err)
     if "PGRST204" in err_str or ("schema cache" in err_str.lower() and "column" in err_str.lower()):
@@ -2234,6 +2376,18 @@ def friendly_db_error(err):
                 f"it's safe to run more than once (every statement checks IF NOT EXISTS "
                 f"first). This is the same class of error as the earlier 'department "
                 f"column' issue, just a different column this time.")
+
+    connectivity_signals = [
+        "connection", "timeout", "timed out", "max retries exceeded",
+        "failed to establish a new connection", "network is unreachable",
+        "name or service not known", "getaddrinfo failed", "temporary failure in name resolution",
+    ]
+    if any(sig in err_str.lower() for sig in connectivity_signals):
+        return ("📶 This didn't save — it looks like your connection dropped or "
+               "timed out, not a problem with what you entered. Check your network "
+               "and try again; nothing was lost on your screen, so you don't need "
+               "to re-type anything.")
+
     return err_str
 
 
@@ -3031,6 +3185,67 @@ def fetch_task_activity(task_id):
 # -------------------------------
 # 12. NOTIFICATIONS
 # -------------------------------
+def send_push_to_user(username, title, body):
+    """Sends a real device-level push notification to every device
+    that username has subscribed from (a person can have more than
+    one). Best-effort by design, matching every other notification/
+    logging function in this file — a failed push should never block
+    or crash whatever triggered it. A subscription that comes back as
+    permanently dead (410 Gone — the browser unsubscribed or the
+    device is gone for good) gets cleaned up automatically instead of
+    failing silently forever on every future send.
+    """
+    if not PUSH_CONFIGURED or not SUPABASE_AVAILABLE:
+        return
+    try:
+        res = supabase.table("push_subscriptions").select("*").eq("username", username).execute()
+        subs = res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="send_push_to_user:fetch")
+        return
+
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": sub["endpoint"],
+                    "keys": {"p256dh": sub["p256dh_key"], "auth": sub["auth_key"]},
+                },
+                data=json.dumps({"title": title, "body": body}),
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={"sub": f"mailto:{VAPID_CLAIMS_EMAIL}"},
+            )
+        except WebPushException as e:
+            _status = getattr(getattr(e, "response", None), "status_code", None)
+            if _status == 410:
+                try:
+                    supabase.table("push_subscriptions").delete().eq("id", sub["id"]).execute()
+                except Exception:
+                    pass  # cleanup is a nicety, not worth a second error over
+            else:
+                log_error(str(e), endpoint="send_push_to_user:send", details={"username": username})
+        except Exception as e:
+            log_error(str(e), endpoint="send_push_to_user:send", details={"username": username})
+
+
+def save_push_subscription(username, endpoint, p256dh_key, auth_key):
+    """Persists a new device subscription. Uses the endpoint's own
+    UNIQUE constraint (see schema) to make re-subscribing the same
+    device harmless rather than creating duplicate rows that would
+    each separately (and redundantly) receive every push."""
+    if not SUPABASE_AVAILABLE:
+        return False
+    try:
+        res = supabase.table("push_subscriptions").upsert({
+            "username": username, "endpoint": endpoint,
+            "p256dh_key": p256dh_key, "auth_key": auth_key,
+        }, on_conflict="endpoint").execute()
+        return bool(res.data)
+    except Exception as e:
+        log_error(str(e), endpoint="save_push_subscription")
+        return False
+
+
 def send_notification(user_name, title, body):
     if not SUPABASE_AVAILABLE:
         return
@@ -3042,6 +3257,10 @@ def send_notification(user_name, title, body):
         }).execute()
     except Exception as e:
         log_error(str(e), endpoint="send_notification")
+    send_push_to_user(user_name, title, body)  # best-effort, real device push
+    # alongside the in-app notification record above — a failure here
+    # (no subscription, push not configured, etc.) never affects
+    # whether the in-app notification itself was recorded.
 
 def fetch_notifications(user_name):
     if not SUPABASE_AVAILABLE:
@@ -4411,6 +4630,8 @@ FEATURE_INDEX = [
     ("admin feature toggles enable disable modules", "Admin — Feature Toggles", "fa-toggle-on", "Admin"),
     ("admin settings company logo announcement ticker poster slideshow branding",
     "Admin — Settings", "fa-gears", "Admin"),
+    ("owner console branding migration feature toggles key",
+    "Owner Console", "fa-key", "Owner Console"),
 ]
 
 
@@ -4889,14 +5110,21 @@ def set_user_language(lang_code, username):
             # across future logins silently didn't save this time.
 
 
-def search_features(query):
-    """Static keyword match against the curated page/feature index.
-    No data, no permissions to worry about — just text matching."""
+def search_features(query, nav_options):
+    """Static keyword match against the curated page/feature index,
+    filtered to what the current user can actually reach — the index
+    itself has no concept of roles, but the SAME nav_options already
+    used to build the real navigation (respecting role permissions
+    and Feature Toggles) is the source of truth for who can go where.
+    Without this filter, a Worker searching "branding" would get a
+    search result suggesting Owner Console, which does nothing for
+    them since it was never in their real nav in the first place —
+    a genuine correctness gap, not just an unhelpful result."""
     q = query.lower().strip()
     if not q:
         return []
     return [(label, icon, section) for keywords, label, icon, section in FEATURE_INDEX
-           if q in keywords.lower() or q in label.lower()]
+           if (q in keywords.lower() or q in label.lower()) and section in nav_options]
 
 
 def search_records(query, role, full_name):
@@ -6303,7 +6531,7 @@ with st.expander("🔍 Search the app", expanded=False):
                               placeholder="e.g. \"logo\", \"conveyor belt\", or a contractor's name",
                               label_visibility="collapsed")
     if _search_q.strip():
-        _feature_hits = search_features(_search_q)
+        _feature_hits = search_features(_search_q, nav_options)
         _record_hits = search_records(_search_q, role, full_name)
 
         if _feature_hits:
@@ -6364,17 +6592,42 @@ st.session_state.pop("_nav_jump_to", None)
 # complexity and edge cases of a real undo-history (cycles, stale
 # entries after a role change, etc). Updated only when the section
 # actually changes between runs, not on every rerun.
+_section_actually_changed = False
 if "_last_known_section" not in st.session_state:
     st.session_state["_last_known_section"] = selected_section
 elif st.session_state["_last_known_section"] != selected_section:
     st.session_state["previous_section"] = st.session_state["_last_known_section"]
     st.session_state["_last_known_section"] = selected_section
+    _section_actually_changed = True
+
+# Dedicated flag, set from TWO places: the generic detection just
+# above, and explicitly inside the Back button's own click handler
+# below. Needed because Back proactively sets _last_known_section
+# itself (to avoid a separate ping-pong bug), which means the generic
+# detection above never fires for a Back click — without its own
+# explicit flag, Back would silently never scroll to top while every
+# other navigation path did.
+if _section_actually_changed:
+    st.session_state["_scroll_to_top_pending"] = True
+
+if st.session_state.pop("_scroll_to_top_pending", False):
+    # Streamlit reruns the whole script on navigation but does NOT
+    # reset scroll position — if someone was scrolled down reading
+    # the task list and then clicked a Quick Action card, the new
+    # section renders while the browser stays scrolled to that same
+    # spot, making the new content look like it's stuck "below the
+    # tabs" rather than a clean page change. Fires only on an actual
+    # section change (this exact flag, not every rerun) — scrolling
+    # to top on every interaction within the SAME section, like
+    # submitting a form, would be actively annoying, not helpful.
+    st.markdown("<script>window.scrollTo({top: 0, behavior: 'instant'});</script>", unsafe_allow_html=True)
 
 _prev = st.session_state.get("previous_section")
 if _prev and _prev != selected_section and _prev in nav_options:
     if st.button(f"← Back to {t(f'nav.{_prev}')}", key="back_button"):
         navigate_to(_prev)
         st.session_state.pop("previous_section", None)
+        st.session_state["_scroll_to_top_pending"] = True
         # Also updated here, not just popped — otherwise the tracking
         # logic above would see selected_section change (to _prev) on
         # the next run and immediately create a NEW previous_section
@@ -6384,13 +6637,22 @@ if _prev and _prev != selected_section and _prev in nav_options:
         st.session_state["_last_known_section"] = _prev
         st.rerun()
 
-# Load shared datasets used across the new modules
-db_assets = fetch_all_assets()
-st.session_state.assets = db_assets if db_assets else st.session_state.assets_memory
-db_parts = fetch_all_parts()
-st.session_state.parts = db_parts if db_parts else st.session_state.inventory_memory
-db_incidents = fetch_all_incidents()
-st.session_state.incidents = db_incidents if db_incidents else st.session_state.incidents_memory
+# Load shared datasets used across the new modules. Wrapped in a
+# spinner deliberately — this runs on every single page load, and
+# without an explicit loading state, the moment between "old content
+# gone" and "new content ready" can look like a jarring flash rather
+# than an intentional, calm loading state. This covers the actual
+# data-fetch delay; it can't fully eliminate every visual reset
+# Streamlit's rerun-on-every-interaction model produces, since that's
+# inherent to the platform's architecture, not something app code can
+# switch off — but it replaces the specific gap that was worst.
+with st.spinner("Loading…"):
+    db_assets = fetch_all_assets()
+    st.session_state.assets = db_assets if db_assets else st.session_state.assets_memory
+    db_parts = fetch_all_parts()
+    st.session_state.parts = db_parts if db_parts else st.session_state.inventory_memory
+    db_incidents = fetch_all_incidents()
+    st.session_state.incidents = db_incidents if db_incidents else st.session_state.incidents_memory
 
 # ---- TASK DASHBOARD ----
 if selected_section == "Task Dashboard":
@@ -6769,6 +7031,8 @@ if selected_section == "Task Dashboard":
                         if new_task:
                             st.success(f"Task #{new_task['id']} created!")
                             st.rerun()
+                        elif st.session_state.pop("_last_error_was_connectivity", False):
+                            st.error(friendly_db_error("connection timeout"))
                         else:
                             st.error(t("task.err_create_failed"))
                     else:
@@ -7052,11 +7316,20 @@ elif selected_section == "Assets":
     st.subheader("🏭 Asset Register")
     can_manage_assets = can(role, "asset.edit")
 
+    _asset_sub_options = ["All Assets"]
+    _asset_sub_icons = ["hdd-stack-fill"]
+    if QR_SCANNING_AVAILABLE:
+        _asset_sub_options.append("📷 Scan Asset")
+        _asset_sub_icons.append("qr-code-scan")
     if can_manage_assets:
+        _asset_sub_options.append("Add Asset")
+        _asset_sub_icons.append("plus-circle")
+
+    if len(_asset_sub_options) > 1:
         asset_sub = option_menu(
             menu_title=None,
-            options=["All Assets", "Add Asset"],
-            icons=["hdd-stack-fill", "plus-circle"],
+            options=_asset_sub_options,
+            icons=_asset_sub_icons,
             orientation="horizontal",
             default_index=0,
             styles=menu_styles(),
@@ -7064,7 +7337,28 @@ elif selected_section == "Assets":
     else:
         asset_sub = "All Assets"
 
-    if asset_sub == "All Assets":
+    if asset_sub == "📷 Scan Asset":
+        st.caption("Take a photo of an asset's printed QR label to jump straight to its record.")
+        _scan_photo = st.camera_input("Scan QR label", label_visibility="collapsed")
+        if _scan_photo is not None:
+            _decoded_id = decode_asset_qr(_scan_photo.getvalue())
+            if _decoded_id is None:
+                st.error("No MWDTS asset label found in that photo — try holding the camera "
+                        "steadier and closer to the label, with good lighting.")
+            else:
+                _matched = next((a for a in st.session_state.assets if a.get("id") == _decoded_id), None)
+                if _matched is None:
+                    st.error(f"Scanned a valid label (asset #{_decoded_id}), but no asset with "
+                            "that ID exists anymore — it may have been deleted.")
+                else:
+                    st.success(f"Found: {_matched.get('name')}")
+                    st.markdown(render_meta_chips([
+                        ("fa-tag", f"Tag: {_matched['asset_tag']}" if _matched.get('asset_tag') else None, "neutral"),
+                        ("fa-map-marker-alt", _matched.get('location'), "neutral"),
+                        ("fa-flag", f"Status: {_matched.get('status', 'Operational')}", "info"),
+                    ]), unsafe_allow_html=True)
+
+    elif asset_sub == "All Assets":
         assets = st.session_state.assets
         if not assets:
             st.info("No assets registered yet.")
@@ -7097,6 +7391,18 @@ elif selected_section == "Assets":
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
+                if QR_GENERATION_AVAILABLE:
+                    with st.expander(f"🔲 Print QR Label — {a.get('name')}"):
+                        st.caption("Print this and attach it to the physical equipment. Scanning "
+                                  "it later (Assets → Scan Asset) jumps straight to this record.")
+                        _qr_img = generate_asset_qr(a['id'])
+                        if _qr_img is not None:
+                            st.image(_qr_img, width=200)
+                            _qr_buf = BytesIO()
+                            _qr_img.save(_qr_buf, format="PNG")
+                            st.download_button("⬇ Download label", data=_qr_buf.getvalue(),
+                                              file_name=f"asset_{a['id']}_qr.png", mime="image/png",
+                                              key=f"qr_dl_{a['id']}")
                 if can_manage_assets:
                     with st.expander(f"⚙️ Manage #{a['id']} {a.get('name')}"):
                         cols = st.columns(4)
@@ -7473,6 +7779,8 @@ elif selected_section == "Incidents":
                         if severity in ("Critical", "High"):
                             st.warning("This has been flagged for immediate supervisor attention.")
                         st.rerun()
+                    elif st.session_state.pop("_last_error_was_connectivity", False):
+                        st.error(friendly_db_error("connection timeout"))
                     else:
                         st.error("Failed to submit report.")
 
@@ -7540,6 +7848,8 @@ elif selected_section == "Permits":
                 if accept_permit(p['id'], full_name):
                     st.success("Permit accepted. You are now the responsible person.")
                     st.rerun()
+                elif st.session_state.pop("_last_error_was_connectivity", False):
+                    st.error(friendly_db_error("connection timeout"))
                 else:
                     st.error("Accept failed — the permit was not updated. Check Row Level "
                              "Security on the permits table before assuming isolation is in place.")
@@ -7548,12 +7858,16 @@ elif selected_section == "Permits":
                 if sign_back_permit(p['id'], full_name):
                     st.success("Permit signed back and closed.")
                     st.rerun()
+                elif st.session_state.pop("_last_error_was_connectivity", False):
+                    st.error(friendly_db_error("connection timeout"))
                 else:
                     st.error("Sign-back failed — the permit is still showing as Active.")
         if status in ("Issued", "Active") and can(role, "permit.cancel"):
             if acols[2].button("🚫 Cancel", key=f"permit_can_{p['id']}"):
                 if cancel_permit(p['id'], full_name):
                     st.rerun()
+                elif st.session_state.pop("_last_error_was_connectivity", False):
+                    st.error(friendly_db_error("connection timeout"))
                 else:
                     st.error("Cancel failed — the permit was not updated.")
 
@@ -9136,6 +9450,64 @@ elif selected_section == "Profile":
     if _new_lang_code != _current_lang:
         set_user_language(_new_lang_code, username)
         st.rerun()
+
+    st.markdown("### 🔔 Notifications")
+    if not PUSH_CONFIGURED:
+        st.caption("Not set up yet on this deployment — see PUSH_NOTIFICATIONS_SETUP.md.")
+    else:
+        st.caption("Get real alerts on this device — task assignments, incident updates, "
+                  "permit activity — even when the app isn't open. Off by default; "
+                  "this only activates if you tap the button below and approve your "
+                  "browser's own permission prompt.")
+        _push_username_js = username.replace("'", "\\'")
+        st.markdown(
+            "<button id='mwdts-enable-push' style='padding:0.5rem 1rem;border-radius:8px;"
+            "border:1px solid var(--accent);background:var(--accent-soft);color:var(--accent);"
+            "cursor:pointer;font-weight:600;'>🔔 Enable notifications on this device</button>"
+            "<div id='mwdts-push-status' style='margin-top:0.5rem;font-size:0.85rem;'></div>"
+            "<script>"
+            "(function() {"
+            "  var btn = document.getElementById('mwdts-enable-push');"
+            "  var status = document.getElementById('mwdts-push-status');"
+            "  if (!btn) return;"
+            "  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {"
+            "    status.textContent = 'This browser does not support push notifications.';"
+            "    btn.disabled = true;"
+            "    return;"
+            "  }"
+            "  btn.addEventListener('click', function() {"
+            "    status.textContent = 'Requesting permission...';"
+            "    navigator.serviceWorker.register('./app/static/sw.js').then(function(reg) {"
+            "      return reg.pushManager.subscribe({"
+            "        userVisibleOnly: true,"
+            f"        applicationServerKey: '{VAPID_PUBLIC_KEY or ''}'"
+            "      });"
+            "    }).then(function(sub) {"
+            "      var subJson = sub.toJSON();"
+            f"      var supaUrl = '{SUPABASE_URL or ''}';"
+            f"      var supaKey = '{SUPABASE_KEY or ''}';"
+            f"      var uname = '{_push_username_js}';"
+            "      return fetch(supaUrl + '/rest/v1/push_subscriptions', {"
+            "        method: 'POST',"
+            "        headers: {"
+            "          'apikey': supaKey, 'Authorization': 'Bearer ' + supaKey,"
+            "          'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'"
+            "        },"
+            "        body: JSON.stringify({"
+            "          username: uname, endpoint: subJson.endpoint,"
+            "          p256dh_key: subJson.keys.p256dh, auth_key: subJson.keys.auth"
+            "        })"
+            "      });"
+            "    }).then(function() {"
+            "      status.textContent = '✓ Notifications enabled on this device.';"
+            "    }).catch(function(err) {"
+            "      status.textContent = 'Could not enable notifications — ' + err.message;"
+            "    });"
+            "  });"
+            "})();"
+            "</script>",
+            unsafe_allow_html=True,
+        )
 
     uploaded_avatar = st.file_uploader("Upload Avatar", type=["jpg", "jpeg", "png", "gif", "webp"], key="avatar_upload")
     if uploaded_avatar is not None:
