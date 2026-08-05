@@ -9454,74 +9454,32 @@ elif selected_section == "Profile":
         st.rerun()
 
     st.markdown("### 🔔 Notifications")
+    # Always broadcast the current username to the parent frame via
+    # postMessage — harmless whether or not this is actually embedded
+    # in the wrapper site's iframe (if accessed directly, window.parent
+    # is just window itself, so this only ever messages its own page).
+    # This is what lets the WRAPPER SITE know who's logged in, since
+    # it has no login of its own — the wrapper is what actually
+    # registers the push subscription now, not this app directly. See
+    # PUSH_NOTIFICATIONS_SETUP.md for why this moved.
+    _uname_js = username.replace("'", "\\'")
+    components.html(
+        "<script>"
+        f"try {{ window.parent.postMessage({{type: 'mwdts-user', username: '{_uname_js}'}}, '*'); }} catch (e) {{}}"
+        "</script>",
+        height=0,
+    )
+
     if not PUSH_CONFIGURED:
         st.caption("Not set up yet on this deployment — see PUSH_NOTIFICATIONS_SETUP.md.")
     else:
-        st.caption("Get real alerts on this device — task assignments, incident updates, "
-                  "permit activity — even when the app isn't open. Off by default; "
-                  "this only activates if you tap the button below and approve your "
-                  "browser's own permission prompt.")
-        _push_username_js = username.replace("'", "\\'")
-        # components.html() instead of st.markdown(unsafe_allow_html=True)
-        # — this is deliberate, not a style preference. st.markdown still
-        # runs content through markdown processing even with
-        # unsafe_allow_html=True, and markdown treats underscores as
-        # emphasis/italic markers. A real VAPID public key contains
-        # underscores (it's base64url-encoded), and when one landed
-        # inside this <script> block, the markdown parser corrupted it —
-        # the script's tail end leaked out as literal visible page text
-        # instead of executing. components.html() renders in an isolated
-        # iframe with NO markdown processing at all, which is what this
-        # actually needs. The tradeoff: iframe content can't see the
-        # page's CSS custom properties, so the button below uses a
-        # hardcoded color instead of var(--accent).
-        components.html(
-            "<button id='mwdts-enable-push' style='padding:0.5rem 1rem;border-radius:8px;"
-            "border:1px solid #1d4ed8;background:#e6ecfb;color:#1d4ed8;"
-            "cursor:pointer;font-weight:600;font-family:inherit;'>🔔 Enable notifications on this device</button>"
-            "<div id='mwdts-push-status' style='margin-top:0.5rem;font-size:0.85rem;font-family:sans-serif;'></div>"
-            "<script>"
-            "(function() {"
-            "  var btn = document.getElementById('mwdts-enable-push');"
-            "  var status = document.getElementById('mwdts-push-status');"
-            "  if (!btn) return;"
-            "  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {"
-            "    status.textContent = 'This browser does not support push notifications.';"
-            "    btn.disabled = true;"
-            "    return;"
-            "  }"
-            "  btn.addEventListener('click', function() {"
-            "    status.textContent = 'Requesting permission...';"
-            "    navigator.serviceWorker.register('./app/static/sw.js').then(function(reg) {"
-            "      return reg.pushManager.subscribe({"
-            "        userVisibleOnly: true,"
-            f"        applicationServerKey: '{VAPID_PUBLIC_KEY or ''}'"
-            "      });"
-            "    }).then(function(sub) {"
-            "      var subJson = sub.toJSON();"
-            f"      var supaUrl = '{SUPABASE_URL or ''}';"
-            f"      var supaKey = '{SUPABASE_KEY or ''}';"
-            f"      var uname = '{_push_username_js}';"
-            "      return fetch(supaUrl + '/rest/v1/push_subscriptions', {"
-            "        method: 'POST',"
-            "        headers: {"
-            "          'apikey': supaKey, 'Authorization': 'Bearer ' + supaKey,"
-            "          'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates'"
-            "        },"
-            "        body: JSON.stringify({"
-            "          username: uname, endpoint: subJson.endpoint,"
-            "          p256dh_key: subJson.keys.p256dh, auth_key: subJson.keys.auth"
-            "        })"
-            "      });"
-            "    }).then(function() {"
-            "      status.textContent = '✓ Notifications enabled on this device.';"
-            "    }).catch(function(err) {"
-            "      status.textContent = 'Could not enable notifications — ' + err.message;"
-            "    });"
-            "  });"
-            "})();"
-            "</script>",
-            height=90,
+        st.info(
+            "**Enable notifications from the app's install link, not from here.** "
+            "Streamlit Community Cloud serves .js files in a way that a Service Worker "
+            "can't register from — this isn't a setup mistake, it's a documented platform "
+            "limitation. The install link (mwdts-app on GitHub Pages) doesn't have that "
+            "restriction, so that's where the real toggle lives now. If you don't have "
+            "that link, ask whoever manages the deployment."
         )
 
     uploaded_avatar = st.file_uploader("Upload Avatar", type=["jpg", "jpeg", "png", "gif", "webp"], key="avatar_upload")
