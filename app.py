@@ -38,6 +38,7 @@ try:
 except ImportError:
     PLOTLY_AVAILABLE = False
 
+# Shared chart color sequence — every other element in this app (badges,
 # Every chart in the app uses this instead of Plotly's default blue/
 # orange/green palette — without it, charts are the one part of the
 # interface with zero connection to the navy/lime identity used
@@ -853,6 +854,48 @@ _CSS_BODY = """
     color: var(--text-secondary);
     line-height: 1.35;
 }
+/* Progress steps — a horizontal lifecycle tracker (e.g. permit
+   Issued -> Accepted -> Signed Back). Completed and current steps
+   use the brand accent; future steps stay muted so the current
+   position in the process reads at a glance without needing to
+   parse a status badge's text. */
+.progress-steps {
+    display: flex;
+    align-items: center;
+    margin: 0.6rem 0 0.4rem 0;
+}
+.progress-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+    position: relative;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+.progress-step .dot {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--bg-surface-2);
+    border: 2px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.7rem;
+    margin-bottom: 0.25rem;
+    color: var(--text-secondary);
+}
+.progress-step.done .dot { background: var(--tone-ok); border-color: var(--tone-ok); color: #fff; }
+.progress-step.current .dot { background: var(--accent); border-color: var(--accent); color: #fff; }
+.progress-step.done, .progress-step.current { color: var(--text-primary); font-weight: 600; }
+.progress-step .line {
+    position: absolute;
+    top: 11px; left: -50%; width: 100%;
+    height: 2px;
+    background: var(--border-strong);
+    z-index: -1;
+}
+.progress-step.done .line, .progress-step.current .line { background: var(--tone-ok); }
+.progress-step:first-child .line { display: none; }
+.progress-step.cancelled .dot { background: var(--tone-danger); border-color: var(--tone-danger); color: #fff; }
 .empty-state {
     text-align: center;
     padding: 2.2rem 1.5rem;
@@ -1643,6 +1686,61 @@ def render_empty_state(icon, title, subtitle=None):
         {sub_html}
     </div>
     """, unsafe_allow_html=True)
+
+
+def quick_filter(items, query, fields):
+    """Case-insensitive substring filter across a list of dicts,
+    checking the given field names. Shared across every list-heavy
+    section (Tasks, Assets, Inventory, ...) so filtering behaves
+    identically everywhere rather than each section growing its own
+    slightly-different version. An empty query returns the list
+    unchanged — the caller doesn't need its own "if not query" guard
+    before calling this.
+    """
+    q = (query or "").strip().lower()
+    if not q:
+        return items
+    return [
+        item for item in items
+        if any(q in str(item.get(f, "")).lower() for f in fields)
+    ]
+
+
+def render_progress_steps(steps, current_index, cancelled=False):
+    """Renders a horizontal lifecycle tracker — e.g. a permit's
+    Issued -> Accepted -> Signed Back progression. `steps` is a list
+    of label strings; `current_index` is the position of the
+    CURRENT step (everything before it renders as done/completed,
+    everything after as not-yet-reached). `cancelled=True` overrides
+    the current step to render in the danger tone instead, for a
+    terminal state that isn't forward progress (a cancelled permit
+    isn't "stuck partway through succeeding" — it's a different
+    outcome entirely, and the visual should say so).
+    """
+    html = ['<div class="progress-steps">']
+    for i, label in enumerate(steps):
+        if cancelled and i == current_index:
+            state = "cancelled"
+            icon = "fa-xmark"
+        elif i < current_index:
+            state = "done"
+            icon = "fa-check"
+        elif i == current_index:
+            state = "current"
+            icon = "fa-circle-notch"
+        else:
+            state = ""
+            icon = ""
+        icon_html = f'<i class="fas {icon}"></i>' if icon else str(i + 1)
+        html.append(
+            f'<div class="progress-step {state}">'
+            f'<div class="line"></div>'
+            f'<div class="dot">{icon_html}</div>'
+            f'<div>{esc(label)}</div>'
+            f'</div>'
+        )
+    html.append('</div>')
+    return "".join(html)
 
 
 def render_action_cards(cards):
@@ -7776,6 +7874,9 @@ elif selected_section == "Inventory":
                 st.download_button("Download CSV", data=csv, file_name="inventory_export.csv", mime="text/csv", key="dl_inventory_csv")
         if not parts:
             render_empty_state("fa-boxes-stacked", "No parts in inventory yet", "Add spare parts to track stock levels and set reorder points.")
+        else:
+            _inv_search = st.text_input("🔍 Search by part name, number, or bin location", "", key="inv_search")
+            parts = quick_filter(parts, _inv_search, ["part_name", "part_number", "bin_location"])
         for p in parts:
             is_low = p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0)
             stock_class = "stock-low" if is_low else "stock-ok"
@@ -7893,7 +7994,15 @@ elif selected_section == "Incidents":
             csv = export_incidents_csv(visible)
             if csv:
                 st.download_button("Download CSV", data=csv, file_name="incidents_export.csv", mime="text/csv", key="dl_incidents_csv")
-        for inc in visible:
+        _inc_display = visible
+        if visible:
+            _inc_search = st.text_input("🔍 Search by type, location, or description", "", key="inc_search")
+            # Deliberately filters a SEPARATE variable, not `visible` itself —
+            # the export button above uses `visible` on purpose, so a quick
+            # search to find one incident on screen doesn't also silently
+            # narrow what gets exported to just that one result.
+            _inc_display = quick_filter(visible, _inc_search, ["incident_type", "location", "description"])
+        for inc in _inc_display:
             sev_class = f"severity-{inc.get('severity', 'Low')}"
             _meta_chips_html = render_meta_chips([
                 ("fa-map-marker-alt", inc.get('location'), "neutral"),
@@ -8068,11 +8177,18 @@ elif selected_section == "Permits":
             ("fa-hourglass-end", f"Valid until {_fmt_log_time(p['valid_until'])}" if p.get('valid_until') else None,
             "danger" if expired else "neutral"),
         ])
+        _permit_step_map = {"Issued": 0, "Active": 1, "Closed": 2, "Cancelled": 1}
+        _permit_steps_html = render_progress_steps(
+            ["Issued", "Accepted", "Signed Back"],
+            _permit_step_map.get(status, 0),
+            cancelled=(status == "Cancelled"),
+        )
         st.markdown(f"""
         <div class="custom-card" style="border-left-color: {colour};">
             <strong>Permit #{p['id']} — {esc(p.get('permit_type'))}</strong>
             <span class="status-badge" style="background:{colour};">{esc(status)}</span>
             {'<span class="overdue-badge">EXPIRED</span>' if expired else ''}
+            {_permit_steps_html}
             {_permit_chips}
             {_permit_fields}
         </div>
@@ -8117,7 +8233,12 @@ elif selected_section == "Permits":
             expired_live = [p for p in live if (_parse_dt(p.get('valid_until')) or datetime.max) < datetime.now()]
             if expired_live:
                 st.error(f"⚠️ {len(expired_live)} open permit(s) are past their validity window and must be reviewed or cancelled.")
-            for p in live:
+            # Deliberately checked against the full `live` list above, not
+            # the search-filtered one below — a permit that's overdue for
+            # review shouldn't disappear from that warning just because
+            # someone typed a search term to find something else.
+            _permit_search = st.text_input("🔍 Search by permit type or lock tag", "", key="permit_search")
+            for p in quick_filter(live, _permit_search, ["permit_type", "lock_tag_numbers"]):
                 _render_permit(p)
 
     elif permit_sub == "Issue Permit":
@@ -8162,6 +8283,9 @@ elif selected_section == "Permits":
         closed = [p for p in all_permits if p.get('status') in ("Closed", "Cancelled")]
         if not closed:
             st.info("No closed permits yet.")
+        else:
+            _permit_hist_search = st.text_input("🔍 Search by permit type or lock tag", "", key="permit_hist_search")
+            closed = quick_filter(closed, _permit_hist_search, ["permit_type", "lock_tag_numbers"])
         for p in closed[:50]:
             _render_permit(p, allow_actions=False)
 
@@ -8276,6 +8400,9 @@ elif selected_section == "Contractors":
                 st.error(f"🚫 {len(blocked)} contractor(s) have expired or missing compliance records and should not be granted site access.")
             if not contractors:
                 render_empty_state("fa-user-group", "No contractors registered yet", "Add a contractor to start tracking induction and insurance compliance.")
+            else:
+                _contractor_search = st.text_input("🔍 Search by company or contact name", "", key="contractor_search")
+                contractors = quick_filter(contractors, _contractor_search, ["company_name", "contact_person"])
 
             def _fmt_date_only(value):
                 # induction_expiry/insurance_expiry are dates, not
