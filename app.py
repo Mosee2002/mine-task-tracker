@@ -1,4 +1,3 @@
-
 import streamlit as st
 import streamlit.components.v1 as components
 import requests
@@ -38,6 +37,15 @@ try:
     PLOTLY_AVAILABLE = True
 except ImportError:
     PLOTLY_AVAILABLE = False
+
+# Every chart in the app uses this instead of Plotly's default blue/
+# orange/green palette — without it, charts are the one part of the
+# interface with zero connection to the navy/lime identity used
+# everywhere else (headers, badges, cards, buttons). Navy and lime
+# lead since they're the actual brand colors; the rest are harmonious
+# extensions for categories beyond the first two, not arbitrary.
+GMC_CHART_COLORS = ["#001530", "#b9c901", "#0f3460", "#7c9c02",
+                    "#3b5f8a", "#5a7a01", "#94a3b8", "#dc2626"]
 
 # OAuth support
 try:
@@ -845,6 +853,33 @@ _CSS_BODY = """
     color: var(--text-secondary);
     line-height: 1.35;
 }
+.empty-state {
+    text-align: center;
+    padding: 2.2rem 1.5rem;
+    background: var(--bg-surface);
+    border: 1px dashed var(--border);
+    border-radius: 16px;
+    margin-bottom: 0.85rem;
+}
+.empty-state .empty-icon {
+    width: 52px; height: 52px;
+    margin: 0 auto 0.9rem;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 1.4rem;
+}
+.empty-state .empty-title {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+.empty-state .empty-sub {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
 /* Makes the whole action-card clickable: the real click target is a
    Streamlit button, immediately following the card in the DOM, pulled
    up over the card with a negative margin and made invisible. This
@@ -1589,6 +1624,25 @@ def decode_asset_qr(image_bytes):
         return None
     except Exception:
         return None
+
+
+def render_empty_state(icon, title, subtitle=None):
+    """A warmer alternative to a bare st.info() for the moment a
+    section has no data yet — a small icon in a soft circle, a short
+    title, and an optional line of context underneath. Deliberately
+    not applied to every empty-state message in the app: places like
+    'no accounts locked out' or 'no decisions recorded' are
+    reassuring administrative absences, not a first-impression moment
+    worth the extra visual weight — this is for the core data
+    sections a new user actually lands on."""
+    sub_html = f'<div class="empty-sub">{esc(subtitle)}</div>' if subtitle else ""
+    st.markdown(f"""
+    <div class="empty-state">
+        <div class="empty-icon"><i class="fas {esc(icon)}"></i></div>
+        <div class="empty-title">{esc(title)}</div>
+        {sub_html}
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def render_action_cards(cards):
@@ -5250,6 +5304,20 @@ def set_user_language(lang_code, username):
             # across future logins silently didn't save this time.
 
 
+def mark_welcome_seen(username):
+    """Persists that this account has dismissed the first-login
+    welcome, so it genuinely shows once ever, not once per session —
+    same reasoning and same pattern as set_user_language above."""
+    st.session_state["_show_welcome"] = False
+    if SUPABASE_AVAILABLE:
+        try:
+            supabase.table("facility_users").update(
+                {"has_seen_welcome": True}
+            ).eq("username", username).execute()
+        except Exception as e:
+            log_error(str(e), endpoint="mark_welcome_seen")
+
+
 def search_features(query, nav_options):
     """Static keyword match against the curated page/feature index,
     filtered to what the current user can actually reach — the index
@@ -6230,6 +6298,7 @@ if not st.session_state.authenticated:
                 # that one session, defeating the point of persisting
                 # it to the database at all.
                 st.session_state["user_language"] = matched_user.get("preferred_language") or "en"
+                st.session_state["_show_welcome"] = not matched_user.get("has_seen_welcome", False)
                 st.session_state.authenticated = True
                 st.session_state.last_activity = datetime.now()
                 log_audit(matched_user.get("full_name"), "login")
@@ -6796,6 +6865,26 @@ with st.spinner("Loading…"):
 
 # ---- TASK DASHBOARD ----
 if selected_section == "Task Dashboard":
+    if st.session_state.get("_show_welcome"):
+        st.markdown(f"""
+        <div class="empty-state" style="border-style: solid; border-color: var(--accent); text-align: left;">
+            <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                <div class="empty-icon" style="margin: 0; flex-shrink: 0;"><i class="fas fa-hand-sparkles"></i></div>
+                <div>
+                    <div class="empty-title">Welcome to MWDTS, {esc(full_name.split(' ')[0] if full_name else 'there')}</div>
+                    <div class="empty-sub">
+                        This replaces the paper task boards, incident report books, and permit logs
+                        with one system — tasks, permits, incidents, and shift handovers, all in one place.
+                        The <b>About</b> page has a full walkthrough whenever you want it.
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("Got it, thanks", key="dismiss_welcome"):
+            mark_welcome_seen(username)
+            st.rerun()
+
     # Quick Actions — the highest-traffic page in the app. Built
     # dynamically from the ACTUAL filtered nav_options (already
     # respects role permissions and Feature Toggles) rather than a
@@ -7049,15 +7138,19 @@ if selected_section == "Task Dashboard":
                     if due and datetime.now() > due:
                         overdue = True
                 overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
+                _mgmt_task_chips = render_meta_chips([
+                    ("fa-map-marker-alt", task.get('location'), "neutral"),
+                    ("fa-calendar-alt", _fmt_log_time(task['due_date']) if task.get('due_date') else None,
+                    "danger" if overdue else "neutral"),
+                ])
                 st.markdown(f"""
                 <div class="custom-card" style="border-left-color: { '#dc2626' if overdue else '#0f3460' };">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong><br>
-                            <i class="fas fa-map-marker-alt"></i> {esc(task['location'])}
+                            <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong>
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
-                            {f'<i class="fas fa-calendar-alt"></i> {_fmt_log_time(task["due_date"])}' if task.get('due_date') else ''}
+                            {_mgmt_task_chips}
                         </div>
                     </div>
                 </div>
@@ -7197,14 +7290,14 @@ if selected_section == "Task Dashboard":
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
-                fig1 = px.pie(df, names='status', title='Tasks by Status')
+                fig1 = px.pie(df, names='status', title='Tasks by Status', color_discrete_sequence=GMC_CHART_COLORS)
                 st.plotly_chart(fig1, use_container_width=True)
-                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
+                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status', color_discrete_sequence=GMC_CHART_COLORS)
                 st.plotly_chart(fig2, use_container_width=True)
                 if 'created_at' in df.columns:
                     df['created_at'] = pd.to_datetime(df['created_at'])
                     df['day'] = df['created_at'].dt.date
-                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
+                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day', color_discrete_sequence=GMC_CHART_COLORS)
                     st.plotly_chart(fig3, use_container_width=True)
             elif not PANDAS_AVAILABLE or not PLOTLY_AVAILABLE:
                 st.warning(t("task.warn_plotly"))
@@ -7271,15 +7364,19 @@ if selected_section == "Task Dashboard":
                     if due and datetime.now() > due:
                         overdue = True
                 overdue_badge = '<span class="overdue-badge">OVERDUE</span>' if overdue else ''
+                _mgmt_task_chips = render_meta_chips([
+                    ("fa-map-marker-alt", task.get('location'), "neutral"),
+                    ("fa-calendar-alt", _fmt_log_time(task['due_date']) if task.get('due_date') else None,
+                    "danger" if overdue else "neutral"),
+                ])
                 st.markdown(f"""
                 <div class="custom-card" style="border-left-color: { '#dc2626' if overdue else '#0f3460' };">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong><br>
-                            <i class="fas fa-map-marker-alt"></i> {esc(task['location'])}
+                            <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong>
                             <span class="status-badge {status_class}">{task['status']}</span>
                             <span class="priority-badge {priority_class}">{task['priority']}</span>
-                            {f'<i class="fas fa-calendar-alt"></i> {_fmt_log_time(task["due_date"])}' if task.get('due_date') else ''}
+                            {_mgmt_task_chips}
                         </div>
                     </div>
                 </div>
@@ -7389,14 +7486,14 @@ if selected_section == "Task Dashboard":
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
-                fig1 = px.pie(df, names='status', title='Tasks by Status')
+                fig1 = px.pie(df, names='status', title='Tasks by Status', color_discrete_sequence=GMC_CHART_COLORS)
                 st.plotly_chart(fig1, use_container_width=True)
-                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status')
+                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status', color_discrete_sequence=GMC_CHART_COLORS)
                 st.plotly_chart(fig2, use_container_width=True)
                 if 'created_at' in df.columns:
                     df['created_at'] = pd.to_datetime(df['created_at'])
                     df['day'] = df['created_at'].dt.date
-                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day')
+                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day', color_discrete_sequence=GMC_CHART_COLORS)
                     st.plotly_chart(fig3, use_container_width=True)
             elif not PANDAS_AVAILABLE or not PLOTLY_AVAILABLE:
                 st.warning(t("task.warn_plotly"))
@@ -7501,7 +7598,7 @@ elif selected_section == "Assets":
     elif asset_sub == "All Assets":
         assets = st.session_state.assets
         if not assets:
-            st.info("No assets registered yet.")
+            render_empty_state("fa-server", "No assets registered yet", "Add your first asset to start tracking maintenance history and meter readings.")
         else:
             search = st.text_input("🔍 Search by name, tag, or location", "")
             filtered = assets
@@ -7572,7 +7669,8 @@ elif selected_section == "Assets":
                             dfm = pd.DataFrame(readings)
                             dfm['recorded_at'] = pd.to_datetime(dfm['recorded_at'], errors='coerce')
                             st.plotly_chart(px.line(dfm, x='recorded_at', y='reading',
-                                                     title=f"Meter trend — {a.get('name')}"),
+                                                     title=f"Meter trend — {a.get('name')}",
+                                                     color_discrete_sequence=GMC_CHART_COLORS),
                                             use_container_width=True, key=f"meter_chart_{a['id']}")
                         mr_cols = st.columns([2, 2, 1])
                         new_reading = mr_cols[0].number_input(
@@ -7677,7 +7775,7 @@ elif selected_section == "Inventory":
             if csv:
                 st.download_button("Download CSV", data=csv, file_name="inventory_export.csv", mime="text/csv", key="dl_inventory_csv")
         if not parts:
-            st.info("No parts in inventory yet.")
+            render_empty_state("fa-boxes-stacked", "No parts in inventory yet", "Add spare parts to track stock levels and set reorder points.")
         for p in parts:
             is_low = p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0)
             stock_class = "stock-low" if is_low else "stock-ok"
@@ -7790,7 +7888,7 @@ elif selected_section == "Incidents":
     if inc_sub in ("All Incidents", "My Reports"):
         visible = incidents if can_manage_incidents else [i for i in incidents if i.get('reported_by') == full_name]
         if not visible:
-            st.info("No incidents reported yet.")
+            render_empty_state("fa-shield-heart", "No incidents reported yet", "That's a good sign — this is where hazard and near-miss reports will appear.")
         if can_manage_incidents and visible and st.button("📥 Export Incidents as CSV"):
             csv = export_incidents_csv(visible)
             if csv:
@@ -8014,7 +8112,7 @@ elif selected_section == "Permits":
     if permit_sub == "Active Permits":
         live = [p for p in all_permits if p.get('status') in ("Issued", "Active")]
         if not live:
-            st.info("No open permits.")
+            render_empty_state("fa-lock", "No open permits", "Permit to Work / LOTO records will show here once one is issued.")
         else:
             expired_live = [p for p in live if (_parse_dt(p.get('valid_until')) or datetime.max) < datetime.now()]
             if expired_live:
@@ -8088,7 +8186,7 @@ elif selected_section == "Handover":
         if unack:
             st.warning(f"📋 {len(unack)} handover(s) not yet acknowledged by the incoming supervisor.")
         if not handovers:
-            st.info("No handovers logged yet.")
+            render_empty_state("fa-right-left", "No handovers logged yet", "Shift handover records will appear here.")
         for h in handovers:
             ack_badge = ('<span class="verified-badge">ACKNOWLEDGED</span>' if h.get('acknowledged')
                          else '<span class="pending-badge">AWAITING ACK</span>')
@@ -8177,7 +8275,7 @@ elif selected_section == "Contractors":
             if blocked:
                 st.error(f"🚫 {len(blocked)} contractor(s) have expired or missing compliance records and should not be granted site access.")
             if not contractors:
-                st.info("No contractors registered yet.")
+                render_empty_state("fa-user-group", "No contractors registered yet", "Add a contractor to start tracking induction and insurance compliance.")
 
             def _fmt_date_only(value):
                 # induction_expiry/insurance_expiry are dates, not
@@ -8362,7 +8460,8 @@ elif selected_section == "Analytics":
             if ranking and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 dfr = pd.DataFrame(ranking[:15], columns=["Asset", "Tasks"])
                 st.plotly_chart(px.bar(dfr, x="Asset", y="Tasks",
-                                        title="Maintenance tasks per asset (proxy for downtime frequency)"),
+                                        title="Maintenance tasks per asset (proxy for downtime frequency)",
+                                        color_discrete_sequence=GMC_CHART_COLORS),
                                 use_container_width=True)
             elif ranking:
                 for name, cnt in ranking[:15]:
@@ -8396,7 +8495,8 @@ elif selected_section == "Analytics":
                                "Long-aged backlog usually means the work is either not resourced or no longer valid — worth reviewing.")
                 if PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                     dfb = pd.DataFrame(list(buckets.items()), columns=["Age", "Open tasks"])
-                    st.plotly_chart(px.bar(dfb, x="Age", y="Open tasks", title="Open work by age"),
+                    st.plotly_chart(px.bar(dfb, x="Age", y="Open tasks", title="Open work by age",
+                                          color_discrete_sequence=GMC_CHART_COLORS),
                                     use_container_width=True)
 
         elif analytics_sub == "Failure Pareto":
@@ -8418,7 +8518,8 @@ elif selected_section == "Analytics":
                     if PLOTLY_AVAILABLE:
                         dfp = pd.DataFrame(rows)
                         st.plotly_chart(px.bar(dfp, x="Failure Mode", y="Count",
-                                                title="Failure modes by frequency"),
+                                                title="Failure modes by frequency",
+                                                color_discrete_sequence=GMC_CHART_COLORS),
                                         use_container_width=True)
                 else:
                     for r in rows:
@@ -8440,7 +8541,8 @@ elif selected_section == "Analytics":
                     st.dataframe(dfc, use_container_width=True)
                     if PLOTLY_AVAILABLE:
                         st.plotly_chart(px.bar(dfc.head(15), x="Asset", y="Cost",
-                                                title="Cost by asset"), use_container_width=True)
+                                                title="Cost by asset", color_discrete_sequence=GMC_CHART_COLORS),
+                                        use_container_width=True)
                 st.caption("Currency is whatever you enter — the app does not assume or convert units.")
 
         elif analytics_sub == "Safety":
@@ -8468,11 +8570,13 @@ elif selected_section == "Analytics":
             if incidents and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 dfi = pd.DataFrame(incidents)
                 if 'severity' in dfi.columns:
-                    st.plotly_chart(px.pie(dfi, names='severity', title='Incidents by severity'),
+                    st.plotly_chart(px.pie(dfi, names='severity', title='Incidents by severity',
+                                          color_discrete_sequence=GMC_CHART_COLORS),
                                     use_container_width=True)
                 if 'incident_type' in dfi.columns:
                     st.plotly_chart(px.bar(dfi.groupby('incident_type').size().reset_index(name='count'),
-                                            x='incident_type', y='count', title='Incidents by type'),
+                                            x='incident_type', y='count', title='Incidents by type',
+                                            color_discrete_sequence=GMC_CHART_COLORS),
                                     use_container_width=True)
 
         if can(role, "analytics.export"):
@@ -8553,14 +8657,13 @@ elif selected_section == "Owner Console":
                     _c1, _c2 = st.columns([3, 2])
                     with _c1:
                         st.markdown(f"**{esc(u.get('full_name'))}**  `{esc(u.get('username'))}`")
-                        st.markdown(
-                            f"<small>"
-                            f"<i class='fas fa-briefcase'></i> {esc(u.get('job_title') or 'No job title')} &nbsp;·&nbsp; "
-                            f"<i class='fas fa-users'></i> {esc(u.get('department') or 'No department')}<br>"
-                            f"<i class='fas fa-id-card'></i> ID: {esc(u.get('employee_id') or 'Not provided')} &nbsp;·&nbsp; "
-                            f"<i class='fas fa-envelope'></i> {esc(u.get('email') or 'No email')}<br>"
-                            f"<i class='fas fa-clock'></i> Requested {_fmt_log_time(u.get('requested_at'))}"
-                            f"</small>", unsafe_allow_html=True)
+                        st.markdown(render_meta_chips([
+                            ("fa-briefcase", u.get('job_title'), "neutral"),
+                            ("fa-users", u.get('department'), "neutral"),
+                            ("fa-id-card", f"ID: {u['employee_id']}" if u.get('employee_id') else None, "neutral"),
+                            ("fa-envelope", u.get('email'), "neutral"),
+                            ("fa-clock", f"Requested {_fmt_log_time(u['requested_at'])}" if u.get('requested_at') else None, "info"),
+                        ]), unsafe_allow_html=True)
                         _req = u.get('requested_role') or 'Worker'
                         st.markdown(f"Requested access level: "
                                     f"<span class='priority-badge priority-"
@@ -9416,7 +9519,7 @@ elif selected_section == "Chat":
         elif room.startswith("private:"):
             st.info(f"💬 No messages yet with {st.session_state.chat_partner} — say hello.")
         else:
-            st.info("No messages yet.")
+            render_empty_state("fa-comments", "No messages yet", "Start the conversation.")
 
     with st.container():
         st.markdown("---")
@@ -9542,14 +9645,16 @@ elif selected_section == "Feedback":
                                 "on app_feedback_votes.")
                 st.markdown('</div>', unsafe_allow_html=True)
             with _bcol:
+                _fb_chips = render_meta_chips([
+                    ("fa-user", f.get('submitted_by'), "neutral"),
+                    ("fa-clock", _fmt_log_time(f['created_at']) if f.get('created_at') else None, "neutral"),
+                ])
                 st.markdown(f"""
                 <div class="custom-card" style="border-left-color: var(--tone-{tone});">
                     <strong>{esc(f.get('title'))}</strong>
                     <span class="priority-badge" style="background:var(--tone-{tone});">{esc(f.get('status', 'New'))}</span>
                     {f'<span class="priority-badge" style="background:var(--tone-neutral);">{esc(f["category"])}</span>' if f.get('category') else ''}
-                    <br>
-                    <small><i class="fas fa-user"></i> {esc(f.get('submitted_by'))} &nbsp;
-                    <i class="fas fa-clock"></i> {_fmt_log_time(f.get('created_at'))}</small>
+                    {_fb_chips}
                     {f'<p>{esc(f.get("description"))}</p>' if f.get('description') else ''}
                     {f'<div class="feedback-response"><i class="fas fa-reply"></i> <b>{esc(f.get("responded_by"))}:</b> {esc(f.get("admin_response"))}</div>' if f.get('admin_response') else ''}
                 </div>
