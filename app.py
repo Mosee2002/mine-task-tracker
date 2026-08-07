@@ -11561,10 +11561,10 @@ Use Feedback for anything about the app itself — a confusing screen, a
 feature that isn't working as expected, or an idea for something new.
 """)
 
-elif selected_section == "Crew Clock":
-    crew_clock.render_crew_clock()
 elif selected_section == "Wallboard":
     wallboard.render_wallboard()
+elif selected_section == "Crew Clock":
+    crew_clock.render_crew_clock()
 elif selected_section == "Timeline":
     st.subheader("⏱️ Activity Timeline")
     st.markdown("Recent actions across all tasks (last 50)")
