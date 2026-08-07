@@ -1,3 +1,4 @@
+import crew_clock
 import wallboard
 import streamlit as st
 import streamlit.components.v1 as components
@@ -7587,11 +7588,11 @@ except ImportError:
 
 nav_options = ["Task Dashboard", "Production", "Haulage", "Assets", "Permits", "Inventory", "Incidents",
                "Handover", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile",
-               "Timeline", "About", "Wallboard"]
+               "Timeline", "About", "Wallboard", "Crew Clock"]
 nav_icons = ["list-task", "bar-chart-fill", "truck", "hdd-stack-fill", "shield-lock-fill", "box-seam-fill",
              "exclamation-triangle-fill", "arrow-left-right", "people-fill",
              "graph-up-arrow", "chat-dots-fill", "lightbulb-fill", "gear-fill", "person-circle",
-             "clock-history", "info-circle-fill", "tv"]
+             "clock-history", "info-circle-fill", "tv", "clock"]
 # Hide sections the role has no capability for, so the menu reflects
 # actual permissions rather than showing dead ends.
 _nav_caps = {
@@ -11560,7 +11561,8 @@ Use Feedback for anything about the app itself — a confusing screen, a
 feature that isn't working as expected, or an idea for something new.
 """)
 
-
+elif selected_section == "Crew Clock":
+    crew_clock.render_crew_clock()
 elif selected_section == "Wallboard":
     wallboard.render_wallboard()
 elif selected_section == "Timeline":
