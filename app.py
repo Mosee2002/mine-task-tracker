@@ -1,4 +1,4 @@
-import crew_clock
+import crew_clocks
 import wallboard
 import streamlit as st
 import streamlit.components.v1 as components
