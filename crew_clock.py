@@ -1,10 +1,14 @@
 # crew_clock.py
 # Standalone Crew Clock (Time & Attendance) for MWDTS.
 # Uses the existing shift_rosters table – no new schema needed.
+# Sentinel value for open shifts because shift_end is NOT NULL.
 
 import streamlit as st
 from datetime import datetime, timedelta
 import sys
+
+# ----- SENTINEL for open shifts (must be a valid timestamp) -----
+OPEN_SHIFT_SENTINEL = "9999-12-31 23:59:59"
 
 # -------------------------------
 # 1. HELPERS (timezone-safe)
@@ -40,13 +44,12 @@ def _get_supabase():
     return None
 
 def get_open_punch(username):
-    """Returns the open punch-in record (where shift_end is NULL) for this user."""
+    """Returns the open punch-in record (where shift_end == sentinel) for this user."""
     supabase = _get_supabase()
     if not supabase:
-        # Memory fallback for demo mode
         punches = st.session_state.get("crew_clock_memory", [])
         for p in punches:
-            if p.get("username") == username and p.get("shift_end") is None:
+            if p.get("username") == username and p.get("shift_end") == OPEN_SHIFT_SENTINEL:
                 return p
         return None
 
@@ -54,7 +57,8 @@ def get_open_punch(username):
         res = supabase.table("shift_rosters") \
             .select("*") \
             .eq("username", username) \
-            .is_("shift_end", "null") \
+            .eq("shift_end", OPEN_SHIFT_SENTINEL) \
+            .eq("crew_name", "Clock") \
             .order("shift_start", desc=True) \
             .limit(1) \
             .execute()
@@ -64,18 +68,17 @@ def get_open_punch(username):
         return None
 
 def punch_in(username, full_name):
-    """Insert a new shift_rosters row with shift_start = now(), shift_end = NULL."""
+    """Insert a new shift_rosters row with shift_start = now(), shift_end = sentinel."""
     supabase = _get_supabase()
     now = datetime.now().isoformat()
 
     if not supabase:
-        # Memory fallback
         punches = st.session_state.setdefault("crew_clock_memory", [])
         punches.append({
             "username": username,
             "full_name": full_name,
             "shift_start": now,
-            "shift_end": None,
+            "shift_end": OPEN_SHIFT_SENTINEL,
             "crew_name": "Clock",
             "assigned_by": username
         })
@@ -85,8 +88,8 @@ def punch_in(username, full_name):
         res = supabase.table("shift_rosters").insert({
             "username": username,
             "shift_start": now,
-            "shift_end": None,
-            "crew_name": "Clock",      # distinguishes clock entries from scheduled shifts
+            "shift_end": OPEN_SHIFT_SENTINEL,   # sentinel for "open"
+            "crew_name": "Clock",
             "assigned_by": username
         }).execute()
         if res.data:
@@ -104,13 +107,12 @@ def punch_out(username):
     if not supabase:
         punches = st.session_state.get("crew_clock_memory", [])
         for p in punches:
-            if p.get("username") == username and p.get("shift_end") is None:
+            if p.get("username") == username and p.get("shift_end") == OPEN_SHIFT_SENTINEL:
                 p["shift_end"] = now
                 return True, "Punched out (memory mode)"
         return False, "No open punch found to close"
 
     try:
-        # First, get the open punch ID
         open_punch = get_open_punch(username)
         if not open_punch:
             return False, "You don't have an open punch to close."
@@ -127,19 +129,21 @@ def punch_out(username):
         return False, f"Punch-out failed: {e}"
 
 def get_punch_history(username, days=7):
-    """Get all clock entries for the user in the last N days."""
+    """Get all completed clock entries (real end times, not sentinel) in the last N days."""
     supabase = _get_supabase()
     cutoff = (datetime.now() - timedelta(days=days)).isoformat()
 
     if not supabase:
         punches = st.session_state.get("crew_clock_memory", [])
-        return [p for p in punches if p.get("username") == username]
+        # Filter out open punches (sentinel) for history
+        return [p for p in punches if p.get("username") == username and p.get("shift_end") != OPEN_SHIFT_SENTINEL]
 
     try:
         res = supabase.table("shift_rosters") \
             .select("*") \
             .eq("username", username) \
             .eq("crew_name", "Clock") \
+            .ne("shift_end", OPEN_SHIFT_SENTINEL) \   # exclude open punches
             .gte("shift_start", cutoff) \
             .order("shift_start", desc=True) \
             .execute()
@@ -198,7 +202,6 @@ def render_crew_clock():
             """, unsafe_allow_html=True)
 
     with col2:
-        # Big central action button
         if is_punched_in:
             if st.button("⏹️ Punch Out", use_container_width=True, type="primary"):
                 ok, msg = punch_out(username)
@@ -217,10 +220,8 @@ def render_crew_clock():
                     st.error(msg)
 
     with col3:
-        # Quick summary
         history = get_punch_history(username, days=30)
         total_punches = len(history)
-        # Count days with at least one punch
         days_worked = len(set(_fmt_date(p["shift_start"]) for p in history if p.get("shift_start")))
         st.metric("Total Punches (30d)", total_punches)
         st.caption(f"Days worked: {days_worked}")
@@ -232,16 +233,15 @@ def render_crew_clock():
     history_7d = get_punch_history(username, days=7)
 
     if not history_7d:
-        st.info("No clock entries in the last 7 days. Punch in to start tracking!")
+        st.info("No completed clock entries in the last 7 days. Punch in and out to start tracking!")
     else:
-        # Build rows
         rows = []
         for p in history_7d:
             start = _parse_dt(p.get("shift_start"))
             end = _parse_dt(p.get("shift_end"))
             date_str = start.strftime("%a %d %b") if start else "—"
             start_str = start.strftime("%H:%M") if start else "—"
-            end_str = end.strftime("%H:%M") if end else "— (still punched in)"
+            end_str = end.strftime("%H:%M") if end else "—"
             if start and end:
                 delta = (end - start).total_seconds() / 3600.0
                 hours_str = f"{delta:.1f}h"
@@ -254,25 +254,17 @@ def render_crew_clock():
                 "Hours": hours_str,
             })
 
-        # Use Streamlit's native dataframe for search/sort
         import pandas as pd
         df = pd.DataFrame(rows)
         st.dataframe(df, use_container_width=True, hide_index=True)
 
-        # ---- Weekly summary ----
-        st.markdown("### 📊 This Week (last 7 days)")
-        total_hours = 0.0
-        days_with_punch = 0
-        for p in history_7d:
-            start = _parse_dt(p.get("shift_start"))
-            end = _parse_dt(p.get("shift_end"))
-            if start and end:
-                total_hours += (end - start).total_seconds() / 3600.0
-                days_with_punch += 1
+        total_hours = sum(float(r["Hours"].replace("h", "")) for r in rows if r["Hours"] != "—")
+        days_with_punch = len(rows)
         avg_hours = total_hours / days_with_punch if days_with_punch > 0 else 0
 
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Hours", f"{total_hours:.1f}h")
         c2.metric("Days Worked", days_with_punch)
         c3.metric("Avg Hours/Day", f"{avg_hours:.1f}h")
-    st.caption("⏱️ This clock uses the `shift_rosters` table. Supervisor-scheduled shifts are kept separate via `crew_name = 'Clock'`.")
+
+    st.caption("⏱️ Uses `shift_rosters` with `crew_name = 'Clock'`. Open punches are stored with a sentinel end-date until punched out.")
