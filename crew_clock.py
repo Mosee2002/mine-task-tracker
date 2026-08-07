@@ -143,7 +143,7 @@ def get_punch_history(username, days=7):
             .select("*") \
             .eq("username", username) \
             .eq("crew_name", "Clock") \
-            .ne("shift_end", OPEN_SHIFT_SENTINEL) \   # exclude open punches
+            .ne("shift_end", OPEN_SHIFT_SENTINEL) \
             .gte("shift_start", cutoff) \
             .order("shift_start", desc=True) \
             .execute()
