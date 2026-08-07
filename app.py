@@ -1,3 +1,4 @@
+import jsa_library
 import crew_clock
 import wallboard
 import streamlit as st
@@ -7588,11 +7589,11 @@ except ImportError:
 
 nav_options = ["Task Dashboard", "Production", "Haulage", "Assets", "Permits", "Inventory", "Incidents",
                "Handover", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile",
-               "Timeline", "About", "Wallboard", "Crew Clock"]
+               "Timeline", "About", "Wallboard", "Crew Clock", "JSA Library"]
 nav_icons = ["list-task", "bar-chart-fill", "truck", "hdd-stack-fill", "shield-lock-fill", "box-seam-fill",
              "exclamation-triangle-fill", "arrow-left-right", "people-fill",
              "graph-up-arrow", "chat-dots-fill", "lightbulb-fill", "gear-fill", "person-circle",
-             "clock-history", "info-circle-fill", "tv", "clock"]
+             "clock-history", "info-circle-fill", "tv", "clock", "file-alt"]
 # Hide sections the role has no capability for, so the menu reflects
 # actual permissions rather than showing dead ends.
 _nav_caps = {
@@ -11565,6 +11566,8 @@ elif selected_section == "Wallboard":
     wallboard.render_wallboard()
 elif selected_section == "Crew Clock":
     crew_clock.render_crew_clock()
+elif selected_section == "JSA Library":
+    jsa_library.render_jsa_library()
 elif selected_section == "Timeline":
     st.subheader("⏱️ Activity Timeline")
     st.markdown("Recent actions across all tasks (last 50)")
