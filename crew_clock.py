@@ -1,17 +1,16 @@
 # crew_clock.py
-# Standalone Crew Clock (Time & Attendance) for MWDTS.
-# Uses the existing shift_rosters table – no new schema needed.
-# Sentinel value for open shifts because shift_end is NOT NULL.
+# Crew Clock – uses shift_rosters with a sentinel for open punches (because shift_end is NOT NULL)
 
 import streamlit as st
 from datetime import datetime, timedelta
 import sys
+import json
 
-# ----- SENTINEL for open shifts (must be a valid timestamp) -----
+# ----- SENTINEL for open shifts (must be a valid timestamp, NOT NULL) -----
 OPEN_SHIFT_SENTINEL = "9999-12-31 23:59:59"
 
 # -------------------------------
-# 1. HELPERS (timezone-safe)
+# HELPERS
 # -------------------------------
 def _parse_dt(value):
     if not value:
@@ -29,22 +28,14 @@ def _fmt_date(value):
     dt = _parse_dt(value)
     return dt.strftime("%b %d, %Y") if dt else "—"
 
-def _fmt_datetime(value):
-    dt = _parse_dt(value)
-    return dt.strftime("%b %d, %H:%M") if dt else "—"
-
-# -------------------------------
-# 2. DATABASE FUNCTIONS (reuse supabase from main app)
-# -------------------------------
 def _get_supabase():
-    """Get the supabase client from the main app's namespace."""
     main = sys.modules.get('__main__')
     if main and hasattr(main, 'supabase'):
         return main.supabase
     return None
 
 def get_open_punch(username):
-    """Returns the open punch-in record (where shift_end == sentinel) for this user."""
+    """Returns the open punch record (where shift_end == sentinel)."""
     supabase = _get_supabase()
     if not supabase:
         punches = st.session_state.get("crew_clock_memory", [])
@@ -52,7 +43,6 @@ def get_open_punch(username):
             if p.get("username") == username and p.get("shift_end") == OPEN_SHIFT_SENTINEL:
                 return p
         return None
-
     try:
         res = supabase.table("shift_rosters") \
             .select("*") \
@@ -68,9 +58,13 @@ def get_open_punch(username):
         return None
 
 def punch_in(username, full_name):
-    """Insert a new shift_rosters row with shift_start = now(), shift_end = sentinel."""
+    """Insert a new punch with shift_end = sentinel."""
     supabase = _get_supabase()
     now = datetime.now().isoformat()
+
+    # Check if already punched in
+    if get_open_punch(username):
+        return False, "You are already punched in. Please punch out first."
 
     if not supabase:
         punches = st.session_state.setdefault("crew_clock_memory", [])
@@ -82,25 +76,27 @@ def punch_in(username, full_name):
             "crew_name": "Clock",
             "assigned_by": username
         })
-        return True, "Punched in (memory mode – will not persist after restart)"
+        return True, "Punched in (memory mode)"
+
+    payload = {
+        "username": username,
+        "shift_start": now,
+        "shift_end": OPEN_SHIFT_SENTINEL,
+        "crew_name": "Clock",
+        "assigned_by": username
+    }
 
     try:
-        res = supabase.table("shift_rosters").insert({
-            "username": username,
-            "shift_start": now,
-            "shift_end": OPEN_SHIFT_SENTINEL,   # sentinel for "open"
-            "crew_name": "Clock",
-            "assigned_by": username
-        }).execute()
+        res = supabase.table("shift_rosters").insert(payload).execute()
         if res.data:
             return True, "✅ Punched in successfully!"
         else:
-            return False, "Insert returned no data – check RLS on shift_rosters"
+            return False, f"Insert returned no data. Response: {res}"
     except Exception as e:
         return False, f"Punch-in failed: {e}"
 
 def punch_out(username):
-    """Update the open shift_rosters row with shift_end = now()."""
+    """Update the open punch with actual shift_end."""
     supabase = _get_supabase()
     now = datetime.now().isoformat()
 
@@ -110,13 +106,13 @@ def punch_out(username):
             if p.get("username") == username and p.get("shift_end") == OPEN_SHIFT_SENTINEL:
                 p["shift_end"] = now
                 return True, "Punched out (memory mode)"
-        return False, "No open punch found to close"
+        return False, "No open punch found"
+
+    open_punch = get_open_punch(username)
+    if not open_punch:
+        return False, "You don't have an open punch to close."
 
     try:
-        open_punch = get_open_punch(username)
-        if not open_punch:
-            return False, "You don't have an open punch to close."
-
         res = supabase.table("shift_rosters") \
             .update({"shift_end": now}) \
             .eq("id", open_punch["id"]) \
@@ -124,26 +120,26 @@ def punch_out(username):
         if res.data:
             return True, "✅ Punched out successfully!"
         else:
-            return False, "Update returned no data – check RLS on shift_rosters"
+            return False, "Update returned no data – check RLS"
     except Exception as e:
         return False, f"Punch-out failed: {e}"
 
 def get_punch_history(username, days=7):
-    """Get all completed clock entries (real end times, not sentinel) in the last N days."""
+    """Get completed punches (real end times, not sentinel) for the last N days."""
     supabase = _get_supabase()
     cutoff = (datetime.now() - timedelta(days=days)).isoformat()
 
     if not supabase:
         punches = st.session_state.get("crew_clock_memory", [])
-        # Filter out open punches (sentinel) for history
         return [p for p in punches if p.get("username") == username and p.get("shift_end") != OPEN_SHIFT_SENTINEL]
 
     try:
+        # Use .neq() for "not equal"
         res = supabase.table("shift_rosters") \
             .select("*") \
             .eq("username", username) \
             .eq("crew_name", "Clock") \
-            .ne("shift_end", OPEN_SHIFT_SENTINEL) \
+            .neq("shift_end", OPEN_SHIFT_SENTINEL) \
             .gte("shift_start", cutoff) \
             .order("shift_start", desc=True) \
             .execute()
@@ -153,7 +149,7 @@ def get_punch_history(username, days=7):
         return []
 
 # -------------------------------
-# 3. MAIN RENDER FUNCTION
+# MAIN RENDER
 # -------------------------------
 def render_crew_clock():
     user = st.session_state.get("user_payload", {})
@@ -169,7 +165,6 @@ def render_crew_clock():
                 '<small style="display:inline-block; font-size: 1rem;">Punch in / out for your shift</small>'
                 '</div>', unsafe_allow_html=True)
 
-    # ---- Current Status ----
     open_punch = get_open_punch(username)
     is_punched_in = open_punch is not None
 
@@ -228,12 +223,11 @@ def render_crew_clock():
 
     st.markdown("---")
 
-    # ---- History Table ----
     st.markdown("### 📋 Last 7 Days")
     history_7d = get_punch_history(username, days=7)
 
     if not history_7d:
-        st.info("No completed clock entries in the last 7 days. Punch in and out to start tracking!")
+        st.info("No completed clock entries in the last 7 days.")
     else:
         rows = []
         for p in history_7d:
@@ -267,4 +261,4 @@ def render_crew_clock():
         c2.metric("Days Worked", days_with_punch)
         c3.metric("Avg Hours/Day", f"{avg_hours:.1f}h")
 
-    st.caption("⏱️ Uses `shift_rosters` with `crew_name = 'Clock'`. Open punches are stored with a sentinel end-date until punched out.")
+    st.caption("⏱️ Uses `shift_rosters` with `crew_name='Clock'`. Open punches have `shift_end='9999-12-31 23:59:59'`.")
