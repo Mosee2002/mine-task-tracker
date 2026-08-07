@@ -7,6 +7,7 @@ import streamlit as st
 from datetime import datetime
 import sys
 import re
+import json
 
 # -------------------------------
 # 1. HELPERS
@@ -46,18 +47,13 @@ def fetch_jsa_documents(search_term=""):
         return st.session_state.get("jsa_memory", [])
 
     try:
-        # Build query: title ILIKE '[JSA]%' OR title ILIKE '[SWP]%'
-        # Also allow searching within title/description
-        query = supabase.table("documents").select("*")
-        if search_term:
-            search = f"%{search_term}%"
-            query = query.or_(f"title.ilike.{search},description.ilike.{search}")
-        # We cannot do OR on two ILIKE patterns easily with the Python client's filter chaining
-        # We'll fetch all and filter in Python (less efficient but simpler)
-        res = query.order("created_at", desc=True).execute()
+        # Fetch all docs, filter in Python for simplicity
+        res = supabase.table("documents").select("*").order("created_at", desc=True).execute()
         docs = res.data or []
-        # Filter by title prefix
         jsa_docs = [d for d in docs if d.get("title", "").startswith(("[JSA]", "[SWP]"))]
+        if search_term:
+            s = search_term.lower()
+            jsa_docs = [d for d in jsa_docs if s in d.get("title", "").lower() or s in d.get("description", "").lower()]
         return jsa_docs
     except Exception as e:
         st.error(f"Could not fetch JSA documents: {e}")
@@ -74,14 +70,13 @@ def upload_jsa_document(file_bytes, filename, title, description, doc_type, uplo
     tag = "[JSA]" if doc_type == "JSA" else "[SWP]"
     full_title = f"{tag} {title.strip()}"
 
-    # Call the main app's upload_document (asset_id = None for general docs)
     try:
         success = main.upload_document(
             file_bytes=file_bytes,
             filename=filename,
             title=full_title,
             description=description.strip(),
-            asset_id=None,  # not linked to a specific asset
+            asset_id=None,
             uploaded_by=uploaded_by
         )
         return success
@@ -93,27 +88,20 @@ def delete_jsa_document(doc_id, deleted_by):
     """Delete a JSA document (if user has permission)."""
     supabase = _get_supabase()
     if not supabase:
-        # Memory fallback
         memory = st.session_state.get("jsa_memory", [])
         st.session_state.jsamemory = [d for d in memory if d.get("id") != doc_id]
         return True
 
     try:
-        # First verify it's a JSA doc
         res = supabase.table("documents").select("title").eq("id", doc_id).execute()
         if not res.data:
             return False
         title = res.data[0].get("title", "")
         if not title.startswith(("[JSA]", "[SWP]")):
-            st.error("This document is not a JSA/SWP. Deletion not allowed.")
+            st.error("This document is not a JSA/SWP.")
             return False
-        # Perform delete
         del_res = supabase.table("documents").delete().eq("id", doc_id).execute()
-        if del_res.data:
-            # Also delete from storage? That's optional; we can leave it.
-            return True
-        else:
-            return False
+        return bool(del_res.data)
     except Exception as e:
         st.error(f"Delete failed: {e}")
         return False
@@ -127,16 +115,21 @@ def render_jsa_library():
     full_name = user.get("name", username)
     role = user.get("role", "").strip().lower()
 
-    # Determine if user can upload (Supervisor or above)
-    can_upload = _can(role, "asset.edit") or _can(role, "task.create")  # reuse existing permissions
+    can_upload = _can(role, "asset.edit") or _can(role, "task.create")
 
     st.markdown('<div class="main-header" style="font-size: 1.8rem;">'
                 '<i class="fas fa-file-alt"></i> JSA / Risk Assessment Library '
                 '<small style="display:inline-block; font-size: 1rem;">Safe Work Procedures & Job Safety Analyses</small>'
                 '</div>', unsafe_allow_html=True)
 
-    # Tabs
-    tab1, tab2 = st.tabs(["📋 Browse JSAs", "📤 Upload New JSA"]) if can_upload else (st.tabs(["📋 Browse JSAs"]),)
+    # ----- FIX: Use a single tabs variable and index it -----
+    if can_upload:
+        tabs = st.tabs(["📋 Browse JSAs", "📤 Upload New JSA"])
+        tab1, tab2 = tabs[0], tabs[1]
+    else:
+        tabs = st.tabs(["📋 Browse JSAs"])
+        tab1 = tabs[0]
+        tab2 = None
 
     with tab1:
         st.markdown("### Search and view all JSA/SWP documents")
@@ -153,12 +146,10 @@ def render_jsa_library():
                     col1, col2 = st.columns([4, 1])
                     with col1:
                         title = doc.get("title", "Untitled")
-                        # Remove the [JSA] or [SWP] tag for display
                         display_title = re.sub(r'^\[(JSA|SWP)\]\s*', '', title)
                         st.markdown(f"**{display_title}**")
                         if doc.get("description"):
                             st.markdown(f"<small>{doc.get('description')}</small>", unsafe_allow_html=True)
-                        # Meta info
                         meta = []
                         if doc.get("uploaded_by"):
                             meta.append(f"📤 {doc['uploaded_by']}")
@@ -172,18 +163,15 @@ def render_jsa_library():
                         if meta:
                             st.caption(" · ".join(meta))
                     with col2:
-                        # Download button
                         file_url = doc.get("file_url")
                         if file_url:
                             st.download_button(
                                 label="📥 Download",
-                                data=requests.get(file_url).content if file_url.startswith("http") else None,
+                                data=file_url,
                                 file_name=doc.get("title", "document") + "." + (doc.get("file_type") or "pdf"),
-                                mime="application/octet-stream",
                                 key=f"dl_{doc['id']}",
                                 use_container_width=True
                             )
-                        # Delete button for supervisors
                         if can_upload:
                             if st.button("🗑️", key=f"del_{doc['id']}", help="Delete this JSA"):
                                 if delete_jsa_document(doc['id'], full_name):
@@ -192,7 +180,7 @@ def render_jsa_library():
                                 else:
                                     st.error("Delete failed.")
 
-    if can_upload:
+    if can_upload and tab2 is not None:
         with tab2:
             st.markdown("### Upload a new JSA or SWP document")
             st.caption("Upload PDF, Word, or image files. The document will be stored in the library and searchable by all users.")
@@ -225,16 +213,5 @@ def render_jsa_library():
                         else:
                             st.error("Upload failed. Check permissions and try again.")
 
-    # Footer / note
     st.markdown("---")
-    st.caption("📌 JSA documents are stored in the `documents` table with a `[JSA]` or `[SWP]` prefix in the title. "
-               "They can be linked to tasks manually by referencing the title.")
-
-# -------------------------------
-# 4. IMPORT REQUESTS (for download)
-# -------------------------------
-try:
-    import requests
-except ImportError:
-    # If requests not installed, we'll handle download differently
-    requests = None
+    st.caption("📌 JSA documents are stored in the `documents` table with a `[JSA]` or `[SWP]` prefix in the title.")
