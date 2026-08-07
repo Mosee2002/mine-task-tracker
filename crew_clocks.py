@@ -275,5 +275,4 @@ def render_crew_clock():
         c1.metric("Total Hours", f"{total_hours:.1f}h")
         c2.metric("Days Worked", days_with_punch)
         c3.metric("Avg Hours/Day", f"{avg_hours:.1f}h")
-
-                                                        st.caption("⏱️ This clock uses the `shift_rosters` table. Supervisor-scheduled shifts are kept separate via `crew_name = 'Clock'`.")
+ st.caption("⏱️ This clock uses the `shift_rosters` table. Supervisor-scheduled shifts are kept separate via `crew_name = 'Clock'`.")
