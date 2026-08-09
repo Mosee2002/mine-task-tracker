@@ -796,18 +796,26 @@ _CSS_BODY = """
     background: linear-gradient(135deg, var(--brand-navy) 0%, #051d3f 55%, var(--brand-navy) 100%);
     color: #ffffff;
     padding: 1.25rem 1.6rem;
-    border-radius: 14px;
-    margin-bottom: 1.1rem;
+    border-radius: 0;
     box-shadow: var(--shadow-md);
     font-size: 1.75rem;      /* was 2.5rem, which clipped its own text */
     font-weight: 800;
     line-height: 1.25;       /* the actual cause of the clipped title */
-    position: sticky;
+    position: fixed;
     top: 0;
+    left: 0;
+    right: 0;
     z-index: 999;
     letter-spacing: -0.01em;
     border-bottom: 3px solid var(--brand-lime);
 }
+/* The header is now position:fixed, which removes it from normal
+   document flow — without this, page content would render UNDER it
+   rather than below it. 115px covers the header's actual rendered
+   height (padding + title line + subtitle line, measured from its
+   own CSS values) with a bit of headroom for text wrapping to two
+   lines on narrow screens. */
+.main-header-spacer { height: 115px; }
 .main-header i { color: var(--brand-lime); margin-right: 10px; }
 .main-header small {
     display: block;
@@ -7320,6 +7328,7 @@ if not st.session_state.authenticated:
         <small>Smart Maintenance Management System</small>
     </div>
     ''', unsafe_allow_html=True)
+    st.markdown('<div class="main-header-spacer"></div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
 
     # --- Owner not configured -------------------------------------------
@@ -7557,6 +7566,7 @@ else:
             <i class="fas fa-key"></i> Password Change Required
         </div>
         ''', unsafe_allow_html=True)
+        st.markdown('<div class="main-header-spacer"></div>', unsafe_allow_html=True)
         st.warning("An administrator reset your password. Choose a new one to continue — "
                   "you won't be able to use the app until this is done.")
         with st.form("forced_password_change", clear_on_submit=True):
@@ -7666,6 +7676,7 @@ st.markdown('''
     <small>Smart Maintenance Management System</small>
 </div>
 ''', unsafe_allow_html=True)
+st.markdown('<div class="main-header-spacer"></div>', unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
