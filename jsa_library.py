@@ -89,7 +89,7 @@ def delete_jsa_document(doc_id, deleted_by):
     supabase = _get_supabase()
     if not supabase:
         memory = st.session_state.get("jsa_memory", [])
-        st.session_state.jsamemory = [d for d in memory if d.get("id") != doc_id]
+        st.session_state.jsa_memory = [d for d in memory if d.get("id") != doc_id]
         return True
 
     try:
@@ -165,13 +165,13 @@ def render_jsa_library():
                     with col2:
                         file_url = doc.get("file_url")
                         if file_url:
-                            st.download_button(
-                                label="📥 Download",
-                                data=file_url,
-                                file_name=doc.get("title", "document") + "." + (doc.get("file_type") or "pdf"),
-                                key=f"dl_{doc['id']}",
-                                use_container_width=True
-                            )
+                            # A plain link, not st.download_button — file_url is a
+                            # Supabase Storage URL, not file bytes. Passing a URL
+                            # string as download_button's data parameter would
+                            # download a text file CONTAINING that URL, not the
+                            # actual document — the browser handles a real link
+                            # correctly on its own.
+                            st.markdown(f"[📥 Download]({file_url})")
                         if can_upload:
                             if st.button("🗑️", key=f"del_{doc['id']}", help="Delete this JSA"):
                                 if delete_jsa_document(doc['id'], full_name):
@@ -215,3 +215,4 @@ def render_jsa_library():
 
     st.markdown("---")
     st.caption("📌 JSA documents are stored in the `documents` table with a `[JSA]` or `[SWP]` prefix in the title.")
+    
