@@ -75,15 +75,13 @@ def _save_location_document(data, uploaded_by):
     json_bytes = json.dumps(data, indent=2).encode('utf-8')
     filename = "location_hierarchy.json"
 
-    # First, delete the existing location document if it exists
+    # Upload the NEW version first, then delete the old one only after
+    # confirming success — the reverse order (delete then upload) would
+    # risk losing the entire hierarchy if the upload step failed after
+    # the old document was already gone, e.g. a network hiccup between
+    # the two steps.
     existing = _get_document_by_title("[LOCATION] Hierarchy")
-    if existing:
-        try:
-            supabase.table("documents").delete().eq("id", existing["id"]).execute()
-        except:
-            pass
 
-    # Upload new
     success = main.upload_document(
         file_bytes=json_bytes,
         filename=filename,
@@ -92,6 +90,13 @@ def _save_location_document(data, uploaded_by):
         asset_id=None,
         uploaded_by=uploaded_by
     )
+
+    if success and existing:
+        try:
+            supabase.table("documents").delete().eq("id", existing["id"]).execute()
+        except Exception:
+            pass  # New version is already saved; a leftover old copy is harmless clutter, not data loss.
+
     return success
 
 def _load_location_data():
@@ -333,3 +338,4 @@ def render_location_hierarchy():
     st.markdown("---")
     st.caption("📍 Locations are stored as a single JSON document in the `documents` table. "
                "Use the full path when manually entering locations in tasks, assets, or incidents.")
+        
