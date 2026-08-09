@@ -439,3 +439,4 @@ def render_job_plans():
     st.markdown("---")
     st.caption("📌 Job plans are stored in the `documents` table with a `[JOBPLAN]` prefix. "
                "They include default settings and a BOM (Bill of Materials) for common jobs.")
+    
