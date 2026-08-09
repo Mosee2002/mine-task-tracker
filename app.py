@@ -802,6 +802,9 @@ _CSS_BODY = """
     font-size: 1.75rem;      /* was 2.5rem, which clipped its own text */
     font-weight: 800;
     line-height: 1.25;       /* the actual cause of the clipped title */
+    position: sticky;
+    top: 0;
+    z-index: 999;
     letter-spacing: -0.01em;
     border-bottom: 3px solid var(--brand-lime);
 }
@@ -1939,11 +1942,18 @@ def navigate_to(section_name):
     Profile) — clicking them changed data behind the scenes but never
     navigated anywhere, which looks like nothing happened.
 
+    Also collapses the nav menu — landing on a section via a Quick
+    Action card or a search result should feel the same as clicking
+    its icon directly, not leave the menu bar sitting there as if
+    nothing happened.
+
     Call this, then st.rerun(). The option_menu call reads and clears
     this flag via its manual_select parameter — the library's own
     documented mechanism for programmatic selection.
     """
     st.session_state["_nav_jump_to"] = section_name
+    st.session_state["_active_section"] = section_name
+    st.session_state["_nav_collapsed"] = True
 
 # -------------------------------
 # 2B. CENTRAL PERMISSION MATRIX
@@ -7893,38 +7903,71 @@ with st.expander("🔍 Search the app", expanded=False):
         if not _feature_hits and not _record_hits:
             st.caption("No matches — try a different word, or check the section directly.")
 
-_manual_select = (nav_options.index(st.session_state["_nav_jump_to"])
-                  if st.session_state.get("_nav_jump_to") in nav_options else None)
-try:
-    _selected_label = option_menu(
-        menu_title=None,
-        options=_nav_display_labels,
-        icons=nav_icons,
-        orientation="horizontal",
-        default_index=0,
-        manual_select=_manual_select,
-        styles=menu_styles(),
-        key="main_nav",
-    )
-except TypeError:
-    # Older streamlit-option-menu versions (pre ~0.3) don't have
-    # manual_select. Degrade to the un-jumpable behavior rather than
-    # crash the whole app over a nav convenience — upgrade the package
-    # (pip install -U streamlit-option-menu) to restore programmatic
-    # navigation from sidebar buttons.
-    _selected_label = option_menu(
-        menu_title=None,
-        options=_nav_display_labels,
-        icons=nav_icons,
-        orientation="horizontal",
-        default_index=0,
-        styles=menu_styles(),
-        key="main_nav",
-    )
-selected_section = _label_to_section.get(_selected_label, _selected_label)
-# Clear immediately after use — this should only force a jump ONCE,
-# not keep overriding every future click within the nav itself.
-st.session_state.pop("_nav_jump_to", None)
+# Whether the nav menu is currently collapsed (a section is showing
+# full-width instead) — see the block below for the full logic and
+# why a pending programmatic jump needs special handling.
+_has_pending_jump = st.session_state.get("_nav_jump_to") in nav_options
+
+if not st.session_state.get("_nav_collapsed", False) or _has_pending_jump:
+    # Nav is genuinely expanded, OR there's a pending jump from
+    # navigate_to() (a Quick Action card, a search result, a sidebar
+    # button) that still needs option_menu called once with
+    # manual_select — otherwise its own internal widget state never
+    # syncs to the jumped-to section, and reopening the menu later
+    # would show the WRONG tab highlighted.
+    _manual_select = (nav_options.index(st.session_state["_nav_jump_to"])
+                      if _has_pending_jump else None)
+    try:
+        _selected_label = option_menu(
+            menu_title=None,
+            options=_nav_display_labels,
+            icons=nav_icons,
+            orientation="horizontal",
+            default_index=0,
+            manual_select=_manual_select,
+            styles=menu_styles(),
+            key="main_nav",
+        )
+    except TypeError:
+        # Older streamlit-option-menu versions (pre ~0.3) don't have
+        # manual_select. Degrade to the un-jumpable behavior rather than
+        # crash the whole app over a nav convenience — upgrade the package
+        # (pip install -U streamlit-option-menu) to restore programmatic
+        # navigation from sidebar buttons.
+        _selected_label = option_menu(
+            menu_title=None,
+            options=_nav_display_labels,
+            icons=nav_icons,
+            orientation="horizontal",
+            default_index=0,
+            styles=menu_styles(),
+            key="main_nav",
+        )
+    selected_section = _label_to_section.get(_selected_label, _selected_label)
+    # Clear immediately after use — this should only force a jump ONCE,
+    # not keep overriding every future click within the nav itself.
+    st.session_state.pop("_nav_jump_to", None)
+
+    _previously_active = st.session_state.get("_active_section")
+    st.session_state["_active_section"] = selected_section
+
+    # Collapse the nav — either because this run just processed a
+    # pending jump (always collapses to the jumped-to section), or
+    # because the user made a genuine, deliberate click on a
+    # DIFFERENT tab than what was previously active. Skipped on the
+    # very first render of a session (_previously_active is None, no
+    # click has happened yet) so the landing experience still shows
+    # the menu alongside the default section, same as it always has.
+    if _has_pending_jump or (_previously_active is not None and selected_section != _previously_active):
+        st.session_state["_nav_collapsed"] = True
+        st.rerun()
+else:
+    # Nav is collapsed — a section is showing full-width. Don't call
+    # option_menu at all; use the remembered active section instead.
+    selected_section = st.session_state.get("_active_section", nav_options[0])
+    if st.button("☰ Menu", key="reopen_nav_menu"):
+        st.session_state["_nav_collapsed"] = False
+        st.rerun()
 
 # Single-step back-navigation — remembers only the ONE section you
 # were just on, not a full history stack. That's a deliberate choice:
