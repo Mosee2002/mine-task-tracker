@@ -262,3 +262,4 @@ def render_crew_clock():
         c3.metric("Avg Hours/Day", f"{avg_hours:.1f}h")
 
     st.caption("⏱️ Uses `shift_rosters` with `crew_name='Clock'`. Open punches have `shift_end='9999-12-31 23:59:59'`.")
+                
