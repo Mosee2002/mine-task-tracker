@@ -89,6 +89,20 @@ KPI_EQUIPMENT_AVAILABILITY_PCT = 85
 KPI_ORE_GRADE_BASELINE_PCT = 27
 KPI_ORE_GRADE_TARGET_PCT = 40
 
+# Heights (in px) of the fixed elements stacked at the top of the
+# screen — measured from each element's own CSS (padding, line
+# heights, image height), not guessed. Three of these four elements
+# are conditional (a logo, posters, or announcements may or may not
+# be configured), so a hard-coded CSS `top` per element would leave
+# an awkward gap whenever one is absent. Instead, each render
+# function below returns the height it actually occupied (0 if it
+# rendered nothing), and the caller tracks a running offset — these
+# constants are the values used when an element DOES render.
+LOGO_BAR_HEIGHT = 85
+POSTER_SLIDESHOW_HEIGHT = 236  # 220px image + 16px margin-bottom
+TICKER_BAR_HEIGHT = 54         # padding + line height + margin-bottom
+MAIN_HEADER_HEIGHT = 115
+
 # OAuth support
 try:
     from authlib.integrations.requests_client import OAuth2Session
@@ -623,13 +637,15 @@ _CSS_BODY = """
     background: #ffffff;
     border: 1px solid var(--border);
     border-top: 3px solid var(--brand-lime);
-    border-radius: 14px;
     padding: 0.7rem 1.2rem;
-    margin-bottom: 0.8rem;
     box-shadow: var(--shadow-sm);
     display: flex;
     align-items: center;
     justify-content: center;
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 999;
 }
 .logo-bar img {
     max-height: 56px;
@@ -664,10 +680,12 @@ _CSS_BODY = """
     white-space: nowrap;
     background: var(--brand-navy);
     border: 1px solid var(--brand-navy);
-    border-radius: 14px;
     padding: 0.55rem 0;
-    margin-bottom: 0.8rem;
     box-shadow: var(--shadow-sm);
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 999;
 }
 .ticker-content {
     display: inline-block;
@@ -702,12 +720,13 @@ _CSS_BODY = """
    that block entirely and rendering completely unstyled. Base sizing/
    positioning here means both paths are always styled correctly. */
 .poster-slideshow {
-    position: relative;
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 999;
     width: 100%;
     height: 220px;
-    border-radius: 14px;
     overflow: hidden;
-    margin-bottom: 0.8rem;
     box-shadow: var(--shadow-md);
 }
 .poster-slide {
@@ -802,7 +821,6 @@ _CSS_BODY = """
     font-weight: 800;
     line-height: 1.25;       /* the actual cause of the clipped title */
     position: fixed;
-    top: 0;
     left: 0;
     right: 0;
     z-index: 999;
@@ -6696,17 +6714,26 @@ def set_access_policy(policy_key, enabled, updated_by):
         return False
 
 
-def render_logo_bar():
+def render_logo_bar(top_offset=0):
     """A slim bar above the main header showing the company logo, if
     one is configured. Renders nothing at all when no logo is set, so
-    it doesn't add empty visual clutter before anyone uploads one."""
+    it doesn't add empty visual clutter before anyone uploads one.
+
+    Fixed to the top of the viewport at top_offset px — since this
+    element is conditional (may not render at all), the caller
+    computes top_offset dynamically rather than a hard-coded CSS
+    value, and this returns the height it actually occupied (0 if
+    nothing rendered) so the next fixed element in the stack knows
+    where to start.
+    """
     logo_url = fetch_branding()
     if not logo_url or logo_url.startswith("memory://"):
-        return
+        return 0
     st.markdown(
-        f'<div class="logo-bar"><img src="{esc(logo_url)}" alt="Company logo"></div>',
+        f'<div class="logo-bar" style="top: {top_offset}px;"><img src="{esc(logo_url)}" alt="Company logo"></div>',
         unsafe_allow_html=True,
     )
+    return LOGO_BAR_HEIGHT
 
 
 def fetch_active_posters():
@@ -6806,7 +6833,7 @@ def delete_poster(poster_id, deleted_by):
         return False
 
 
-def render_poster_slideshow(seconds_per_slide=5):
+def render_poster_slideshow(seconds_per_slide=5, top_offset=0):
     """Auto-advancing crossfade slideshow, no JavaScript — pure CSS,
     same reliability reasoning as everything else built this session
     (no external dependency that can fail to load). Renders nothing
@@ -6818,18 +6845,22 @@ def render_poster_slideshow(seconds_per_slide=5):
     for a smooth N-image cycle depend on how many images there
     actually are — this can't be hardcoded in the CSS body the way
     the ticker's fixed two-keyframe animation could.
+
+    Fixed to the top of the viewport at top_offset px, same
+    conditional-stacking reasoning as render_logo_bar — returns the
+    height actually occupied (0 if nothing rendered).
     """
     posters = fetch_active_posters()
     posters = [p for p in posters if p.get("image_url") and not p["image_url"].startswith("memory://")]
     if len(posters) == 0:
-        return
+        return 0
     if len(posters) == 1:
         st.markdown(
-            f'<div class="poster-slideshow"><img class="poster-slide poster-slide-solo" '
+            f'<div class="poster-slideshow" style="top: {top_offset}px;"><img class="poster-slide poster-slide-solo" '
             f'src="{esc(posters[0]["image_url"])}" alt="Poster"></div>',
             unsafe_allow_html=True,
         )
-        return
+        return POSTER_SLIDESHOW_HEIGHT
 
     n = len(posters)
     cycle_seconds = seconds_per_slide * n
@@ -6869,9 +6900,10 @@ def render_poster_slideshow(seconds_per_slide=5):
     style_parts.append('</style>')
 
     st.markdown(
-        "".join(style_parts) + f'<div class="poster-slideshow">{"".join(imgs)}</div>',
+        "".join(style_parts) + f'<div class="poster-slideshow" style="top: {top_offset}px;">{"".join(imgs)}</div>',
         unsafe_allow_html=True,
     )
+    return POSTER_SLIDESHOW_HEIGHT
 
 
 def fetch_active_announcements():
@@ -6955,22 +6987,28 @@ def delete_announcement(announcement_id, deleted_by):
         return False
 
 
-def render_ticker_bar():
+def render_ticker_bar(top_offset=0):
     """Continuously scrolling announcement strip between the logo bar
     and the main header. Multiple active announcements join into one
     line separated by a bullet, so they scroll as a single strip
     rather than needing separate rotation logic. Renders nothing when
-    there are no active announcements, same convention as the logo bar."""
+    there are no active announcements, same convention as the logo bar.
+
+    Fixed to the top of the viewport at top_offset px, same
+    conditional-stacking reasoning as render_logo_bar — returns the
+    height actually occupied (0 if nothing rendered).
+    """
     items = fetch_active_announcements()
     if not items:
-        return
+        return 0
     joined = "   •   ".join(esc(i["message"]) for i in items if i.get("message"))
     if not joined:
-        return
+        return 0
     st.markdown(
-        f'<div class="ticker-bar"><div class="ticker-content">{joined}</div></div>',
+        f'<div class="ticker-bar" style="top: {top_offset}px;"><div class="ticker-content">{joined}</div></div>',
         unsafe_allow_html=True,
     )
+    return TICKER_BAR_HEIGHT
 
 
 def fetch_all_feedback():
@@ -7319,16 +7357,17 @@ def google_oauth():
 # 24. AUTHENTICATION GATEWAY
 # -------------------------------
 if not st.session_state.authenticated:
-    render_logo_bar()
-    render_poster_slideshow()
-    render_ticker_bar()
-    st.markdown('''
-    <div class="main-header">
+    _top = 0
+    _top += render_logo_bar(top_offset=_top)
+    _top += render_poster_slideshow(top_offset=_top)
+    _top += render_ticker_bar(top_offset=_top)
+    st.markdown(f'''
+    <div class="main-header" style="top: {_top}px;">
         <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
         <small>Smart Maintenance Management System</small>
     </div>
     ''', unsafe_allow_html=True)
-    st.markdown('<div class="main-header-spacer"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="main-header-spacer" style="height: {_top + MAIN_HEADER_HEIGHT}px;"></div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
 
     # --- Owner not configured -------------------------------------------
@@ -7558,15 +7597,16 @@ else:
     # is not enough, since the person who set it (the admin) would
     # otherwise still know the account's live password afterward.
     if st.session_state.user_payload.get("must_change_password"):
-        render_logo_bar()
-        render_poster_slideshow()
-        render_ticker_bar()
-        st.markdown('''
-        <div class="main-header">
+        _top = 0
+        _top += render_logo_bar(top_offset=_top)
+        _top += render_poster_slideshow(top_offset=_top)
+        _top += render_ticker_bar(top_offset=_top)
+        st.markdown(f'''
+        <div class="main-header" style="top: {_top}px;">
             <i class="fas fa-key"></i> Password Change Required
         </div>
         ''', unsafe_allow_html=True)
-        st.markdown('<div class="main-header-spacer"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="main-header-spacer" style="height: {_top + MAIN_HEADER_HEIGHT}px;"></div>', unsafe_allow_html=True)
         st.warning("An administrator reset your password. Choose a new one to continue — "
                   "you won't be able to use the app until this is done.")
         with st.form("forced_password_change", clear_on_submit=True):
@@ -7667,16 +7707,17 @@ user_email = user.get('email', None)
 avatar_url = user.get('avatar_url', None)
 
 # Modern header
-render_logo_bar()
-render_poster_slideshow()
-render_ticker_bar()
-st.markdown('''
-<div class="main-header">
+_top = 0
+_top += render_logo_bar(top_offset=_top)
+_top += render_poster_slideshow(top_offset=_top)
+_top += render_ticker_bar(top_offset=_top)
+st.markdown(f'''
+<div class="main-header" style="top: {_top}px;">
     <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
     <small>Smart Maintenance Management System</small>
 </div>
 ''', unsafe_allow_html=True)
-st.markdown('<div class="main-header-spacer"></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="main-header-spacer" style="height: {_top + MAIN_HEADER_HEIGHT}px;"></div>', unsafe_allow_html=True)
 
 # Sidebar
 with st.sidebar:
