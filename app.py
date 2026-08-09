@@ -1,8 +1,3 @@
-import location_hierarchy
-import job_plans
-import jsa_library
-import crew_clock
-import wallboard
 import streamlit as st
 import streamlit.components.v1 as components
 import requests
@@ -13,6 +8,38 @@ import os
 import json
 import time
 import html as html_lib
+
+# Five standalone feature modules, each a separate file alongside
+# app.py. Wrapped defensively — a missing or broken module file must
+# degrade to that one section showing an "unavailable" message, not
+# crash the entire app for every user, the same principle already
+# applied to every other optional dependency here (plotly, reportlab,
+# pywebpush, etc.).
+try:
+    import wallboard
+    WALLBOARD_MODULE_AVAILABLE = True
+except Exception:
+    WALLBOARD_MODULE_AVAILABLE = False
+try:
+    import crew_clock
+    CREW_CLOCK_MODULE_AVAILABLE = True
+except Exception:
+    CREW_CLOCK_MODULE_AVAILABLE = False
+try:
+    import jsa_library
+    JSA_LIBRARY_MODULE_AVAILABLE = True
+except Exception:
+    JSA_LIBRARY_MODULE_AVAILABLE = False
+try:
+    import job_plans
+    JOB_PLANS_MODULE_AVAILABLE = True
+except Exception:
+    JOB_PLANS_MODULE_AVAILABLE = False
+try:
+    import location_hierarchy
+    LOCATION_HIERARCHY_MODULE_AVAILABLE = True
+except Exception:
+    LOCATION_HIERARCHY_MODULE_AVAILABLE = False
 import re
 import secrets
 from io import BytesIO
@@ -52,6 +79,15 @@ except ImportError:
 # extensions for categories beyond the first two, not arbitrary.
 GMC_CHART_COLORS = ["#001530", "#b9c901", "#0f3460", "#7c9c02",
                     "#3b5f8a", "#5a7a01", "#94a3b8", "#dc2626"]
+
+# Company KPI targets — kept as named constants in one place rather
+# than scattered magic numbers, so a future target change is a
+# one-line edit here, not a hunt through the Executive Dashboard code.
+KPI_MONTHLY_PRODUCTION_TONNES = 700_000
+KPI_ANNUAL_PRODUCTION_TONNES = 8_000_000
+KPI_EQUIPMENT_AVAILABILITY_PCT = 85
+KPI_ORE_GRADE_BASELINE_PCT = 27
+KPI_ORE_GRADE_TARGET_PCT = 40
 
 # OAuth support
 try:
@@ -4558,13 +4594,22 @@ def assign_shift(username, shift_start, shift_end, crew_name, assigned_by):
 
 
 def get_workers_on_shift(at_time=None):
-    """Who's rostered on right now (or at a given time)."""
+    """Who's rostered on right now (or at a given time).
+
+    Excludes crew_name='Clock' — the Crew Clock feature reuses this
+    same table for punch-in/out records, using a far-future sentinel
+    date as the "still punched in" end time. Without this exclusion,
+    every open clock punch would always satisfy shift_end > at_time
+    and leak into this supervisor-facing roster view, mixed in with
+    real assigned shifts.
+    """
     if not SUPABASE_AVAILABLE:
         return []
     at_time = at_time or datetime.now()
     try:
         res = supabase.table("shift_rosters").select("*") \
-            .lt("shift_start", at_time.isoformat()).gt("shift_end", at_time.isoformat()).execute()
+            .lt("shift_start", at_time.isoformat()).gt("shift_end", at_time.isoformat()) \
+            .neq("crew_name", "Clock").execute()
         return res.data or []
     except Exception as e:
         log_error(str(e), endpoint="get_workers_on_shift")
@@ -4572,11 +4617,16 @@ def get_workers_on_shift(at_time=None):
 
 
 def fetch_upcoming_shifts(limit=50):
+    """Same crew_name='Clock' exclusion as get_workers_on_shift, and
+    for the same reason — an open clock punch's far-future sentinel
+    end time would otherwise always look like an 'upcoming shift'
+    that never actually starts."""
     if not SUPABASE_AVAILABLE:
         return []
     try:
         res = supabase.table("shift_rosters").select("*") \
-            .gt("shift_end", datetime.now().isoformat()).order("shift_start").limit(limit).execute()
+            .gt("shift_end", datetime.now().isoformat()).neq("crew_name", "Clock") \
+            .order("shift_start").limit(limit).execute()
         return res.data or []
     except Exception as e:
         log_error(str(e), endpoint="fetch_upcoming_shifts")
@@ -4715,6 +4765,97 @@ def weather_sensitive_tasks_at_risk(tasks, forecast, probability_threshold=60):
     return at_risk
 
 
+@st.cache_data(ttl=86400)
+def fetch_historical_weather(start_date, end_date):
+    """Daily precipitation for a past date range, via Open-Meteo's
+    Historical Weather API — a DIFFERENT subdomain
+    (archive-api.open-meteo.com) than the forecast endpoint
+    (api.open-meteo.com), easy to get wrong by assuming they share a
+    host. Same no-key access for non-commercial use.
+
+    Cached for 24 hours rather than 30 minutes like the forecast —
+    historical data for a past date never changes, so there's no
+    reason to refetch it as often as a live forecast.
+
+    ERA5 data has roughly a 5-day processing delay, so very recent
+    dates may come back without data — this isn't a bug in this
+    function, just how the underlying dataset updates. Returns an
+    empty list on any failure, same defensive contract as
+    fetch_weather_forecast — a down API must never break whatever
+    page called this.
+    """
+    if not WEATHER_CONFIGURED:
+        return []
+    try:
+        resp = requests.get(
+            "https://archive-api.open-meteo.com/v1/archive",
+            params={
+                "latitude": MINE_LATITUDE, "longitude": MINE_LONGITUDE,
+                "start_date": start_date.strftime("%Y-%m-%d"),
+                "end_date": end_date.strftime("%Y-%m-%d"),
+                "daily": "precipitation_sum", "timezone": "auto",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        daily = data.get("daily", {})
+        dates = daily.get("time", [])
+        precip = daily.get("precipitation_sum", [])
+        return [{"date": d, "precip_mm": precip[i] if i < len(precip) else None}
+                for i, d in enumerate(dates)]
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_historical_weather")
+        return []
+
+
+def rainy_vs_dry_production(production_records, historical_weather, rain_threshold_mm=1.0):
+    """Compares average DAILY ore production on rainy days vs dry
+    days. Ore-only, same reasoning as the KPI target comparison —
+    mixing in waste rock would produce a number that doesn't mean
+    what it claims to. A day counts as 'rainy' if precipitation_sum
+    exceeds rain_threshold_mm (1mm default — enough to distinguish a
+    genuine rain day from trace/measurement noise, not so high that
+    a moderate but real rainy day gets miscounted as dry).
+
+    Only dates with BOTH a known ore total AND known weather are
+    used — a date missing either is excluded rather than guessed at.
+    Returns a dict with rainy/dry average daily tonnes, sample sizes
+    for each, and the percentage difference — or None fields where
+    there isn't enough data to say anything real, rather than a
+    misleading number built from too little.
+    """
+    weather_by_date = {d["date"]: d.get("precip_mm") for d in historical_weather if d.get("precip_mm") is not None}
+
+    ore_by_date = {}
+    for r in production_records:
+        if "ore" not in (r.get("material_type") or "").lower():
+            continue
+        date_key = r.get("production_date")
+        ore_by_date[date_key] = ore_by_date.get(date_key, 0) + (r.get("quantity") or 0)
+
+    rainy_totals, dry_totals = [], []
+    for date_key, ore_qty in ore_by_date.items():
+        if date_key not in weather_by_date:
+            continue
+        if weather_by_date[date_key] > rain_threshold_mm:
+            rainy_totals.append(ore_qty)
+        else:
+            dry_totals.append(ore_qty)
+
+    rainy_avg = sum(rainy_totals) / len(rainy_totals) if rainy_totals else None
+    dry_avg = sum(dry_totals) / len(dry_totals) if dry_totals else None
+    pct_loss = None
+    if rainy_avg is not None and dry_avg is not None and dry_avg > 0:
+        pct_loss = (dry_avg - rainy_avg) / dry_avg * 100
+
+    return {
+        "rainy_avg_tonnes": rainy_avg, "rainy_days": len(rainy_totals),
+        "dry_avg_tonnes": dry_avg, "dry_days": len(dry_totals),
+        "pct_loss_on_rainy_days": pct_loss,
+    }
+
+
 def create_shipment(material_type, quantity, unit, transport_mode, destination, carrier,
                     expected_arrival, created_by):
     shipment_ref = f"SHP-{datetime.now().strftime('%Y%m%d')}-{secrets.token_hex(4).upper()}"
@@ -4835,6 +4976,46 @@ def fleet_average_utilization(assets, window_start, window_end):
     return sum(utils) / len(utils), len(utils), len(assets)
 
 
+def mttr_trend(tasks, now=None):
+    """This-month vs last-month MTTR, using the same
+    compute_mttr_hours_v2 calculation already trusted elsewhere in
+    Analytics — not a separate, parallel calculation that could give
+    a different answer for the same underlying question. Returns
+    (this_month_hours, this_month_n, last_month_hours, last_month_n).
+    Any value can independently be None if that period doesn't have
+    enough completed tasks to compute a real number — a missing prior
+    month must never be silently treated as 0 (which would make any
+    real MTTR look like a worsening trend by comparison)."""
+    now = now or datetime.now()
+    this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_month_end = this_month_start
+    last_month_start = (this_month_start - timedelta(days=1)).replace(day=1)
+
+    def _completed_in_range(task, start, end):
+        completed = _parse_dt(task.get("completed_at"))
+        return completed is not None and start <= completed < end
+
+    this_month_tasks = [t for t in tasks if _completed_in_range(t, this_month_start, now)]
+    last_month_tasks = [t for t in tasks if _completed_in_range(t, last_month_start, last_month_end)]
+
+    this_hours, this_n = compute_mttr_hours_v2(this_month_tasks)
+    last_hours, last_n = compute_mttr_hours_v2(last_month_tasks)
+    return this_hours, this_n, last_hours, last_n
+
+
+def average_ore_grade(records):
+    """Average grade across production records that actually have
+    one logged — most records won't (grade is optional, and doesn't
+    apply to waste rock at all), so this must exclude anything
+    missing rather than treat it as 0%, which would badly understate
+    real ore quality. Returns (avg_pct, sample_size) so the UI can
+    show how many shift logs the average is actually based on."""
+    graded = [r.get("ore_grade_pct") for r in records if r.get("ore_grade_pct") is not None]
+    if not graded:
+        return None, 0
+    return sum(graded) / len(graded), len(graded)
+
+
 def run_escalations(tasks, permits, triggered_by):
     """Checks for overdue tasks and soon-to-expire permits, sending a
     notification for each. This is NOT a scheduled background job —
@@ -4916,11 +5097,12 @@ def detect_meter_anomaly(asset_id):
         return False
 
 
-def log_production(production_date, shift, location, material_type, quantity, unit, notes, recorded_by):
+def log_production(production_date, shift, location, material_type, quantity, unit, notes, recorded_by,
+                   ore_grade_pct=None):
     payload = {
         "production_date": production_date.isoformat(), "shift": shift, "location": location,
         "material_type": material_type, "quantity": quantity, "unit": unit,
-        "notes": notes, "recorded_by": recorded_by,
+        "notes": notes, "recorded_by": recorded_by, "ore_grade_pct": ore_grade_pct,
     }
     if not SUPABASE_AVAILABLE:
         return None
@@ -5736,6 +5918,11 @@ FEATURE_INDEX = [
     ("about policy statement how it works help roles", "About", "fa-circle-info", "About"),
     ("production tracking shift output tonnes ore material", "Production", "fa-industry", "Production"),
     ("haulage logistics shipment truck rail port delay tracking", "Haulage", "fa-truck", "Haulage"),
+    ("wallboard live overview screen display kanban", "Wallboard", "fa-tv", "Wallboard"),
+    ("crew clock punch in out time clock hours", "Crew Clock", "fa-clock", "Crew Clock"),
+    ("jsa library job safety analysis swp safe work procedure", "JSA Library", "fa-file-alt", "JSA Library"),
+    ("job plans templates apply work order recurring bom", "Job Plans", "fa-cubes", "Job Plans"),
+    ("locations hierarchy site area zone digital twin", "Locations", "fa-sitemap", "Locations"),
     ("admin access requests approve deny new users", "Admin — Access Requests", "fa-user-plus", "Admin"),
     ("admin access policies auto approve registration", "Admin — Access Policies", "fa-shield-halved", "Admin"),
     ("admin active users manage roles suspend", "Admin — Active Users", "fa-users-gear", "Admin"),
@@ -5780,6 +5967,8 @@ TRANSLATIONS = {
         "nav.Profile": "Profile", "nav.Timeline": "Timeline", "nav.About": "About",
         "nav.Production": "Production",
         "nav.Haulage": "Haulage",
+        "nav.Wallboard": "Wallboard", "nav.Crew Clock": "Crew Clock",
+        "nav.JSA Library": "JSA Library", "nav.Job Plans": "Job Plans", "nav.Locations": "Locations",
         "nav.Owner Console": "Owner Console",
         "common.save": "Save", "common.cancel": "Cancel", "common.submit": "Submit",
         "common.delete": "Delete", "common.edit": "Edit", "common.search": "Search",
@@ -5851,6 +6040,8 @@ TRANSLATIONS = {
         "nav.Profile": "Profil", "nav.Timeline": "Chronologie", "nav.About": "À propos",
         "nav.Production": "Production",
         "nav.Haulage": "Transport",
+        "nav.Wallboard": "Tableau mural", "nav.Crew Clock": "Pointeuse",
+        "nav.JSA Library": "Bibliothèque JSA", "nav.Job Plans": "Plans de travail", "nav.Locations": "Emplacements",
         "nav.Owner Console": "Console propriétaire",
         "common.save": "Enregistrer", "common.cancel": "Annuler", "common.submit": "Soumettre",
         "common.delete": "Supprimer", "common.edit": "Modifier", "common.search": "Rechercher",
@@ -5922,6 +6113,8 @@ TRANSLATIONS = {
         "nav.Profile": "Perfil", "nav.Timeline": "Cronología", "nav.About": "Acerca de",
         "nav.Production": "Producción",
         "nav.Haulage": "Transporte",
+        "nav.Wallboard": "Tablero", "nav.Crew Clock": "Reloj de turno",
+        "nav.JSA Library": "Biblioteca JSA", "nav.Job Plans": "Planes de trabajo", "nav.Locations": "Ubicaciones",
         "nav.Owner Console": "Consola del propietario",
         "common.save": "Guardar", "common.cancel": "Cancelar", "common.submit": "Enviar",
         "common.delete": "Eliminar", "common.edit": "Editar", "common.search": "Buscar",
@@ -5993,6 +6186,8 @@ TRANSLATIONS = {
         "nav.Profile": "Perfil", "nav.Timeline": "Linha do tempo", "nav.About": "Sobre",
         "nav.Production": "Produção",
         "nav.Haulage": "Transporte",
+        "nav.Wallboard": "Painel", "nav.Crew Clock": "Relógio de Turno",
+        "nav.JSA Library": "Biblioteca JSA", "nav.Job Plans": "Planos de Trabalho", "nav.Locations": "Localizações",
         "nav.Owner Console": "Console do Proprietário",
         "common.save": "Salvar", "common.cancel": "Cancelar", "common.submit": "Enviar",
         "common.delete": "Excluir", "common.edit": "Editar", "common.search": "Pesquisar",
@@ -6064,6 +6259,8 @@ TRANSLATIONS = {
         "nav.Profile": "个人资料", "nav.Timeline": "时间线", "nav.About": "关于",
         "nav.Production": "产量",
         "nav.Haulage": "运输",
+        "nav.Wallboard": "看板", "nav.Crew Clock": "打卡",
+        "nav.JSA Library": "JSA库", "nav.Job Plans": "工作计划", "nav.Locations": "位置",
         "nav.Owner Console": "所有者控制台",
         "common.save": "保存", "common.cancel": "取消", "common.submit": "提交",
         "common.delete": "删除", "common.edit": "编辑", "common.search": "搜索",
@@ -6135,6 +6332,8 @@ TRANSLATIONS = {
         "nav.Profile": "प्रोफ़ाइल", "nav.Timeline": "समयरेखा", "nav.About": "के बारे में",
         "nav.Production": "उत्पादन",
         "nav.Haulage": "परिवहन",
+        "nav.Wallboard": "वॉलबोर्ड", "nav.Crew Clock": "क्रू क्लॉक",
+        "nav.JSA Library": "जेएसए लाइब्रेरी", "nav.Job Plans": "जॉब प्लान", "nav.Locations": "स्थान",
         "nav.Owner Console": "स्वामी कंसोल",
         "common.save": "सहेजें", "common.cancel": "रद्द करें", "common.submit": "जमा करें",
         "common.delete": "हटाएं", "common.edit": "संपादित करें", "common.search": "खोजें",
@@ -7589,14 +7788,15 @@ except ImportError:
     st.error("streamlit-option-menu not installed. Please run: pip install streamlit-option-menu")
     st.stop()
 
-
 nav_options = ["Task Dashboard", "Production", "Haulage", "Assets", "Permits", "Inventory", "Incidents",
                "Handover", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile",
                "Timeline", "About", "Wallboard", "Crew Clock", "JSA Library", "Job Plans", "Locations"]
 nav_icons = ["list-task", "bar-chart-fill", "truck", "hdd-stack-fill", "shield-lock-fill", "box-seam-fill",
              "exclamation-triangle-fill", "arrow-left-right", "people-fill",
              "graph-up-arrow", "chat-dots-fill", "lightbulb-fill", "gear-fill", "person-circle",
-             "clock-history", "info-circle-fill", "tv", "clock", "file-alt", "cubes", "sitemap"]
+             "clock-history", "info-circle-fill", "tv-fill", "clock-fill", "file-earmark-text-fill",
+             "diagram-3-fill", "geo-alt-fill"]
+
 # Hide sections the role has no capability for, so the menu reflects
 # actual permissions rather than showing dead ends.
 _nav_caps = {
@@ -7849,6 +8049,11 @@ if selected_section == "Task Dashboard":
     _qa_meta = {
         "Production": ("fa-industry", "Log shift output", "ok"),
         "Haulage": ("fa-truck", "Shipments & delivery delays", "warn"),
+        "Wallboard": ("fa-tv", "Live site overview", "info"),
+        "Crew Clock": ("fa-clock", "Punch in / out for your shift", "ok"),
+        "JSA Library": ("fa-file-alt", "Safe work procedures & JSAs", "warn"),
+        "Job Plans": ("fa-cubes", "Pre-built work order templates", "info"),
+        "Locations": ("fa-sitemap", "Site structure hierarchy", "neutral"),
         "Assets": ("fa-server", "Equipment register & meter readings", "info"),
         "Permits": ("fa-lock", "Permit to Work / LOTO", "warn"),
         "Inventory": ("fa-boxes-stacked", "Spare parts & stock levels", "info"),
@@ -8591,13 +8796,17 @@ elif selected_section == "Production":
             with _pcol2:
                 _prod_unit = st.selectbox("Unit", ["tonnes", "m³", "loads"])
             _prod_notes = st.text_area("Notes")
+            _prod_grade = st.number_input(
+                "Ore grade % (optional — leave at 0 if not applicable, e.g. for waste rock)",
+                min_value=0.0, max_value=100.0, value=0.0, step=0.1)
             if st.form_submit_button("📝 Log production"):
                 if not _prod_material.strip():
                     st.error("Material type is required.")
                 elif _prod_qty <= 0:
                     st.error("Quantity must be greater than zero.")
                 elif log_production(_prod_date, _prod_shift, _prod_location, _prod_material.strip(),
-                                   _prod_qty, _prod_unit, _prod_notes, full_name):
+                                   _prod_qty, _prod_unit, _prod_notes, full_name,
+                                   ore_grade_pct=(_prod_grade if _prod_grade > 0 else None)):
                     st.success("Production logged.")
                     st.rerun()
                 else:
@@ -9930,6 +10139,83 @@ elif selected_section == "Analytics":
             if assets and _util_total > _util_counted:
                 st.caption(f"Fleet utilization based on {_util_counted} of {_util_total} assets — "
                           f"the rest have no status history logged yet.")
+
+            st.markdown("---")
+            st.markdown("#### 🎯 KPI Targets")
+            _ore_materials = {k: v for k, v in _prod_by_material.items() if "ore" in k[0].lower()}
+            _ore_this_month = sum(_ore_materials.values()) if _ore_materials else None
+            _ytd_records = [r for r in fetch_production_records(limit=2000)
+                            if r.get("production_date", "").startswith(str(_now.year))
+                            and "ore" in (r.get("material_type") or "").lower()]
+            _ore_ytd = sum(r.get("quantity") or 0 for r in _ytd_records) if _ytd_records else None
+
+            _kcol1, _kcol2, _kcol3 = st.columns(3)
+            with _kcol1:
+                if _ore_this_month is not None:
+                    _monthly_pct = _ore_this_month / KPI_MONTHLY_PRODUCTION_TONNES * 100
+                    st.metric("Monthly Production vs Target", f"{_monthly_pct:.0f}%",
+                             f"{_ore_this_month:,.0f} / {KPI_MONTHLY_PRODUCTION_TONNES:,.0f} t")
+                else:
+                    st.metric("Monthly Production vs Target", "No ore data")
+                if _ore_ytd is not None:
+                    _annual_pct = _ore_ytd / KPI_ANNUAL_PRODUCTION_TONNES * 100
+                    st.caption(f"Year to date: {_ore_ytd:,.0f} / {KPI_ANNUAL_PRODUCTION_TONNES:,.0f} t "
+                              f"({_annual_pct:.0f}% of annual target)")
+            with _kcol2:
+                if _fleet_util is not None:
+                    _avail_delta = _fleet_util - KPI_EQUIPMENT_AVAILABILITY_PCT
+                    st.metric("Equipment Availability", f"{_fleet_util:.0f}%",
+                             f"{_avail_delta:+.0f} pts vs {KPI_EQUIPMENT_AVAILABILITY_PCT}% target")
+                else:
+                    st.metric("Equipment Availability", "No data")
+            with _kcol3:
+                _mttr_this, _mttr_this_n, _mttr_last, _mttr_last_n = mttr_trend(tasks, now=_now)
+                if _mttr_this is not None:
+                    if _mttr_last is not None:
+                        _mttr_delta = _mttr_this - _mttr_last
+                        st.metric("MTTR This Month", f"{_mttr_this:.1f}h",
+                                 f"{_mttr_delta:+.1f}h vs last month", delta_color="inverse")
+                    else:
+                        st.metric("MTTR This Month", f"{_mttr_this:.1f}h", "No prior month to compare")
+                else:
+                    st.metric("MTTR This Month", "No data")
+
+            _grade_this_month, _grade_n = average_ore_grade(_prod_this_month)
+            if _grade_this_month is not None:
+                _grade_progress = (_grade_this_month - KPI_ORE_GRADE_BASELINE_PCT) / \
+                                  (KPI_ORE_GRADE_TARGET_PCT - KPI_ORE_GRADE_BASELINE_PCT) * 100
+                st.metric(f"Average Ore Grade ({_grade_n} shift(s) logged)",
+                         f"{_grade_this_month:.1f}%",
+                         f"{_grade_progress:.0f}% of the way from {KPI_ORE_GRADE_BASELINE_PCT}% "
+                         f"baseline to {KPI_ORE_GRADE_TARGET_PCT}% refinery target")
+            else:
+                st.caption(f"Ore grade — no shifts have logged a grade yet this month. It's an "
+                          f"optional field on Production → Log Production (leave at 0 to skip); "
+                          f"the {KPI_ORE_GRADE_BASELINE_PCT}%→{KPI_ORE_GRADE_TARGET_PCT}% refinery "
+                          f"upgrade target needs that data to track progress against.")
+
+            if WEATHER_CONFIGURED:
+                # 90-day lookback, minus a 6-day buffer for ERA5's
+                # ~5-day processing delay — requesting dates the
+                # dataset doesn't have yet would just come back empty
+                # for the most recent few days, so this avoids
+                # querying for data that can't exist yet.
+                _hist_end = _now - timedelta(days=6)
+                _hist_start = _hist_end - timedelta(days=90)
+                _historical = fetch_historical_weather(_hist_start, _hist_end)
+                _rain_comparison = rainy_vs_dry_production(fetch_production_records(limit=2000), _historical)
+                if _rain_comparison["pct_loss_on_rainy_days"] is not None:
+                    st.metric("Rainy-Day Production Loss (90d)",
+                             f"{_rain_comparison['pct_loss_on_rainy_days']:.0f}%",
+                             f"{_rain_comparison['rainy_avg_tonnes']:,.0f} t/day rainy vs "
+                             f"{_rain_comparison['dry_avg_tonnes']:,.0f} t/day dry "
+                             f"({_rain_comparison['rainy_days']} rainy, {_rain_comparison['dry_days']} dry days)")
+                else:
+                    st.caption("Rainy-vs-dry-season comparison — not enough overlapping production and "
+                              "weather data yet in the last 90 days to compute this honestly.")
+            else:
+                st.caption("Rainy-vs-dry-season production loss needs site coordinates configured "
+                          "(same MINE_LATITUDE/MINE_LONGITUDE setup as the weather planning warnings).")
 
             if _incident_trend > 0:
                 st.caption(f"📈 {_incident_trend} more incident(s) reported than the same point last "
@@ -11565,16 +11851,43 @@ Use Feedback for anything about the app itself — a confusing screen, a
 feature that isn't working as expected, or an idea for something new.
 """)
 
+
 elif selected_section == "Wallboard":
-    wallboard.render_wallboard()
+    if WALLBOARD_MODULE_AVAILABLE:
+        wallboard.render_wallboard()
+    else:
+        st.error("The Wallboard module file (wallboard.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work.")
+
 elif selected_section == "Crew Clock":
-    crew_clock.render_crew_clock()
+    if CREW_CLOCK_MODULE_AVAILABLE:
+        crew_clock.render_crew_clock()
+    else:
+        st.error("The Crew Clock module file (crew_clock.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work.")
+
 elif selected_section == "JSA Library":
-    jsa_library.render_jsa_library()
+    if JSA_LIBRARY_MODULE_AVAILABLE:
+        jsa_library.render_jsa_library()
+    else:
+        st.error("The JSA Library module file (jsa_library.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work.")
+
 elif selected_section == "Job Plans":
-    job_plans.render_job_plans()
+    if JOB_PLANS_MODULE_AVAILABLE:
+        job_plans.render_job_plans()
+    else:
+        st.error("The Job Plans module file (job_plans.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work.")
+
 elif selected_section == "Locations":
-    location_hierarchy.render_location_hierarchy()
+    if LOCATION_HIERARCHY_MODULE_AVAILABLE:
+        location_hierarchy.render_location_hierarchy()
+    else:
+        st.error("The Locations module file (location_hierarchy.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work.")
+
+
 elif selected_section == "Timeline":
     st.subheader("⏱️ Activity Timeline")
     st.markdown("Recent actions across all tasks (last 50)")
