@@ -31,33 +31,28 @@ def render_wallboard():
     assets = st.session_state.get("assets", [])
     incidents = st.session_state.get("incidents", [])
     
-    # Fetch permits and production separately (they aren't in session_state by default)
-    # We'll use the main app's Supabase client if available, else fallback to memory.
+    # Fetch permits and production via the main app's real functions —
+    # not a session_state key check, since SUPABASE_AVAILABLE lives as
+    # a plain module-level variable in app.py, never stored in
+    # session_state. Checking st.session_state.get("supabase_available")
+    # would always be False regardless of the real connection status.
     permits = []
     productions = []
-    if st.session_state.get("supabase_available", False):
-        try:
-            # Import the global supabase client from the main module.
-            # This is safe because the main app imports supabase globally.
-            import sys
-            # We need to get the supabase client from the main module's namespace.
-            # Since we are importing this module dynamically, we can access the main module via sys.modules.
-            main_module = sys.modules.get('__main__')
-            if main_module and hasattr(main_module, 'supabase'):
-                supabase = main_module.supabase
-                if supabase:
-                    p_res = supabase.table("permits").select("*").eq("status", "Active").execute()
-                    permits = p_res.data or []
-                    prod_res = supabase.table("shift_production").select("*").order("production_date", desc=True).limit(20).execute()
-                    productions = prod_res.data or []
-        except Exception:
-            pass
+    try:
+        import sys
+        main_module = sys.modules.get('__main__')
+        if main_module and hasattr(main_module, 'fetch_permits'):
+            permits = [p for p in main_module.fetch_permits() if p.get("status") == "Active"]
+        if main_module and hasattr(main_module, 'fetch_production_records'):
+            productions = main_module.fetch_production_records(limit=20)
+    except Exception:
+        pass
 
-    # If Supabase isn't available, show demo/empty data gracefully.
+    # If the main app's functions weren't reachable at all, fall back
+    # to whatever's already in session_state rather than showing
+    # nothing.
     if not permits:
         permits = st.session_state.get("permits_memory", [])
-    if not productions:
-        productions = st.session_state.get("production_memory", [])
 
     # -------------------------------
     # 3. LAYOUT
@@ -159,3 +154,4 @@ def render_wallboard():
             st.info("No recent incidents.")
 
     st.caption("⏱️ Auto-refreshes on every click. Pin this tab to a wall-mounted screen for live site visibility.")
+        
