@@ -317,7 +317,36 @@ def render_job_plans():
                     plan_labour_rate = st.number_input("Labour Rate (per hour)", min_value=0.0, value=0.0, step=1.0)
                     plan_due_days = st.number_input("Default Due In (days)", min_value=1, value=7, step=1)
                     plan_weather = st.checkbox("Weather-sensitive")
-                    plan_recurrence = st.selectbox("Recurrence (optional)", ["None", "Weekly", "Monthly", "Quarterly"])
+                    # Display labels are capitalized for readability, but map
+                    # to lowercase values below — handle_recurring_tasks()
+                    # only recognizes 'daily'/'weekly'/'monthly'/'quarterly'/
+                    # 'meter-based' exactly. This form previously stored the
+                    # capitalized label directly ("Weekly", not "weekly"),
+                    # which never matched — every job plan with a
+                    # date-based recurrence set has silently never actually
+                    # recurred since this feature was built.
+                    _recurrence_display_to_value = {
+                        "None": None, "Weekly": "weekly", "Monthly": "monthly",
+                        "Quarterly": "quarterly", "Meter-Based": "meter-based",
+                    }
+                    plan_recurrence_label = st.selectbox("Recurrence (optional)", list(_recurrence_display_to_value.keys()))
+
+                # Always visible, not conditionally shown — Streamlit forms
+                # don't rerun on a widget change within them, only on
+                # submit, so a field that appears "only when Meter-Based is
+                # picked" would lag a full submit cycle behind the actual
+                # selection. Only takes effect when Recurrence above is
+                # actually set to Meter-Based; the caption makes that clear.
+                st.markdown("##### Meter-Based Recurrence (Job Plan Auto-Scheduler)")
+                st.caption("Only used when Recurrence above is set to Meter-Based — auto-creates the next "
+                          "work order once the asset's logged meter reading reaches this interval.")
+                _mcol1, _mcol2 = st.columns(2)
+                with _mcol1:
+                    _plan_asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in main.st.session_state.get("assets", [])] if main and hasattr(main, 'st') else ["None"]
+                    plan_asset_choice = st.selectbox("Asset", _plan_asset_options, key="jp_meter_asset")
+                with _mcol2:
+                    plan_meter_interval = st.number_input("Meter Interval (e.g. 5000 for every 5,000 hours)",
+                                                           min_value=0, value=0, step=500, key="jp_meter_interval")
 
                 # BOM (Bill of Materials) section
                 st.markdown("#### Parts / BOM")
@@ -341,6 +370,17 @@ def render_job_plans():
                     if not plan_title.strip():
                         st.error("Plan title is required.")
                     else:
+                        _resolved_recurrence = _recurrence_display_to_value[plan_recurrence_label]
+                        # Only meaningful when the recurrence is actually
+                        # Meter-Based — stored as None otherwise so a plan
+                        # with weekly/monthly recurrence doesn't carry
+                        # unused asset/interval values that could confuse
+                        # a later edit of this plan.
+                        _plan_asset_id = None
+                        if _resolved_recurrence == "meter-based" and plan_asset_choice != "None":
+                            _plan_asset_id = int(plan_asset_choice.split(" ")[0].replace("#", ""))
+                        _plan_meter_interval = plan_meter_interval if (_resolved_recurrence == "meter-based" and plan_meter_interval > 0) else None
+
                         # Build JSON payload
                         plan_data = {
                             "title": plan_title.strip(),
@@ -352,7 +392,9 @@ def render_job_plans():
                             "labour_rate": plan_labour_rate,
                             "due_offset_days": plan_due_days,
                             "weather_sensitive": plan_weather,
-                            "recurrence_type": plan_recurrence if plan_recurrence != "None" else None,
+                            "recurrence_type": _resolved_recurrence,
+                            "asset_id": _plan_asset_id,
+                            "meter_interval": _plan_meter_interval,
                             "parts": []
                         }
                         for part_label in selected_parts:
@@ -439,4 +481,3 @@ def render_job_plans():
     st.markdown("---")
     st.caption("📌 Job plans are stored in the `documents` table with a `[JOBPLAN]` prefix. "
                "They include default settings and a BOM (Bill of Materials) for common jobs.")
-    
