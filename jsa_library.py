@@ -117,7 +117,7 @@ def render_jsa_library():
 
     can_upload = _can(role, "asset.edit") or _can(role, "task.create")
 
-    st.markdown('<div class="main-header" style="font-size: 1.8rem;">'
+    st.markdown('<div class="section-header" style="font-size: 1.8rem;">'
                 '<i class="fas fa-file-alt"></i> JSA / Risk Assessment Library '
                 '<small style="display:inline-block; font-size: 1rem;">Safe Work Procedures & Job Safety Analyses</small>'
                 '</div>', unsafe_allow_html=True)
@@ -215,4 +215,4 @@ def render_jsa_library():
 
     st.markdown("---")
     st.caption("📌 JSA documents are stored in the `documents` table with a `[JSA]` or `[SWP]` prefix in the title.")
-    
+        
