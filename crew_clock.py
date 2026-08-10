@@ -198,13 +198,18 @@ def render_crew_clock():
 
     with col2:
         if is_punched_in:
-            if st.button("⏹️ Punch Out", use_container_width=True, type="primary"):
-                ok, msg = punch_out(username)
-                if ok:
-                    st.success(msg)
-                    st.rerun()
-                else:
-                    st.error(msg)
+            if st.session_state.get("_pending_punch_out"):
+                st.caption("Confirm below to finish punching out.")
+            elif st.button("⏹️ Punch Out", use_container_width=True, type="primary"):
+                # Don't punch out immediately — go to a confirm step first,
+                # so hours can be attributed to a task (Auto-Costing) before
+                # the punch actually closes. Splitting this into two clicks
+                # is deliberate: computing hours-worked and picking a task
+                # both need the ACTUAL punch-out moment as their reference
+                # point, so they have to happen together, not after the
+                # punch already closed.
+                st.session_state["_pending_punch_out"] = True
+                st.rerun()
         else:
             if st.button("🟢 Punch In", use_container_width=True, type="primary"):
                 ok, msg = punch_in(username, full_name)
@@ -222,6 +227,52 @@ def render_crew_clock():
         st.caption(f"Days worked: {days_worked}")
 
     st.markdown("---")
+
+    if st.session_state.get("_pending_punch_out"):
+        st.markdown("#### ⏹️ Confirm Punch Out")
+        _hours_worked = 0.0
+        if open_punch and open_punch.get("shift_start"):
+            _start = _parse_dt(open_punch["shift_start"])
+            if _start:
+                _hours_worked = (datetime.now() - _start).total_seconds() / 3600.0
+        st.caption(f"Shift length: {_hours_worked:.1f} hours")
+
+        main = sys.modules.get('__main__')
+        _my_tasks = []
+        if main and hasattr(main, 'st'):
+            try:
+                _my_tasks = [t2 for t2 in main.st.session_state.get("tasks", [])
+                            if t2.get("assigned_to") == full_name and t2.get("status") in ("In Progress", "Pending QA")]
+            except Exception:
+                _my_tasks = []
+
+        _no_task_option = "N/A — general work, no specific task"
+        _task_choices = {_no_task_option: None}
+        _task_choices.update({f"#{t2['id']} {t2['title']}": t2['id'] for t2 in _my_tasks})
+        _picked = st.selectbox(
+            "Which task did you work on this shift? (Auto-Costing)",
+            list(_task_choices.keys()),
+            help="Adds this shift's hours to the task's labour cost automatically — "
+                "select N/A if the shift wasn't spent on one specific task.")
+
+        _cc1, _cc2 = st.columns(2)
+        with _cc1:
+            if st.button("✅ Confirm Punch Out", use_container_width=True, type="primary"):
+                ok, msg = punch_out(username)
+                if ok:
+                    _task_id = _task_choices[_picked]
+                    if _task_id is not None and _hours_worked > 0 and main and hasattr(main, 'apply_labour_hours_to_task'):
+                        main.apply_labour_hours_to_task(_task_id, _hours_worked, full_name)
+                    st.session_state.pop("_pending_punch_out", None)
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
+        with _cc2:
+            if st.button("Cancel", use_container_width=True):
+                st.session_state.pop("_pending_punch_out", None)
+                st.rerun()
+        st.markdown("---")
 
     st.markdown("### 📋 Last 7 Days")
     history_7d = get_punch_history(username, days=7)
@@ -262,4 +313,3 @@ def render_crew_clock():
         c3.metric("Avg Hours/Day", f"{avg_hours:.1f}h")
 
     st.caption("⏱️ Uses `shift_rosters` with `crew_name='Clock'`. Open punches have `shift_end='9999-12-31 23:59:59'`.")
-                
