@@ -57,7 +57,7 @@ def render_wallboard():
     # -------------------------------
     # 3. LAYOUT
     # -------------------------------
-    st.markdown('<div class="main-header" style="font-size: 2.2rem; text-align: center;">'
+    st.markdown('<div class="section-header" style="font-size: 2.2rem; text-align: center;">'
                 '<i class="fas fa-tv"></i> Operations Wallboard '
                 '<small style="display:inline-block; font-size: 1rem;">Live Site Overview</small>'
                 '</div>', unsafe_allow_html=True)
@@ -154,4 +154,4 @@ def render_wallboard():
             st.info("No recent incidents.")
 
     st.caption("⏱️ Auto-refreshes on every click. Pin this tab to a wall-mounted screen for live site visibility.")
-        
+                
