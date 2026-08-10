@@ -185,7 +185,7 @@ def render_location_hierarchy():
     role = user.get("role", "").strip().lower()
     can_manage = _can(role, "asset.edit") or _can(role, "task.create")
 
-    st.markdown('<div class="main-header" style="font-size: 1.8rem;">'
+    st.markdown('<div class="section-header" style="font-size: 1.8rem;">'
                 '<i class="fas fa-sitemap"></i> Location Hierarchy '
                 '<small style="display:inline-block; font-size: 1rem;">Define your site structure – Site → Area → Zone → Equipment</small>'
                 '</div>', unsafe_allow_html=True)
@@ -338,4 +338,4 @@ def render_location_hierarchy():
     st.markdown("---")
     st.caption("📍 Locations are stored as a single JSON document in the `documents` table. "
                "Use the full path when manually entering locations in tasks, assets, or incidents.")
-        
+    
