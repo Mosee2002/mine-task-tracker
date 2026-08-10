@@ -160,7 +160,7 @@ def render_crew_clock():
         st.warning("Please log in to use the Crew Clock.")
         return
 
-    st.markdown('<div class="main-header" style="font-size: 1.8rem;">'
+    st.markdown('<div class="section-header" style="font-size: 1.8rem;">'
                 '<i class="fas fa-clock"></i> Crew Time Clock '
                 '<small style="display:inline-block; font-size: 1rem;">Punch in / out for your shift</small>'
                 '</div>', unsafe_allow_html=True)
@@ -313,3 +313,4 @@ def render_crew_clock():
         c3.metric("Avg Hours/Day", f"{avg_hours:.1f}h")
 
     st.caption("⏱️ Uses `shift_rosters` with `crew_name='Clock'`. Open punches have `shift_end='9999-12-31 23:59:59'`.")
+        
