@@ -222,7 +222,7 @@ def render_job_plans():
 
     can_manage = _can(role, "task.create") or _can(role, "asset.edit")
 
-    st.markdown('<div class="main-header" style="font-size: 1.8rem;">'
+    st.markdown('<div class="section-header" style="font-size: 1.8rem;">'
                 '<i class="fas fa-cubes"></i> Job Plan Templates '
                 '<small style="display:inline-block; font-size: 1rem;">Pre-built work orders – apply with one click</small>'
                 '</div>', unsafe_allow_html=True)
