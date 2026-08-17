@@ -37,5 +37,8 @@ font = "sans serif"
 # Keeps uploads bounded; the app also enforces its own per-file limit.
 maxUploadSize = 10
 
+[server]
+enableStaticFileServing = true
+
 [browser]
 gatherUsageStats = false
