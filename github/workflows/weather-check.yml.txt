@@ -1,0 +1,18 @@
+name: MWDTS Weather Check
+
+# Runs hourly. The app itself decides whether an email is actually
+# due each time (bad-weather alert: 6h cooldown, routine status: 12h
+# cooldown) — this just needs to call often enough that neither
+# window is missed, not match the cadence exactly.
+on:
+  schedule:
+    - cron: "0 * * * *"   # every hour, on the hour (UTC)
+  workflow_dispatch:        # lets you also trigger it manually from the Actions tab, for testing
+
+jobs:
+  trigger-weather-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit the weather-check endpoint
+        run: |
+          curl -sf "https://${{ secrets.MWDTS_APP_URL }}/?weather_check=1&token=${{ secrets.MWDTS_AUTOMATION_TOKEN }}"
