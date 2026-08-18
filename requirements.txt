@@ -20,3 +20,4 @@ opencv-python-headless
 pywebpush
 Authlib>=1.3.2
 twilio
+openpyxl
