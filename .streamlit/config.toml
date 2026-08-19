@@ -13,7 +13,7 @@
 [theme]
 base = "light"
 
-# Primary interactive colour. 6.3:1 against white — passes WCAG AA for
+# Primary interactive colour. 6.3:1 against white â€” passes WCAG AA for
 # normal text, so it is safe for links and button fills with white text.
 primaryColor = "#1d4ed8"
 
@@ -33,12 +33,21 @@ textColor = "#101828"
 
 font = "sans serif"
 
+# CRITICAL FIX: this used to be split across TWO separate [server]
+# sections in this file â€” invalid TOML (a table can't be declared
+# twice), which appears to have silently prevented
+# enableStaticFileServing from actually taking effect despite the
+# text being present. Merged into ONE [server] section below. This is
+# very likely the real root cause of every static-file-serving issue
+# from today's whole debugging session (sw.js, push-setup.html) â€” not
+# any of the JavaScript/sandboxing issues investigated earlier, which
+# were real problems too, but never got the chance to matter if the
+# files behind them were never being served correctly in the first
+# place.
 [server]
 # Keeps uploads bounded; the app also enforces its own per-file limit.
 maxUploadSize = 10
-
-[server]
-enableStaticServing = true
+enableStaticFileServing = true
 
 [browser]
 gatherUsageStats = false
