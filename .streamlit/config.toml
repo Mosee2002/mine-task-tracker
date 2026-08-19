@@ -38,7 +38,7 @@ font = "sans serif"
 maxUploadSize = 10
 
 [server]
-enableStaticFileServing = true
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false
