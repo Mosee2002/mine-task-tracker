@@ -33,21 +33,20 @@ textColor = "#101828"
 
 font = "sans serif"
 
-# "server.enableStaticFileServing" REMOVED as of Streamlit 1.61.1 â€” the
-# live app logs showed: '"server.enableStaticFileServing" is not a
-# valid config option. If you previously had this config option set,
-# it may have been removed.' That exact wording is what Streamlit shows
-# when a setting becomes unnecessary because the feature it used to
-# gate is now on by default, not when a capability is deleted outright
-# â€” so this is a genuine test of whether static/ files (sw.js,
-# push-setup.html) now serve automatically without needing this flag
-# at all in this Streamlit version. If the sw.js diagnostic is STILL
-# red after deploying this, that theory is wrong and static file
-# serving needs a different, version-appropriate config key â€” check
-# Streamlit's current docs for whatever 1.61.1 actually calls this.
+# THE ACTUAL FIX, confirmed directly from Streamlit's current official
+# docs (docs.streamlit.io/develop/concepts/configuration/serving-static-files):
+# the config key was RENAMED from "enableStaticFileServing" to
+# "enableStaticServing" (no "File"). This explains the entire day's
+# debugging â€” static file serving was never active because the config
+# key being set was simply wrong/outdated, not because of anything in
+# app.py, push-setup.html, or any of the JavaScript/sandboxing issues
+# investigated earlier (those were all real, correctly-diagnosed
+# problems too â€” they just never got a chance to matter underneath
+# this).
 [server]
 # Keeps uploads bounded; the app also enforces its own per-file limit.
 maxUploadSize = 10
+enableStaticServing = true
 
 [browser]
 gatherUsageStats = false
