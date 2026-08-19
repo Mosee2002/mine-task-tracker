@@ -33,21 +33,21 @@ textColor = "#101828"
 
 font = "sans serif"
 
-# CRITICAL FIX: this used to be split across TWO separate [server]
-# sections in this file â€” invalid TOML (a table can't be declared
-# twice), which appears to have silently prevented
-# enableStaticFileServing from actually taking effect despite the
-# text being present. Merged into ONE [server] section below. This is
-# very likely the real root cause of every static-file-serving issue
-# from today's whole debugging session (sw.js, push-setup.html) â€” not
-# any of the JavaScript/sandboxing issues investigated earlier, which
-# were real problems too, but never got the chance to matter if the
-# files behind them were never being served correctly in the first
-# place.
+# "server.enableStaticFileServing" REMOVED as of Streamlit 1.61.1 â€” the
+# live app logs showed: '"server.enableStaticFileServing" is not a
+# valid config option. If you previously had this config option set,
+# it may have been removed.' That exact wording is what Streamlit shows
+# when a setting becomes unnecessary because the feature it used to
+# gate is now on by default, not when a capability is deleted outright
+# â€” so this is a genuine test of whether static/ files (sw.js,
+# push-setup.html) now serve automatically without needing this flag
+# at all in this Streamlit version. If the sw.js diagnostic is STILL
+# red after deploying this, that theory is wrong and static file
+# serving needs a different, version-appropriate config key â€” check
+# Streamlit's current docs for whatever 1.61.1 actually calls this.
 [server]
 # Keeps uploads bounded; the app also enforces its own per-file limit.
 maxUploadSize = 10
-enableStaticFileServing = true
 
 [browser]
 gatherUsageStats = false
