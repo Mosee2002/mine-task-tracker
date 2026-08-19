@@ -1,0 +1,8 @@
+{
+  "appId": "com.gmc.mwdts",
+  "appName": "MWDTS",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  }
+}
