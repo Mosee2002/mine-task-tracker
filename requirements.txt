@@ -21,3 +21,4 @@ pywebpush
 Authlib>=1.3.2
 twilio
 openpyxl
+firebase-admin
