@@ -1,0 +1,77 @@
+name: Build Android APK
+
+# Builds the MWDTS Android app entirely on GitHub's own servers — no
+# Android Studio, no local build tools needed anywhere. Triggered
+# either automatically (pushing changes to this folder) or manually
+# from the Actions tab in the GitHub app (the same "Run workflow"
+# button already used for the weather-check automation).
+"on":
+  push:
+    paths:
+      - 'mwdts-capacitor/**'
+      - '.github/workflows/build-android.yml'
+  workflow_dispatch:   # manual "Run workflow" button
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mwdts-capacitor
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Java (needed to build Android apps)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install project dependencies
+        run: npm install
+
+      - name: Add the Android platform
+        run: npx cap add android
+
+      # google-services.json is a real credential tied to your Firebase
+      # project — never committed to the repo directly. Stored instead
+      # as a GitHub secret (base64-encoded text, since secrets are
+      # plain text fields) and decoded back into a real file right
+      # here, only inside this temporary cloud build — it never
+      # touches your repo's actual file history.
+      - name: Place Firebase config
+        run: echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > android/app/google-services.json
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build the debug APK
+        working-directory: mwdts-capacitor/android
+        run: chmod +x gradlew && ./gradlew assembleDebug
+
+      # Debug APKs are fine for real use (Gradle auto-signs them with
+      # a built-in debug key) — a proper release-signed build is a
+      # later upgrade once you're comfortable with this pipeline, not
+      # something needed to actually install and use the app today.
+      - name: Upload the APK as a downloadable release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-build-${{ github.run_number }}
+          name: MWDTS Android — build #${{ github.run_number }}
+          files: mwdts-capacitor/android/app/build/outputs/apk/debug/app-debug.apk
+          body: |
+            Automatically built by GitHub Actions — no Android Studio involved.
+            Download `app-debug.apk` below, open it on your Android phone, and
+            tap install (you may need to allow "Install from unknown sources"
+            the first time — Android will prompt you for this automatically).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
