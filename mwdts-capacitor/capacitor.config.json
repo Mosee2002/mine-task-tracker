@@ -2,6 +2,11 @@
   "appId": "com.gmc.mwdts",
   "appName": "MWDTS",
   "webDir": "www",
+  "server": {
+    "allowNavigation": [
+      "mine-task-tracker-ljc2ppwmwiwtfqwykn2by5.streamlit.app"
+    ]
+  },
   "android": {
     "allowMixedContent": false
   }
