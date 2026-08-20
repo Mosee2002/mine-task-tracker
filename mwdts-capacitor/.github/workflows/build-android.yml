@@ -21,6 +21,7 @@ jobs:
     # error: "Resource not accessible by integration", HTTP 403).
     # This grants exactly the one extra permission needed — nothing
     # broader than that.
+    # retry 
     permissions:
       contents: write
     defaults:
