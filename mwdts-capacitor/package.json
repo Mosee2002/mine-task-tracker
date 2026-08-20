@@ -1,1 +1,20 @@
+{
+  "name": "mwdts-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Native Android wrapper for MWDTS (Mine & Workshop Digital Tracker) — Capacitor shell, real push notifications via Firebase Cloud Messaging, direct-install distribution (no Play Store).",
+  "scripts": {
+    "sync": "npx cap sync android",
+    "open:android": "npx cap open android",
+    "build": "npx cap sync android && npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/push-notifications": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}
 
