@@ -57,14 +57,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install project dependencies
-        # --legacy-peer-deps: @capacitor/inappbrowser's own declared
-        # peer-dependency version range doesn't perfectly line up with
-        # the pinned Capacitor core version here — a common, low-risk
-        # situation across the fast-moving Capacitor plugin ecosystem.
-        # This tells npm to use its older, more lenient resolution
-        # instead of hard-failing on that mismatch (the exact flag npm's
-        # own error output suggested).
-        run: npm install --legacy-peer-deps
+        run: npm install
 
       - name: Add the Android platform
         run: npx cap add android
@@ -72,33 +65,15 @@ jobs:
       # Applies the native navigation fix (see native-patches/MainActivity.java
       # for the full explanation) — must happen AFTER "cap add android"
       # generates the standard project, since that step would otherwise
-      # overwrite this file with Capacitor's unmodified default.
+      # overwrite this file with Capacitor's unmodified default. This is
+      # the ONLY fix for keeping navigation in-app now — @capacitor/
+      # inappbrowser was removed entirely after its own bundled
+      # bcprov-jdk18on dependency caused a persistent Gradle build
+      # failure that survived multiple different fix attempts (JDK
+      # version, Jetifier). Removing the plugin removes the problem at
+      # its source rather than continuing to chase it.
       - name: Apply native navigation fix
         run: cp native-patches/MainActivity.java android/app/src/main/java/com/gmc/mwdts/MainActivity.java
-
-      # @capacitor/inappbrowser explicitly requires minSdkVersion 26+
-      # (per its own documentation) — higher than Capacitor's own
-      # generated default. Patched here rather than waiting to
-      # discover it as a separate build failure.
-      - name: Raise minSdkVersion for InAppBrowser
-        run: sed -i 's/minSdkVersion = [0-9]*/minSdkVersion = 26/' android/variables.gradle
-
-      # THE REAL FIX for the "Failed to create Jar file
-      # ...bcprov-jdk18on-1.79.jar" error that JDK 21 did NOT
-      # actually fix (confirmed via live testing, both locally and
-      # here). The true cause: Jetifier — Android's tool for
-      # converting old support-library dependencies to AndroidX —
-      # bundles its own embedded, older bytecode parser that throws
-      # "Unsupported class file major version 65" (Java 21's class
-      # file version) when it encounters bcprov-jdk18on, completely
-      # independent of whatever JDK Gradle itself runs under. This
-      # project is already fully AndroidX-native (see
-      # android.useAndroidX=true already in this same file) — nothing
-      # in the dependency tree still needs converting, so Jetifier
-      # has no actual job to do here and can simply be turned off,
-      # sidestepping the crash entirely rather than working around it.
-      - name: Disable Jetifier (project is already AndroidX-native)
-        run: echo "android.enableJetifier=false" >> android/gradle.properties
 
       # google-services.json is a real credential tied to your Firebase
       # project — never committed to the repo directly. Stored instead
