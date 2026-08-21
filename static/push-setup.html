@@ -3,123 +3,158 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Set Up Push Notifications</title>
+<title>MWDTS — Push Notifications</title>
 <style>
-  body { font-family: -apple-system, sans-serif; background: #0f1117; color: #e2e8f0;
-         margin: 0; padding: 24px; text-align: center; }
-  #status { font-family: monospace; font-size: 13px; text-align: left; background: #1a1f2e;
-            padding: 12px; border-radius: 8px; white-space: pre-wrap; margin-top: 20px;
-            max-height: 300px; overflow-y: auto; }
-  a.back { display: inline-block; margin-top: 20px; color: #3b82f6; }
+  body {
+    margin: 0; padding: 0; height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #eef1f6; color: #16213e; font-family: -apple-system, sans-serif;
+    text-align: center; padding: 24px; box-sizing: border-box;
+  }
+  #status { margin-top: 16px; font-size: 15px; color: #475569; max-width: 320px; }
+  .spinner {
+    width: 36px; height: 36px; border: 3px solid #cbd5e1; border-top-color: #3b82f6;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
-  <h2 id="heading">Setting up push notifications…</h2>
-  <div id="status">Starting…</div>
-  <a class="back" id="backLink" href="../../">← Back to MWDTS</a>
+  <div class="spinner"></div>
+  <div id="status">Working…</div>
 
 <script>
-// ============================================================
-// This is a genuinely SEPARATE, directly-served static HTML
-// document — NOT injected into Streamlit's markdown/component
-// pipeline. That distinction is the whole point: this file's own
-// <script> tag is part of the browser's normal initial HTML parse,
-// so it executes completely normally, with no sandbox, no
-// same-origin restriction, and nothing to strip it. Every one of
-// those three things independently blocked every previous approach
-// tried directly inside the Streamlit app.
+// This is a genuinely separate static file — not rendered through
+// Streamlit's pipeline at all — specifically because every technique
+// tried to do this FROM WITHIN a Streamlit-rendered page was
+// confirmed broken: st.iframe() and st.components.v1.html() both
+// sandbox away window.top access, and Streamlit's markdown renderer
+// strips inline event-handler attributes even with
+// unsafe_allow_html=True. A real static file's <script> tag is part
+// of the browser's normal page parse — none of those restrictions
+// apply here.
 //
-// VAPID_PUBLIC_KEY below is intentionally hardcoded — VAPID public
-// keys are meant to be public (sent to every subscribing browser as
-// part of the normal Push API call), unlike the VAPID PRIVATE key,
-// which stays server-side only and is never in this file. If you
-// ever rotate your VAPID keys, update the value below to match your
-// new VAPID_PUBLIC_KEY secret, or this page will keep subscribing
-// browsers with the OLD public key and your server's pushes will
-// fail to authenticate against them.
-// ============================================================
-var VAPID_PUBLIC_KEY = "BJdBzH9KAhc9ZH5mGglFt9l7nRLO1hJdy1XF0msizbFDSWtgtL8xDOrmQQxnpeOMca3KSojPgG5HHTYhESytCyc";
+// Having no server-side session of its own is the tradeoff: every
+// value below comes from the URL query string, supplied by the
+// Python code that built the link to this page (see page_profile()'s
+// push-notifications section in app.py).
+
+function getParam(name) {
+    return new URLSearchParams(window.location.search).get(name);
+}
+
+var ACTION = getParam('action');
+var RETURN_URL = getParam('return_url') || '/';
+var USERNAME = getParam('username');
+var SUPABASE_URL = getParam('supabase_url');
+var SUPABASE_KEY = getParam('supabase_key');
+var VAPID_PUBLIC_KEY = getParam('vapid_key');
 
 var statusEl = document.getElementById('status');
-var headingEl = document.getElementById('heading');
-function log(msg) { statusEl.textContent += "\n" + msg; }
+function setStatus(msg) { statusEl.textContent = msg; }
 
-var params = new URLSearchParams(location.search);
-var action = params.get('action') || 'subscribe';
-var returnUrl = params.get('return_url') || '../../';
-document.getElementById('backLink').href = returnUrl;
-
-function toReturnUrl(extra) {
-    var u = new URL(returnUrl, location.href);
-    Object.keys(extra).forEach(function (k) { u.searchParams.set(k, extra[k]); });
-    return u.toString();
+function goBack(delayMs) {
+    setTimeout(function () { window.location.href = RETURN_URL; }, delayMs || 600);
 }
 
+// Push API requires the VAPID key as a Uint8Array, not the raw
+// base64url string — a mistake made once already earlier in this
+// project (see the wrapper site's index.html history) and worth not
+// repeating here.
 function urlBase64ToUint8Array(base64String) {
-    var padding = '='.repeat((4 - base64String.length % 4) % 4);
+    var padding = '='.repeat((4 - (base64String.length % 4)) % 4);
     var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    var raw = window.atob(base64);
-    var out = new Uint8Array(raw.length);
-    for (var i = 0; i < raw.length; ++i) out[i] = raw.charCodeAt(i);
-    return out;
+    var rawData = window.atob(base64);
+    var outputArray = new Uint8Array(rawData.length);
+    for (var i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
 }
 
-if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-    log('Push notifications are not supported in this browser.');
-    headingEl.textContent = 'Not supported';
-    setTimeout(function () {
-        location.href = toReturnUrl({ push_error: "Push notifications aren't supported in this browser." });
-    }, 2500);
-} else {
-    log('Registering service worker...');
-    navigator.serviceWorker.register('./sw.js').then(function () {
-        return navigator.serviceWorker.ready;
-    }).then(function (reg) {
-        log('Service worker ready.');
-        if (action === 'unsubscribe') {
-            log('Unsubscribing...');
-            return reg.pushManager.getSubscription().then(function (sub) {
-                if (sub) return sub.unsubscribe();
-            }).then(function () {
-                log('Unsubscribed. Returning to the app...');
-                headingEl.textContent = 'Notifications turned off';
-                setTimeout(function () { location.href = toReturnUrl({ push_unsubscribed: '1' }); }, 800);
+function supabaseRequest(method, path, body) {
+    return fetch(SUPABASE_URL.replace(/\/$/, '') + '/rest/v1/' + path, {
+        method: method,
+        headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': 'Bearer ' + SUPABASE_KEY,
+            'Content-Type': 'application/json',
+            'Prefer': method === 'POST' ? 'resolution=merge-duplicates' : 'return=minimal',
+        },
+        body: body ? JSON.stringify(body) : undefined,
+    }).then(function (res) {
+        if (!res.ok) {
+            return res.text().then(function (t) {
+                throw new Error('Supabase ' + method + ' ' + path + ' failed (' + res.status + '): ' + t);
             });
         }
-        log('Requesting notification permission...');
-        return Notification.requestPermission().then(function (perm) {
-            log('Permission: ' + perm);
-            if (perm !== 'granted') {
-                headingEl.textContent = 'Permission not granted';
-                setTimeout(function () {
-                    location.href = toReturnUrl({ push_error: 'Notification permission was not granted.' });
-                }, 2000);
+        return res;
+    });
+}
+
+if (!SUPABASE_URL || !SUPABASE_KEY || !USERNAME) {
+    setStatus('Missing required information — please go back and try the button again.');
+} else if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    setStatus('This browser doesn\'t support push notifications.');
+    goBack(2000);
+} else if (ACTION === 'unsubscribe') {
+    setStatus('Turning off notifications on this device…');
+    navigator.serviceWorker.getRegistration().then(function (reg) {
+        if (!reg) { return null; }
+        return reg.pushManager.getSubscription();
+    }).then(function (sub) {
+        if (!sub) { return null; }
+        var endpoint = sub.endpoint;
+        return sub.unsubscribe().then(function () {
+            return supabaseRequest('DELETE', 'push_subscriptions?endpoint=eq.' + encodeURIComponent(endpoint));
+        });
+    }).then(function () {
+        setStatus('✅ Notifications turned off on this device.');
+        goBack();
+    }).catch(function (err) {
+        console.error(err);
+        setStatus('Couldn\'t turn off notifications: ' + err.message);
+        goBack(2500);
+    });
+} else if (ACTION === 'subscribe') {
+    if (!VAPID_PUBLIC_KEY) {
+        setStatus('Push notifications aren\'t fully configured — missing VAPID key.');
+        goBack(2000);
+    } else {
+        setStatus('Requesting notification permission…');
+        Notification.requestPermission().then(function (permission) {
+            if (permission !== 'granted') {
+                setStatus('Permission not granted — you can try again anytime from Profile.');
+                goBack(2000);
                 return;
             }
-            log('Subscribing...');
-            return reg.pushManager.subscribe({
-                userVisibleOnly: true,
-                applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+            setStatus('Setting up this device…');
+            return navigator.serviceWorker.register('/app/static/sw.js').then(function (reg) {
+                return reg.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+                });
             }).then(function (sub) {
-                log('Subscribed! Returning to the app...');
-                headingEl.textContent = 'Push notifications enabled!';
-                var raw = sub.toJSON();
-                setTimeout(function () {
-                    location.href = toReturnUrl({
-                        push_endpoint: raw.endpoint,
-                        push_p256dh: raw.keys.p256dh,
-                        push_auth: raw.keys.auth,
-                    });
-                }, 800);
+                var subJson = sub.toJSON();
+                return supabaseRequest('POST', 'push_subscriptions', {
+                    username: USERNAME,
+                    endpoint: subJson.endpoint,
+                    p256dh_key: subJson.keys.p256dh,
+                    auth_key: subJson.keys.auth,
+                });
+            }).then(function () {
+                setStatus('✅ Notifications enabled on this device.');
+                goBack();
             });
+        }).catch(function (err) {
+            console.error(err);
+            setStatus('Couldn\'t enable notifications: ' + err.message);
+            goBack(2500);
         });
-    }).catch(function (e) {
-        log('ERROR: ' + (e && e.message || e));
-        headingEl.textContent = 'Something went wrong';
-        setTimeout(function () {
-            location.href = toReturnUrl({ push_error: String(e && e.message || e) });
-        }, 3000);
-    });
+    }
+} else {
+    setStatus('Unknown request — please go back and try again.');
+    goBack(1500);
 }
 </script>
 </body>
