@@ -21,7 +21,6 @@ jobs:
     # error: "Resource not accessible by integration", HTTP 403).
     # This grants exactly the one extra permission needed — nothing
     # broader than that.
-    # retry 
     permissions:
       contents: write
     defaults:
@@ -40,7 +39,19 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          # 17 -> 21: a real, confirmed root cause — the InAppBrowser
+          # plugin pulls in bcprov-jdk18on (a BouncyCastle crypto
+          # library) as a transitive dependency, and that jar's
+          # multi-release class files target Java 21. Gradle's own
+          # internal jar-instrumentation step chokes trying to process
+          # those under JDK 17 ("Failed to create Jar file... /jars-9/
+          # .../bcprov-jdk18on-1.79.jar"). This is a widely-documented
+          # issue hitting many unrelated Android/Capacitor/Flutter
+          # projects that happen to pull in the same library — not
+          # something specific to this project's own code. Running
+          # the build itself on JDK 21 (separate from whatever the
+          # built Android app's own min/target SDK is) resolves it.
+          java-version: '21'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
