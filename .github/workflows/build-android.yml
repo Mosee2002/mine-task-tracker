@@ -83,6 +83,23 @@ jobs:
       - name: Raise minSdkVersion for InAppBrowser
         run: sed -i 's/minSdkVersion = [0-9]*/minSdkVersion = 26/' android/variables.gradle
 
+      # THE REAL FIX for the "Failed to create Jar file
+      # ...bcprov-jdk18on-1.79.jar" error that JDK 21 did NOT
+      # actually fix (confirmed via live testing, both locally and
+      # here). The true cause: Jetifier — Android's tool for
+      # converting old support-library dependencies to AndroidX —
+      # bundles its own embedded, older bytecode parser that throws
+      # "Unsupported class file major version 65" (Java 21's class
+      # file version) when it encounters bcprov-jdk18on, completely
+      # independent of whatever JDK Gradle itself runs under. This
+      # project is already fully AndroidX-native (see
+      # android.useAndroidX=true already in this same file) — nothing
+      # in the dependency tree still needs converting, so Jetifier
+      # has no actual job to do here and can simply be turned off,
+      # sidestepping the crash entirely rather than working around it.
+      - name: Disable Jetifier (project is already AndroidX-native)
+        run: echo "android.enableJetifier=false" >> android/gradle.properties
+
       # google-services.json is a real credential tied to your Firebase
       # project — never committed to the repo directly. Stored instead
       # as a GitHub secret (base64-encoded text, since secrets are
