@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MWDTS</title>
+<style>
+  body {
+    margin: 0; padding: 0; height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: #0f1117; color: #e2e8f0; font-family: -apple-system, sans-serif;
+  }
+  #status { margin-top: 16px; font-size: 14px; color: #94a3b8; }
+  .spinner {
+    width: 36px; height: 36px; border: 3px solid #334155; border-top-color: #3b82f6;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <div class="spinner"></div>
+  <div id="status">Starting MWDTS…</div>
+
+<script>
+// ============================================================
+// This is the ONLY page that ever runs as genuinely local native
+// app code — it exists purely to get a push notification token
+// (via Capacitor's native plugin bridge, which has none of the
+// sandboxing restrictions that blocked every approach tried inside
+// Streamlit itself) BEFORE handing off to the real app. Once that's
+// done, this page's job is finished — everything else the person
+// actually uses is the real, unmodified Streamlit app, loaded
+// fresh in the same WebView.
+//
+// EDIT THIS before building: your deployed app's URL.
+// ============================================================
+var APP_URL = "https://mine-task-tracker-ljc2ppwmwiwtfqwykn2by5.streamlit.app";
+
+var statusEl = document.getElementById('status');
+function setStatus(msg) { statusEl.textContent = msg; }
+
+function goToApp(fcmToken) {
+    var url = APP_URL + "/?app_source=android";
+    if (fcmToken) {
+        url += "&fcm_token=" + encodeURIComponent(fcmToken);
+    }
+    // Reverted back to plain navigation, relying on the native
+    // MainActivity.java WebViewClient override (see native-patches/)
+    // to keep this in-app. Correction to an earlier comment here:
+    // that override was never actually confirmed NOT to work — every
+    // build after it was added also failed at an unrelated Gradle
+    // configuration bug specific to @capacitor/inappbrowser itself
+    // (a persistent "Failed to create Jar file...bcprov-jdk18on"
+    // error that survived multiple different fix attempts). That
+    // plugin has been removed entirely rather than continuing to
+    // fight its build-time issue, which finally lets the native fix
+    // get tested on a real, successfully-built APK for the first time.
+    window.location.href = url;
+}
+
+// If this page is ever opened outside the native shell (e.g. a
+// developer testing it directly in a desktop browser), there is no
+// Capacitor bridge and no push token to get — go straight to the
+// app rather than getting stuck here forever.
+if (typeof Capacitor === 'undefined' || !Capacitor.isNativePlatform || !Capacitor.isNativePlatform()) {
+    setStatus('Opening MWDTS…');
+    goToApp(null);
+} else {
+    var PushNotifications = Capacitor.Plugins.PushNotifications;
+
+    PushNotifications.addListener('registration', function (token) {
+        setStatus('Push notifications ready. Opening MWDTS…');
+        goToApp(token.value);
+    });
+
+    PushNotifications.addListener('registrationError', function (err) {
+        // A failure to register for push must never block someone from
+        // actually using the app — proceed without a token. They simply
+        // won't get push notifications on this device until it's
+        // resolved (e.g. re-granting permission in phone Settings).
+        console.error('Push registration failed:', err);
+        setStatus('Opening MWDTS…');
+        goToApp(null);
+    });
+
+    setStatus('Requesting notification permission…');
+    PushNotifications.checkPermissions().then(function (result) {
+        if (result.receive === 'granted') {
+            return PushNotifications.register();
+        }
+        return PushNotifications.requestPermissions().then(function (result2) {
+            if (result2.receive === 'granted') {
+                return PushNotifications.register();
+            }
+            // Permission denied — proceed without push, same reasoning
+            // as registrationError above.
+            setStatus('Opening MWDTS…');
+            goToApp(null);
+        });
+    }).catch(function (err) {
+        console.error('Push permission check failed:', err);
+        setStatus('Opening MWDTS…');
+        goToApp(null);
+    });
+
+    // Safety net: if registration hasn't resolved either way within
+    // 8 seconds (a slow/flaky network, a Play Services hiccup), stop
+    // waiting and open the app anyway — a delayed push setup is far
+    // better than someone staring at a loading spinner indefinitely,
+    // which is exactly the failure mode this whole project spent a
+    // full day fighting inside Streamlit itself.
+    setTimeout(function () {
+        if (document.getElementById('status').textContent.indexOf('Opening') === -1) {
+            setStatus('Opening MWDTS…');
+            goToApp(null);
+        }
+    }, 8000);
+}
+</script>
+</body>
+</html>
