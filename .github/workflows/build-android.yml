@@ -51,6 +51,7 @@ jobs:
           # something specific to this project's own code. Running
           # the build itself on JDK 21 (separate from whatever the
           # built Android app's own min/target SDK is) resolves it.
+          #retry
           java-version: '21'
 
       - name: Set up Android SDK
