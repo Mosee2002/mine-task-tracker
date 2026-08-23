@@ -1,0 +1,168 @@
+name: Build Android APK
+
+# Builds the MWDTS Android app entirely on GitHub's own servers — no
+# Android Studio, no local build tools needed anywhere. Triggered
+# either automatically (pushing changes to this folder) or manually
+# from the Actions tab in the GitHub app (the same "Run workflow"
+# button already used for the weather-check automation).
+"on":
+  push:
+    paths:
+      - 'mwdts-capacitor/**'
+      - '.github/workflows/build-android.yml'
+  workflow_dispatch:   # manual "Run workflow" button
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Explicitly needed: newer GitHub repos default the automatic
+    # GITHUB_TOKEN to read-only permissions, which blocks the release
+    # step from creating a new Release (confirmed by the actual build
+    # error: "Resource not accessible by integration", HTTP 403).
+    # This grants exactly the one extra permission needed — nothing
+    # broader than that.
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: mwdts-capacitor
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Set up Java (needed to build Android apps)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          # 17 -> 21: a real, confirmed root cause — the InAppBrowser
+          # plugin pulls in bcprov-jdk18on (a BouncyCastle crypto
+          # library) as a transitive dependency, and that jar's
+          # multi-release class files target Java 21. Gradle's own
+          # internal jar-instrumentation step chokes trying to process
+          # those under JDK 17 ("Failed to create Jar file... /jars-9/
+          # .../bcprov-jdk18on-1.79.jar"). This is a widely-documented
+          # issue hitting many unrelated Android/Capacitor/Flutter
+          # projects that happen to pull in the same library — not
+          # something specific to this project's own code. Running
+          # the build itself on JDK 21 (separate from whatever the
+          # built Android app's own min/target SDK is) resolves it.
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install project dependencies
+        run: npm install
+
+      - name: Add the Android platform
+        run: npx cap add android
+
+      # androidx.biometric is Android's own first-party library for
+      # fingerprint/face unlock — used directly in native Java code
+      # (MainActivity.java) rather than through a third-party
+      # Capacitor plugin, specifically to avoid repeating the
+      # @capacitor/inappbrowser saga (a third-party plugin's own
+      # bundled dependency caused a persistent, hard-to-diagnose
+      # Gradle build failure). androidx.biometric is a standard,
+      # widely-used AndroidX artifact with none of that risk profile.
+      # Inserted after the known, stable "implementation project(
+      # ':capacitor-android')" line that every Capacitor Android
+      # project generates, rather than assuming a fixed line number.
+      - name: Add biometric library dependency
+        run: sed -i "/implementation project(':capacitor-android')/a\\    implementation 'androidx.biometric:biometric:1.1.0'" android/app/build.gradle
+
+      # Reads assets/icon.png (a single square source image — at least
+      # 1024x1024, no transparency needed) and auto-generates every icon
+      # size/density Android actually requires (mipmap-mdpi through
+      # -xxxhdpi, plus the modern adaptive-icon layers), replacing
+      # Capacitor's default placeholder icon. Must run AFTER "cap add
+      # android" (needs the android/ folder to already exist) and
+      # BEFORE "cap sync android" (so the generated files are in place
+      # when sync copies/registers everything).
+      - name: Generate app icon from source image
+        run: npx @capacitor/assets generate --android
+
+      # Applies BOTH native customizations now living in this one file
+      # (see native-patches/MainActivity.java for full explanations of
+      # each): (1) the in-app navigation fix — @capacitor/inappbrowser
+      # was removed entirely after its own bundled dependency caused a
+      # persistent Gradle build failure, so this native WebViewClient
+      # override is the only fix for that now; (2) a biometric lock
+      # screen that re-gates the app on every resume from background,
+      # using androidx.biometric directly (see the dependency step
+      # above). Must happen AFTER "cap add android" generates the
+      # standard project, since that step would otherwise overwrite
+      # this file with Capacitor's unmodified default.
+      - name: Apply native fixes (navigation + biometric lock)
+        run: cp native-patches/MainActivity.java android/app/src/main/java/com/gmc/mwdts/MainActivity.java
+
+      # Home screen widget — a plain tap-to-open shortcut, not a
+      # live-data widget (see MwdtsWidgetProvider.java's own comment
+      # for why: genuinely live data would require embedding a
+      # Supabase URL + API key in the shipped APK, a real security
+      # tradeoff that was raised explicitly and declined). Needs three
+      # files copied into the freshly-generated project (the provider
+      # class, its layout, and its metadata) plus a manifest patch to
+      # register it — Android has no other way to discover a widget
+      # provider.
+      - name: Add home screen widget files
+        run: |
+          mkdir -p android/app/src/main/res/xml
+          mkdir -p android/app/src/main/res/layout
+          cp native-patches/MwdtsWidgetProvider.java android/app/src/main/java/com/gmc/mwdts/MwdtsWidgetProvider.java
+          cp native-patches/widget_mwdts.xml android/app/src/main/res/layout/widget_mwdts.xml
+          cp native-patches/widget_info.xml android/app/src/main/res/xml/widget_info.xml
+
+      # Registers the widget provider as a <receiver> — this is the
+      # ONLY way Android discovers a widget exists at all; without
+      # this, the provider class above would just be dead code the
+      # system never calls. exported="true" is correct and required
+      # here specifically (not a security laxity): the home screen
+      # launcher is a DIFFERENT app/process, and it needs to be able
+      # to send this receiver the APPWIDGET_UPDATE broadcast, which
+      # Android 12+ blocks for any component that isn't explicitly
+      # exported. Inserted before the closing </application> tag
+      # rather than assuming a fixed line number, since Capacitor's
+      # generated manifest can vary with which plugins are installed.
+      - name: Register widget in AndroidManifest.xml
+        run: |
+          sed -i 's#</application>#    <receiver android:name=".MwdtsWidgetProvider" android:exported="true">\n        <intent-filter>\n            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />\n        </intent-filter>\n        <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info" />\n    </receiver>\n</application>#' android/app/src/main/AndroidManifest.xml
+
+      # google-services.json is a real credential tied to your Firebase
+      # project — never committed to the repo directly. Stored instead
+      # as a GitHub secret (base64-encoded text, since secrets are
+      # plain text fields) and decoded back into a real file right
+      # here, only inside this temporary cloud build — it never
+      # touches your repo's actual file history.
+      - name: Place Firebase config
+        run: echo "${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}" | base64 -d > android/app/google-services.json
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Build the debug APK
+        working-directory: mwdts-capacitor/android
+        run: chmod +x gradlew && ./gradlew assembleDebug
+
+      # Debug APKs are fine for real use (Gradle auto-signs them with
+      # a built-in debug key) — a proper release-signed build is a
+      # later upgrade once you're comfortable with this pipeline, not
+      # something needed to actually install and use the app today.
+      - name: Upload the APK as a downloadable release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-build-${{ github.run_number }}
+          name: MWDTS Android — build #${{ github.run_number }}
+          files: mwdts-capacitor/android/app/build/outputs/apk/debug/app-debug.apk
+          body: |
+            Automatically built by GitHub Actions — no Android Studio involved.
+            Download `app-debug.apk` below, open it on your Android phone, and
+            tap install (you may need to allow "Install from unknown sources"
+            the first time — Android will prompt you for this automatically).
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
