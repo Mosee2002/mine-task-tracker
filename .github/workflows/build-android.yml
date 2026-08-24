@@ -62,6 +62,22 @@ jobs:
       - name: Add the Android platform
         run: npx cap add android
 
+      # Embeds this build's own GitHub Actions run number as the
+      # app's versionCode — matching EXACTLY the same number already
+      # used in this workflow's own release tag ("android-build-N",
+      # see the final release step below), rather than inventing a
+      # separate numbering scheme. This is what the in-app update
+      # check (see www/index.html) compares against the latest
+      # release's tag to know whether a newer build exists. Matches
+      # on the "versionCode <number>" pattern itself, not a specific
+      # surrounding line, learning from the exact mistake in the
+      # biometric dependency step below (an anchor-line match that
+      # silently matched nothing) — "versionCode" followed by a
+      # number is a REQUIRED field Android itself enforces, so this
+      # pattern is guaranteed to exist in every generated build.gradle.
+      - name: Set app version
+        run: sed -i "s/versionCode [0-9]*/versionCode ${{ github.run_number }}/" android/app/build.gradle
+
       # androidx.biometric is Android's own first-party library for
       # fingerprint/face unlock — used directly in native Java code
       # (MainActivity.java) rather than through a third-party
@@ -70,11 +86,18 @@ jobs:
       # bundled dependency caused a persistent, hard-to-diagnose
       # Gradle build failure). androidx.biometric is a standard,
       # widely-used AndroidX artifact with none of that risk profile.
-      # Inserted after the known, stable "implementation project(
-      # ':capacitor-android')" line that every Capacitor Android
-      # project generates, rather than assuming a fixed line number.
+      #
+      # CONFIRMED BUG in an earlier version of this step: matching
+      # against "implementation project(':capacitor-android')" as the
+      # insertion anchor silently matched nothing (sed does not error
+      # when a pattern isn't found — it just does nothing), so the
+      # dependency was never actually added, and the build failed with
+      # "package androidx.biometric does not exist". Fixed by matching
+      # the plain "dependencies {" opening line instead, which every
+      # Gradle file is guaranteed to contain, ending the guess-the-
+      # exact-anchor-text problem entirely.
       - name: Add biometric library dependency
-        run: sed -i "/implementation project(':capacitor-android')/a\\    implementation 'androidx.biometric:biometric:1.1.0'" android/app/build.gradle
+        run: sed -i "0,/dependencies {/s//dependencies {\n    implementation 'androidx.biometric:biometric:1.1.0'/" android/app/build.gradle
 
       # Reads assets/icon.png (a single square source image — at least
       # 1024x1024, no transparency needed) and auto-generates every icon
