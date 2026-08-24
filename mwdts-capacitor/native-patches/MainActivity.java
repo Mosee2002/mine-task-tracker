@@ -2,11 +2,19 @@ package com.gmc.mwdts;
 
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
+import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
@@ -35,6 +43,22 @@ public class MainActivity extends BridgeActivity {
     // has even logged in once would be a pointless extra step, not a
     // real security boundary.
     private boolean hasResumedOnce = false;
+
+    // Tracks a first back-press with nothing left to go back to, for
+    // the double-press-to-exit pattern below.
+    private boolean backPressedOnce = false;
+
+    // Shown instead of a blank page or Android's own ugly default
+    // error page whenever the WebView genuinely can't reach MWDTS at
+    // all (no signal, the server is down, or — a real, documented
+    // behavior on Streamlit Community Cloud's free tier — the app
+    // has gone to sleep after a period of inactivity and needs a
+    // moment to wake up). The offline-mode work already covers
+    // "connected but slow/unreliable"; this covers "not connected to
+    // the app at all", which is a real, separate gap that existed
+    // before today with no native-side handling at all.
+    private View errorOverlay;
+    private String lastFailedUrl;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -69,6 +93,19 @@ public class MainActivity extends BridgeActivity {
                 view.loadUrl(request.getUrl().toString());
                 return true;
             }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                super.onReceivedError(view, request, error);
+                // isForMainFrame() matters here — without it, a failed
+                // sub-resource (one missing font or analytics script,
+                // says nothing about whether MWDTS itself is reachable)
+                // would wrongly trigger this full-page fallback too.
+                if (request.isForMainFrame()) {
+                    lastFailedUrl = request.getUrl().toString();
+                    errorOverlay.setVisibility(View.VISIBLE);
+                }
+            }
         });
 
         lockOverlay = new View(this);
@@ -76,6 +113,91 @@ public class MainActivity extends BridgeActivity {
         lockOverlay.setVisibility(View.GONE);
         addContentView(lockOverlay, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        errorOverlay = buildErrorOverlay();
+        errorOverlay.setVisibility(View.GONE);
+        addContentView(errorOverlay, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private View buildErrorOverlay() {
+        LinearLayout layout = new LinearLayout(this);
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setGravity(Gravity.CENTER);
+        layout.setBackgroundColor(Color.parseColor("#0f1117"));
+        int pad = (int) (24 * getResources().getDisplayMetrics().density);
+        layout.setPadding(pad, pad, pad, pad);
+
+        TextView title = new TextView(this);
+        title.setText("Can't reach MWDTS");
+        title.setTextColor(Color.parseColor("#e2e8f0"));
+        title.setTextSize(18);
+        title.setGravity(Gravity.CENTER);
+
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Check your connection and try again. If the app was inactive for a "
+                + "while, it may just need a moment to wake up.");
+        subtitle.setTextColor(Color.parseColor("#94a3b8"));
+        subtitle.setTextSize(14);
+        subtitle.setGravity(Gravity.CENTER);
+        int subtitleTopMargin = (int) (8 * getResources().getDisplayMetrics().density);
+        LinearLayout.LayoutParams subtitleParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        subtitleParams.topMargin = subtitleTopMargin;
+        subtitle.setLayoutParams(subtitleParams);
+
+        Button retryButton = new Button(this);
+        retryButton.setText("Retry");
+        int buttonTopMargin = (int) (20 * getResources().getDisplayMetrics().density);
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        buttonParams.topMargin = buttonTopMargin;
+        retryButton.setLayoutParams(buttonParams);
+        retryButton.setOnClickListener(v -> {
+            errorOverlay.setVisibility(View.GONE);
+            WebView webView = this.bridge.getWebView();
+            if (lastFailedUrl != null) {
+                webView.loadUrl(lastFailedUrl);
+            } else {
+                webView.reload();
+            }
+        });
+
+        layout.addView(title);
+        layout.addView(subtitle);
+        layout.addView(retryButton);
+        return layout;
+    }
+
+    // By default, Android's hardware/gesture back button exits the
+    // whole app the instant the WebView has no history entry to go
+    // back to — and since MWDTS is a Streamlit app (a single reactive
+    // page that switches views via internal state, not traditional
+    // per-page navigation), the WebView often has little or no
+    // meaningful back history at all, so this was happening on
+    // nearly every back press, not just at a natural "top level".
+    // Fixed with the two standard, well-understood pieces: go back
+    // in WebView history when there genuinely is somewhere to go,
+    // and otherwise require a second press within 2 seconds before
+    // actually exiting (with a Toast explaining why), rather than
+    // exiting instantly on a single accidental tap. Uses only core
+    // android.webkit/android.widget/android.os classes — no new
+    // Gradle dependency, deliberately, after the androidx.biometric
+    // dependency mistake in this same file cost a full failed build.
+    @Override
+    public void onBackPressed() {
+        WebView webView = this.bridge.getWebView();
+        if (webView.canGoBack()) {
+            webView.goBack();
+            return;
+        }
+        if (backPressedOnce) {
+            super.onBackPressed();
+            return;
+        }
+        backPressedOnce = true;
+        Toast.makeText(this, "Press back again to exit", Toast.LENGTH_SHORT).show();
+        new Handler(Looper.getMainLooper()).postDelayed(() -> backPressedOnce = false, 2000);
     }
 
     @Override
@@ -136,4 +258,4 @@ public class MainActivity extends BridgeActivity {
 
         biometricPrompt.authenticate(promptInfo);
     }
-}
+                    }
