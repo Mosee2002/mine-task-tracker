@@ -16631,6 +16631,28 @@ if st.query_params.get("fcm_token"):
     else:
         st.session_state["_pending_fcm_token"] = _fcm_tok
 
+# Captures ?update_available=android-build-N from the native app's
+# bootstrap page (see the Capacitor project's www/index.html) — set
+# there only when a newer GitHub release genuinely exists than the
+# currently-installed build. Stored in session_state (not just shown
+# once from the query param directly) so the banner below persists
+# across reruns until the person dismisses it, rather than flashing
+# once and disappearing the instant the query param is cleared.
+if st.query_params.get("update_available"):
+    st.session_state["_update_available_tag"] = st.query_params.get("update_available")
+    del st.query_params["update_available"]
+
+if st.session_state.get("_update_available_tag") and not st.session_state.get("_update_banner_dismissed"):
+    _update_col1, _update_col2 = st.columns([6, 1])
+    with _update_col1:
+        st.info(f"📱 A newer version of the app is available "
+                f"({esc(st.session_state['_update_available_tag'])}). "
+                f"[Download it here](https://github.com/mosee2002/mine-task-tracker/releases/latest).")
+    with _update_col2:
+        if st.button("✕", key="_dismiss_update_banner"):
+            st.session_state["_update_banner_dismissed"] = True
+            st.rerun()
+
 # Completes the Google login button's iframe-breakout dance (see
 # google_oauth_login() above): once the browser has reloaded — either
 # at the top level (broken out of the wrapper site's iframe) or in
@@ -23325,6 +23347,7 @@ def page_assets():
             orientation="horizontal",
             default_index=0,
             styles=menu_styles(),
+            key="asset_sub_menu",
         )
     else:
         asset_sub = "All Assets"
