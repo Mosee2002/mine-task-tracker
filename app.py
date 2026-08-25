@@ -3582,7 +3582,8 @@ def log_audit(user_name, action, details=None):
 # -------------------------------
 # 6. EMAIL NOTIFICATION
 # -------------------------------
-def send_email_notification(recipient, subject, body_html, _return_error=False):
+def send_email_notification(recipient, subject, body_html, _return_error=False,
+                            attachment_bytes=None, attachment_filename=None):
     """Send an email. Returns True/False, or (bool, error_str) if
     _return_error=True — used by the Owner Console health check so a
     misconfiguration shows the actual SMTP error instead of a bare
@@ -3593,6 +3594,10 @@ def send_email_notification(recipient, subject, body_html, _return_error=False):
     site email gateways strip or quarantine HTML-only mail more
     aggressively, and a plain fallback still gets read on a phone with
     a broken mail-app renderer.
+
+    attachment_bytes/attachment_filename are both optional — pass
+    both together to attach a file (e.g. a completion report PDF),
+    or leave both None for a plain email exactly like before.
     """
     if not recipient:
         return (False, "No recipient") if _return_error else False
@@ -3607,17 +3612,33 @@ def send_email_notification(recipient, subject, body_html, _return_error=False):
         import smtplib
         from email.mime.text import MIMEText
         from email.mime.multipart import MIMEMultipart
+        from email.mime.application import MIMEApplication
         plain_text = body_html
         plain_text = re.sub(r"<br\s*/?>", "\n", plain_text, flags=re.I)
         plain_text = re.sub(r"</p>", "\n\n", plain_text, flags=re.I)
         plain_text = re.sub(r"<[^>]+>", "", plain_text)
         plain_text = re.sub(r"\n{3,}", "\n\n", plain_text).strip()
-        msg = MIMEMultipart("alternative")
+        # "mixed" (not "alternative") at the outer level when there's
+        # an attachment — alternative means "pick ONE of these parts",
+        # which is correct for plain-vs-HTML but wrong for attaching a
+        # file alongside them; mixed with an inner alternative part is
+        # the standard structure for "body + attachment" mail.
+        if attachment_bytes and attachment_filename:
+            msg = MIMEMultipart("mixed")
+            body_part = MIMEMultipart("alternative")
+            body_part.attach(MIMEText(plain_text, 'plain'))
+            body_part.attach(MIMEText(body_html, 'html'))
+            msg.attach(body_part)
+            pdf_part = MIMEApplication(attachment_bytes, _subtype="pdf")
+            pdf_part.add_header("Content-Disposition", "attachment", filename=attachment_filename)
+            msg.attach(pdf_part)
+        else:
+            msg = MIMEMultipart("alternative")
+            msg.attach(MIMEText(plain_text, 'plain'))
+            msg.attach(MIMEText(body_html, 'html'))
         msg['From'] = smtp_from
         msg['To'] = recipient
         msg['Subject'] = subject
-        msg.attach(MIMEText(plain_text, 'plain'))
-        msg.attach(MIMEText(body_html, 'html'))
         with smtplib.SMTP(smtp_server, int(smtp_port), timeout=10) as server:
             server.starttls()
             server.login(smtp_user, smtp_password)
@@ -5809,6 +5830,13 @@ def update_task(task_id, updates, updated_by):
             # Reopened or moved backwards — the old completion is no
             # longer true and must not linger in the metrics.
             updates["completed_at"] = None
+    # Same reasoning: whoever is MAKING this specific assignment is
+    # who send_task_completion_email needs to reach later, at
+    # completion time — which can be a different session entirely,
+    # so it has to be stored on the task now, not just passed through
+    # to the assignment email as a one-off argument like before.
+    if "assigned_to" in updates and updates["assigned_to"] not in (None, "Unassigned"):
+        updates.setdefault("assigned_by", updated_by)
     if not SUPABASE_AVAILABLE:
         for t in st.session_state.get("tasks_memory", []):
             if t["id"] == task_id:
@@ -5840,6 +5868,13 @@ def update_task(task_id, updates, updated_by):
                     # notification failure must never look like the
                     # assignment itself failed.
                     log_error(str(e), endpoint="update_task:assign_email", details={"task_id": task_id})
+            if updates.get('status') == 'Complete':
+                try:
+                    send_task_completion_email(res.data[0], updated_by)
+                except Exception as e:
+                    # Same reasoning again — a notification failure
+                    # must never look like completing the job failed.
+                    log_error(str(e), endpoint="update_task:completion_email", details={"task_id": task_id})
             return True
         else:
             st.error("This task was updated by another user. Please refresh and try again.")
@@ -6094,6 +6129,68 @@ def send_notification(user_name, title, body, category=None):
         _fcm_sent = send_fcm_push_to_user(user_name, title, body)
         if not _fcm_sent:
             send_push_to_user(user_name, title, body)  # best-effort, real device push
+
+
+def send_broadcast_to_db(sender_name, sender_role, message):
+    """Real, shared replacement for the old st.session_state-based
+    broadcast (see PHASE 62 in schema_additions.sql for why that
+    version never actually reached anyone but the sender). Writes to
+    the broadcasts table AND proactively pushes to every active,
+    approved user — a broadcast that just sits in a table someone
+    might check later isn't meaningfully better than the old broken
+    version for anything time-sensitive, which is exactly the kind of
+    message this feature exists for.
+
+    Returns True/False for whether the broadcast itself was saved;
+    a failure notifying any individual recipient never affects this
+    return value or blocks the others — same reasoning as every other
+    best-effort notification loop in this file.
+    """
+    if not SUPABASE_AVAILABLE:
+        return False
+    try:
+        res = supabase.table("broadcasts").insert({
+            "sender_name": sender_name,
+            "sender_role": sender_role,
+            "message": message,
+        }).execute()
+        if not res.data:
+            return False
+    except Exception as e:
+        log_error(str(e), endpoint="send_broadcast_to_db")
+        return False
+
+    try:
+        _recipients = [u for u in fetch_all_users_from_db()
+                       if u.get("is_approved") and not u.get("is_suspended")
+                       and u.get("full_name") != sender_name]
+        for u in _recipients:
+            try:
+                send_notification(u["full_name"], f"📢 Broadcast from {sender_name}",
+                                  message, category="broadcast")
+            except Exception as e:
+                log_error(str(e), details={"recipient": u.get("full_name")},
+                         endpoint="send_broadcast_to_db:notify")
+    except Exception as e:
+        log_error(str(e), endpoint="send_broadcast_to_db:fetch_recipients")
+    return True
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_recent_broadcasts(limit=20):
+    """15s TTL for the same reason as fetch_task_activity above — a
+    broadcast feed genuinely benefits from staying fresh (it's meant
+    to be seen promptly), but isn't safety- or money-critical enough
+    to justify uncached reads on every single rerun."""
+    if not SUPABASE_AVAILABLE:
+        return []
+    try:
+        res = (supabase.table("broadcasts").select("*")
+              .order("created_at", desc=True).limit(limit).execute())
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_recent_broadcasts")
+        return []
 
 
 def send_grouped_notification(user_name, event_title, items, item_label_fn, category=None, max_listed=5):
@@ -7701,6 +7798,106 @@ def generate_decision_history_pdf(decisions):
                             topMargin=0.7*inch, bottomMargin=0.7*inch,
                             leftMargin=0.6*inch, rightMargin=0.6*inch,
                             title="MWDTS Access Decision Audit Trail")
+    doc.build(story)
+    return buf.getvalue()
+
+
+def generate_task_completion_pdf(task):
+    """One-page job completion report for a single task — attached to
+    the email sent to whoever assigned it (see send_task_completion_email
+    below). Same reportlab pattern as the other generators in this
+    file, scaled down to a single task's worth of detail rather than
+    a whole report. Returns PDF bytes, or None if reportlab isn't
+    available.
+    """
+    if not PDF_REPORT_AVAILABLE:
+        return None
+
+    NAVY = _rl_colors.HexColor("#001530")
+    GRAY = _rl_colors.HexColor("#475569")
+
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle("TcTitle", fontSize=18, leading=24,
+                              textColor=NAVY, fontName="Helvetica-Bold", spaceAfter=6))
+    styles.add(ParagraphStyle("TcSub", fontSize=10.5, leading=14,
+                              textColor=GRAY, fontName="Helvetica", spaceAfter=16))
+    styles.add(ParagraphStyle("TcH2", fontSize=12.5, leading=16,
+                              textColor=NAVY, fontName="Helvetica-Bold",
+                              spaceBefore=14, spaceAfter=6))
+    styles.add(ParagraphStyle("TcBody", fontSize=10, leading=14, spaceAfter=4))
+    styles.add(ParagraphStyle("TcCaption", fontSize=8, leading=10.5,
+                              textColor=GRAY, spaceAfter=6))
+
+    story = []
+    story.append(Paragraph(f"Job Completion Report — #{task.get('id')}", styles["TcTitle"]))
+    story.append(Paragraph(esc(task.get("title", "")), styles["TcSub"]))
+
+    def field_table(rows):
+        t = Table(rows, colWidths=[1.7*inch, 4.5*inch])
+        t.setStyle(TableStyle([
+            ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+            ("FONTSIZE", (0,0), (-1,-1), 9.5),
+            ("TEXTCOLOR", (0,0), (0,-1), NAVY),
+            ("GRID", (0,0), (-1,-1), 0.5, _rl_colors.HexColor("#d3dae6")),
+            ("ROWBACKGROUNDS", (0,0), (-1,-1), [_rl_colors.white, _rl_colors.HexColor("#f6f8fb")]),
+            ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+            ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ]))
+        return t
+
+    story.append(Paragraph("Job Details", styles["TcH2"]))
+    _labour_hours = task.get("labour_hours") or 0
+    _labour_rate = task.get("labour_rate") or 0
+    _labour_cost = _labour_hours * _labour_rate if (_labour_hours and _labour_rate) else None
+    story.append(field_table([
+        ["Location", task.get("location") or "—"],
+        ["Priority", task.get("priority") or "—"],
+        ["Work Type", task.get("work_type") or "—"],
+        ["Assigned To", task.get("assigned_to") or "—"],
+        ["Created", _fmt_log_time(task.get("created_at")) if task.get("created_at") else "—"],
+        ["Due", _fmt_log_time(task.get("due_date")) if task.get("due_date") else "—"],
+        ["Completed", _fmt_log_time(task.get("completed_at")) if task.get("completed_at") else "—"],
+        ["Labour", f"{_labour_hours} hr" + (f" — ${_labour_cost:,.2f}" if _labour_cost else "")],
+    ]))
+
+    if task.get("description"):
+        story.append(Paragraph("Description", styles["TcH2"]))
+        story.append(Paragraph(esc(task["description"]), styles["TcBody"]))
+
+    # Activity log — what actually happened during the job, not just
+    # the before/after snapshot the field table above shows. Genuinely
+    # useful for a supervisor who wasn't there to see it happen live.
+    try:
+        _activity = fetch_task_activity(task["id"])
+    except Exception:
+        _activity = []
+    if _activity:
+        story.append(Paragraph("Activity Log", styles["TcH2"]))
+        _act_rows = [["When", "By", "Action"]]
+        for a in _activity[-15:]:  # most recent slice — this is a summary, not the full raw log
+            _act_rows.append([
+                Paragraph(esc(_fmt_log_time(a.get("created_at"))), styles["TcCaption"]),
+                Paragraph(esc(a.get("user_name") or ""), styles["TcCaption"]),
+                Paragraph(esc(a.get("action") or ""), styles["TcCaption"]),
+            ])
+        _act_table = Table(_act_rows, colWidths=[1.7*inch, 1.5*inch, 3*inch], repeatRows=1)
+        _act_table.setStyle(TableStyle([
+            ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"), ("FONTSIZE", (0,0), (-1,-1), 8.5),
+            ("TEXTCOLOR", (0,0), (-1,0), _rl_colors.white), ("BACKGROUND", (0,0), (-1,0), NAVY),
+            ("GRID", (0,0), (-1,-1), 0.4, _rl_colors.HexColor("#d3dae6")),
+            ("ROWBACKGROUNDS", (0,1), (-1,-1), [_rl_colors.white, _rl_colors.HexColor("#f6f8fb")]),
+            ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4),
+        ]))
+        story.append(_act_table)
+
+    story.append(Spacer(1, 16))
+    story.append(Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}", styles["TcCaption"]))
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter,
+                            topMargin=0.7*inch, bottomMargin=0.7*inch,
+                            leftMargin=0.75*inch, rightMargin=0.75*inch,
+                            title=f"MWDTS Job Completion Report #{task.get('id')}")
     doc.build(story)
     return buf.getvalue()
 
@@ -11918,10 +12115,14 @@ def generate_worker_report_draft(username, full_name, report_date):
     Matches on BOTH username and full_name against a task's
     assigned_to, since tasks in this app store the assignee's display
     name, not their username — checking username alone would silently
-    miss every task this worker actually has.
+    miss every task this worker actually has. Also includes tasks
+    where this worker is a TEAM member (not just the primary
+    assignee) — see fetch_task_ids_for_team_member.
     """
     all_tasks = st.session_state.get("tasks", [])
-    my_tasks = [t2 for t2 in all_tasks if t2.get("assigned_to") in (username, full_name)]
+    _my_team_task_ids = fetch_task_ids_for_team_member(full_name)
+    my_tasks = [t2 for t2 in all_tasks if t2.get("assigned_to") in (username, full_name)
+               or t2.get("id") in _my_team_task_ids]
 
     completed = []
     incomplete = []
@@ -14900,7 +15101,8 @@ def search_records(query, role, full_name):
             # section itself uses (`if role == "worker":`) — not a capability
             # proxy, since tasks are gated by a direct role comparison, not
             # a capability in ROLE_PERMISSIONS
-            rows = [r for r in rows if r.get("assigned_to") == full_name]
+            _search_team_ids = fetch_task_ids_for_team_member(full_name)
+            rows = [r for r in rows if r.get("assigned_to") == full_name or r.get("id") in _search_team_ids]
         for r in rows:
             results.append(("Task", r.get("title"), r.get("location"), "Task Dashboard", r.get("id")))
     except Exception as e:
@@ -16024,8 +16226,6 @@ if 'chat_room' not in st.session_state:
     st.session_state.chat_room = "global"
 if 'chat_partner' not in st.session_state:
     st.session_state.chat_partner = None
-if 'broadcast_messages' not in st.session_state:
-    st.session_state.broadcast_messages = []
 if 'tasks_memory' not in st.session_state:
     st.session_state.tasks_memory = []
 if 'chat_messages_memory' not in st.session_state:
@@ -16870,6 +17070,27 @@ elif not st.session_state.authenticated:
             st.json(_wc_result)
         st.stop()
 
+    # Same reasoning and same token, one endpoint over — overdue task
+    # and expiring-permit escalations (run_escalations) had the exact
+    # same gap as weather checks: previously wired ONLY to "once per
+    # session, when a Superintendent happens to open the Task
+    # Dashboard" (still true as a same-session fallback — see that
+    # call site — but that's not a real substitute for this). An
+    # overdue task at 2am got zero alert to anyone until someone
+    # next happened to log in, which works directly against the
+    # whole point of this app (reducing downtime) — this is the fix.
+    if st.query_params.get("run_escalations") is not None:
+        _esc_token = st.query_params.get("token")
+        _esc_expected = _secret_get("AUTOMATION_TRIGGER_TOKEN")
+        if not _esc_expected:
+            st.json({"error": "AUTOMATION_TRIGGER_TOKEN not configured in secrets."})
+        elif _esc_token != _esc_expected:
+            st.json({"error": "Invalid or missing token."})
+        else:
+            _esc_result = run_escalations(fetch_all_tasks(), fetch_permits(), "automation_trigger")
+            st.json(_esc_result)
+        st.stop()
+
     render_logo_bar()
     render_poster_slideshow()
     render_ticker_bar()
@@ -17117,7 +17338,7 @@ elif not st.session_state.authenticated:
         with _rc1:
             reg_user = st.text_input("Choose Username", placeholder="Pick a unique username").strip().lower()
             reg_name = st.text_input("Full Name *", placeholder="Your full name")
-            reg_email = st.text_input("Work Email", placeholder="email@company.com",
+            reg_email = st.text_input("Work Email *", placeholder="email@company.com",
                                       value=st.session_state.pop("_verified_signup_email", ""))
             reg_pass = st.text_input("Set Password *", type="password",
                                      placeholder="8+ chars, upper, lower, digit, symbol")
@@ -17133,13 +17354,13 @@ elif not st.session_state.authenticated:
     if register_submitted:
         if not SUPABASE_AVAILABLE:
             st.error("Cannot register in demo mode — no database is connected.")
-        elif reg_user and reg_name and reg_pass:
+        elif reg_user and reg_name and reg_pass and reg_email:
             users = fetch_all_users_from_db()
             if any(u["username"].lower() == reg_user for u in users):
                 st.error("That username is taken. Please choose another.")
             else:
                 ok, err = register_user_to_db(
-                    reg_user, reg_name, reg_role, reg_pass, reg_email or None,
+                    reg_user, reg_name, reg_role, reg_pass, reg_email,
                     job_title=reg_title or None, department=reg_dept or None,
                     employee_id=reg_empid or None)
                 if ok:
@@ -17148,7 +17369,7 @@ elif not st.session_state.authenticated:
                 else:
                     st.error(err or "Registration failed.")
         else:
-            st.error("Username, full name, and password are required.")
+            st.error("Username, full name, email, and password are required.")
     st.stop()
 else:
     check_timeout()
@@ -17525,12 +17746,11 @@ with st.sidebar:
         broadcast_msg = st.text_area("Message to all Workers", placeholder="Type your broadcast...")
         if st.button("📤 Send Broadcast", use_container_width=True):
             if broadcast_msg:
-                st.session_state.broadcast_messages.append({
-                    "sender": full_name,
-                    "role": user['role'],
-                    "message": broadcast_msg,
-                    "timestamp": datetime.now().strftime("%H:%M")
-                })
+                if send_broadcast_to_db(full_name, user['role'], broadcast_msg):
+                    fetch_recent_broadcasts.clear()
+                    st.success("Broadcast sent.")
+                else:
+                    st.error("Couldn't send the broadcast — check the error log in Owner Console.")
                 log_audit(full_name, "broadcast", {"message": broadcast_msg[:50]})
                 all_users = fetch_all_users_from_db()
                 worker_emails = [u.get('email') for u in all_users if u['role'].strip().lower() == 'worker' and u.get('email')]
@@ -20095,6 +20315,151 @@ def send_task_assigned_email(task_id, task_title, task_location, assigned_to_ful
     </p>
     """
     return send_email_notification(email, subject, body_html)
+
+
+def send_task_completion_email(task, completed_by):
+    """Fires when a task's status becomes Complete via update_task.
+    Goes to whoever ASSIGNED this specific task (task['assigned_by'],
+    stored at assignment time — see update_task) rather than the
+    broader site-leadership group send_task_created_email uses, since
+    a completion report is naturally addressed to the person who
+    handed the job out, not a general broadcast. Does nothing (not an
+    error) if the task predates assigned_by being tracked, if that
+    person has no email on file, or if reportlab isn't installed —
+    in the last case the email still sends, just without the PDF,
+    rather than losing the notification entirely over a missing
+    optional library."""
+    assigned_by = task.get("assigned_by")
+    if not assigned_by:
+        return False
+    user_record = next((u for u in fetch_all_users_from_db()
+                        if u.get("username") == assigned_by
+                        or u.get("full_name") == assigned_by), None)
+    if not user_record or not user_record.get("email"):
+        return False
+    email = user_record["email"]
+    if str(email).endswith("@mwdts.internal"):
+        return False
+    subject = f"✅ Job Completed — #{task.get('id')}: {task.get('title', '')}"
+    body_html = f"""
+    <h2>Job Completed</h2>
+    <p><strong>#{task.get('id')}: {esc(task.get('title', ''))}</strong></p>
+    <p>Location: {esc(task.get('location') or '—')}</p>
+    <p>Completed by: {esc(completed_by)}</p>
+    <p style="color:#94a3b8; font-size:0.85em;">
+        Full job details, activity log, and labour cost are in the attached PDF.
+        Open MWDTS → Task Dashboard for the live record.
+    </p>
+    """
+    pdf_bytes = None
+    try:
+        pdf_bytes = generate_task_completion_pdf(task)
+    except Exception as e:
+        log_error(str(e), endpoint="send_task_completion_email:pdf", details={"task_id": task.get("id")})
+    if pdf_bytes:
+        return send_email_notification(email, subject, body_html,
+            attachment_bytes=pdf_bytes,
+            attachment_filename=f"MWDTS_Job_{task.get('id')}_Completion.pdf")
+    return send_email_notification(email, subject, body_html)
+
+
+def fetch_task_team_members(task_id):
+    """Everyone assigned to this task IN ADDITION to the primary
+    assigned_to — see PHASE 63 in schema_additions.sql for why this
+    is a separate table rather than a change to assigned_to itself."""
+    if not SUPABASE_AVAILABLE:
+        return []
+    try:
+        res = (supabase.table("task_team_members").select("*")
+              .eq("task_id", task_id).order("added_at").execute())
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_task_team_members")
+        return []
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_task_ids_for_team_member(full_name):
+    """The reverse lookup of fetch_task_team_members — every task ID
+    this person is a team member on (not counting tasks where they're
+    only the primary assigned_to, which every "my tasks" filter
+    already checks separately). Used to make "My Assigned Tasks" and
+    similar worker-facing views include team assignments, not just
+    primary ones — without this, being added to a task's team
+    wouldn't actually make the task show up for that person anywhere,
+    which would make the whole feature pointless."""
+    if not SUPABASE_AVAILABLE or not full_name:
+        return set()
+    try:
+        res = (supabase.table("task_team_members").select("task_id")
+              .eq("full_name", full_name).execute())
+        return {r["task_id"] for r in (res.data or [])}
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_task_ids_for_team_member")
+        return set()
+
+
+def set_task_team_members(task_id, task_title, task_location, full_names, updated_by):
+    """Replaces this task's team-member list with exactly full_names
+    (the complete intended set, not a delta) — mirrors how the
+    existing single-assignee selectbox already works (pick the new
+    value, not "add one more"), so a supervisor removing someone from
+    the multiselect actually removes them rather than only ever being
+    able to add.
+
+    Notifies only people who are NEW to the team (weren't already on
+    it before this call) — re-notifying someone who's been on the
+    team for days every time the list is touched for an unrelated
+    reason would be noise, not signal. Silently drops the primary
+    assigned_to from full_names if present — they're already covered
+    by the existing single-assignee notification path, and a
+    duplicate "you've been assigned" alongside team notifications
+    would be repetitive.
+    """
+    if not SUPABASE_AVAILABLE:
+        return False
+    try:
+        _existing = {m["full_name"] for m in fetch_task_team_members(task_id)}
+        _primary = None
+        try:
+            _task_row = supabase.table("tasks").select("assigned_to").eq("id", task_id).execute()
+            _primary = (_task_row.data or [{}])[0].get("assigned_to")
+        except Exception as e:
+            log_error(str(e), endpoint="set_task_team_members:fetch_primary")
+        _target = {n for n in full_names if n and n != _primary}
+        _new_members = _target - _existing
+
+        supabase.table("task_team_members").delete().eq("task_id", task_id).execute()
+        if _target:
+            supabase.table("task_team_members").insert([
+                {"task_id": task_id, "full_name": n, "added_by": updated_by}
+                for n in _target
+            ]).execute()
+        log_audit(updated_by, "task_team_updated",
+                  {"task_id": task_id, "team": sorted(_target)})
+    except Exception as e:
+        log_error(str(e), details={"task_id": task_id}, endpoint="set_task_team_members")
+        return False
+
+    all_users = fetch_all_users_from_db()
+    for _member_name in _new_members:
+        try:
+            send_notification(_member_name, "Added to Task Team",
+                              f"You've been added to the team for #{task_id}: {task_title}.",
+                              category="task_assigned")
+        except Exception as e:
+            log_error(str(e), details={"member": _member_name}, endpoint="set_task_team_members:notify")
+        try:
+            _member_record = next((u for u in all_users if u.get("full_name") == _member_name), None)
+            _member_email = (_member_record or {}).get("email")
+            if _member_email and not str(_member_email).endswith("@mwdts.internal"):
+                send_email_notification(_member_email, f"👥 Added to Task Team — #{task_id}: {task_title}",
+                    f"<p>You've been added to the team for <strong>#{task_id}: {esc(task_title)}</strong>.</p>"
+                    f"<p>Location: {esc(task_location or '—')}</p>"
+                    f"<p>Added by: {esc(updated_by)}</p>")
+        except Exception as e:
+            log_error(str(e), details={"member": _member_name}, endpoint="set_task_team_members:email")
+    return True
 
 
 def page_electrical_overview():
@@ -23948,7 +24313,7 @@ if selected_section == "Task Dashboard":
     # alerts below — those are about the SITE, this is about the person
     # looking at the screen right now.
     _my_open_tasks = [t for t in st.session_state.tasks
-                       if t.get('assigned_to') == full_name
+                       if (t.get('assigned_to') == full_name or t.get('id') in fetch_task_ids_for_team_member(full_name))
                        and t.get('status') not in ("Completed", "Closed", "Cancelled")]
     _my_items_task_lookup = {t2['id']: t2 for t2 in st.session_state.tasks}
     _my_permits = [p for p in fetch_permits()
@@ -24159,10 +24524,12 @@ if selected_section == "Task Dashboard":
 
     if role == "worker":
         st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
-        if st.session_state.broadcast_messages:
+        _recent_broadcasts = fetch_recent_broadcasts(limit=5)
+        if _recent_broadcasts:
             st.info(t("task.info_latest_broadcasts"))
-            for msg in reversed(st.session_state.broadcast_messages[-5:]):
-                st.warning(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
+            for msg in _recent_broadcasts:
+                st.warning(f"**{msg['sender_name']}** ({msg.get('sender_role', '')}) at "
+                          f"{_fmt_log_time(msg.get('created_at'))}: {msg['message']}")
 
         worker_sub = option_menu(
             menu_title=None,
@@ -24174,7 +24541,9 @@ if selected_section == "Task Dashboard":
         )
 
         if worker_sub == "My Assigned Tasks":
-            my_tasks = [t for t in st.session_state.tasks if t['assigned_to'] == full_name]
+            _worker_team_ids = fetch_task_ids_for_team_member(full_name)
+            my_tasks = [t for t in st.session_state.tasks
+                       if t['assigned_to'] == full_name or t['id'] in _worker_team_ids]
             # Fetch permits ONCE for the whole loop instead of per task.
             _all_permits = fetch_permits() if any(t.get('loto') for t in my_tasks) else []
             # Same one-fetch-for-the-whole-loop pattern for linked JSAs —
@@ -24427,6 +24796,15 @@ if selected_section == "Task Dashboard":
                 new_assign = cols[0].selectbox("Assign to:", worker_names,
                                                index=worker_names.index(current_assign),
                                                key=f"assign_{task['id']}")
+                _team_options = [w for w in worker_names if w not in ("Unassigned", new_assign)]
+                _current_team = [m["full_name"] for m in fetch_task_team_members(task['id'])
+                                 if m["full_name"] in _team_options]
+                _new_team = st.multiselect("Team members (in addition to the assignee above)",
+                                           _team_options, default=_current_team,
+                                           key=f"team_{task['id']}")
+                if set(_new_team) != set(_current_team):
+                    set_task_team_members(task['id'], task['title'], task['location'], _new_team, full_name)
+                    st.rerun()
                 if new_assign != task['assigned_to']:
                     update_task(task['id'], {"assigned_to": new_assign}, full_name)
                     if task['status'] == "Unassigned" and new_assign != "Unassigned":
@@ -24656,9 +25034,10 @@ if selected_section == "Task Dashboard":
             ])
 
             st.markdown(f"### {t('task.hdr_recent_broadcasts')}")
-            if st.session_state.broadcast_messages:
-                for msg in reversed(st.session_state.broadcast_messages[-3:]):
-                    st.info(f"**{msg['sender']}** at {msg['timestamp']}: {msg['message']}")
+            _recent_broadcasts_s = fetch_recent_broadcasts(limit=3)
+            if _recent_broadcasts_s:
+                for msg in _recent_broadcasts_s:
+                    st.info(f"**{msg['sender_name']}** at {_fmt_log_time(msg.get('created_at'))}: {msg['message']}")
             else:
                 st.caption(t("task.caption_no_broadcasts"))
 
@@ -24699,6 +25078,15 @@ if selected_section == "Task Dashboard":
                 new_assign = cols[0].selectbox("Assign", worker_names,
                                                index=worker_names.index(current_assign),
                                                key=f"sup_assign_{task['id']}")
+                _team_options_s = [w for w in worker_names if w not in ("Unassigned", new_assign)]
+                _current_team_s = [m["full_name"] for m in fetch_task_team_members(task['id'])
+                                   if m["full_name"] in _team_options_s]
+                _new_team_s = st.multiselect("Team members (in addition to the assignee above)",
+                                             _team_options_s, default=_current_team_s,
+                                             key=f"sup_team_{task['id']}")
+                if set(_new_team_s) != set(_current_team_s):
+                    set_task_team_members(task['id'], task['title'], task['location'], _new_team_s, full_name)
+                    st.rerun()
                 if new_assign != task['assigned_to']:
                     update_task(task['id'], {"assigned_to": new_assign}, full_name)
                     if task['status'] == "Unassigned" and new_assign != "Unassigned":
@@ -24765,9 +25153,11 @@ if selected_section == "Task Dashboard":
 
         elif superintendent_sub == "Broadcast Log":
             st.markdown(f"### {t('task.hdr_all_broadcasts')}")
-            if st.session_state.broadcast_messages:
-                for msg in reversed(st.session_state.broadcast_messages):
-                    st.write(f"**{msg['sender']}** ({msg['role']}) at {msg['timestamp']}: {msg['message']}")
+            _all_broadcasts = fetch_recent_broadcasts(limit=100)
+            if _all_broadcasts:
+                for msg in _all_broadcasts:
+                    st.write(f"**{msg['sender_name']}** ({msg.get('sender_role', '')}) at "
+                            f"{_fmt_log_time(msg.get('created_at'))}: {msg['message']}")
             else:
                 st.info(t("task.info_no_messages"))
 
@@ -24964,8 +25354,9 @@ elif selected_section == "Offline Mode":
             "paste it into **Sync Review**, where every queued action is reviewed individually "
             "before it's actually applied."
         )
+        _offline_team_ids = fetch_task_ids_for_team_member(full_name)
         _offline_my_tasks = [t for t in st.session_state.tasks
-                             if t.get('assigned_to') == full_name
+                             if (t.get('assigned_to') == full_name or t.get('id') in _offline_team_ids)
                              and t.get('status') not in ("Completed", "Closed", "Cancelled")]
         if not _offline_my_tasks:
             st.caption("No open tasks assigned to you — the Incident Report tab below still works.")
