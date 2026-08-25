@@ -12678,7 +12678,8 @@ HOW_IT_WORKS_GUIDE = {
 # filtered nav_options, so a category with nothing visible for this
 # user simply doesn't show, rather than displaying an empty dropdown.
 NAV_CATEGORIES = {
-    "Core Maintenance": ["Task Dashboard", "Assets", "Permits", "Inventory", "Job Plans",
+    "Core Maintenance": ["Task Dashboard", "Offline Mode", "Sync Review", "Assets", "Equipment Health",
+                         "Permits", "Inventory", "Job Plans",
                          "Production", "Haulage", "Crew Clock", "Locations"],
     "Safety & Compliance": ["Incidents", "JSA Library", "Contractors", "Technician Certifications"],
     "Analytics & Reporting": ["Analytics", "Timeline", "Wallboard"],
