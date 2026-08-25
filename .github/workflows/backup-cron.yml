@@ -1,0 +1,46 @@
+name: Weekly Database Backup
+
+# Before this existed, the ONLY way to get a database backup at all
+# was the Owner manually clicking "Generate Full Backup" in Owner
+# Console — a genuine, real risk for a disaster-recovery feature
+# specifically: if nobody happens to remember, there is effectively
+# no backup running, ever, exactly when it would matter most. Same
+# reasoning as the hourly Automation Triggers workflow (weather
+# checks, escalations) — this is that same missing-timer fix, for
+# backups specifically, kept in its own file since it runs on a very
+# different schedule (weekly, not hourly) from those two.
+#
+# Emails the resulting ZIP to the Owner as an attachment — see
+# run_automated_backup() in app.py for the full reasoning, including
+# the real, known limitation as your data grows: most SMTP providers
+# cap attachments around 10-25MB, and a large backup could eventually
+# exceed that. If it ever does, this run shows a failed/red result in
+# the Actions tab (via curl's -f flag) rather than failing silently.
+on:
+  schedule:
+    - cron: '0 2 * * 0'   # Sunday, 02:00 UTC — adjust the day/time to whatever suits your team
+  workflow_dispatch: {}   # lets you trigger a manual test run from the Actions tab
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger the automated backup
+        run: |
+          curl -sf "https://mine-task-tracker-ljc2ppwmwiwtfqwykn2by5.streamlit.app/?run_backup=1&token=${{ secrets.AUTOMATION_TRIGGER_TOKEN }}" \
+            -o backup_response.json
+          cat backup_response.json
+          # curl -f only catches HTTP-level failures (bad URL, timeout,
+          # non-200 status) — a run that completes but returns
+          # {"success": false, "error": "..."} in its body (e.g. the
+          # email itself failed to send) would otherwise still show
+          # GREEN here, since the HTTP request itself succeeded. This
+          # explicitly checks the response body too, so the Actions
+          # tab's pass/fail color is actually trustworthy at a glance,
+          # rather than needing someone to remember to open and read
+          # backup_response.json every single week to know if it
+          # really worked.
+          if grep -q '"success": false' backup_response.json; then
+            echo "Backup reported failure — see backup_response.json above for the reason."
+            exit 1
+          fi
