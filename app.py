@@ -5645,7 +5645,11 @@ def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("tasks_memory", [])
     try:
-        res = supabase.table("tasks").select("*").order("id", desc=False).execute()
+        # desc=True — most recently created sits first. This used to
+        # be desc=False (oldest first), which is why the newest task
+        # always sank to the bottom of every list in the app instead
+        # of showing up where someone would actually look for it.
+        res = supabase.table("tasks").select("*").order("id", desc=True).execute()
         if res.data:
             return res.data
         else:
@@ -6191,6 +6195,47 @@ def fetch_recent_broadcasts(limit=20):
     except Exception as e:
         log_error(str(e), endpoint="fetch_recent_broadcasts")
         return []
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_favorite_pages(username):
+    """A person's own pinned pages, for the "⭐ My Favorites" nav
+    section — one-tap access to whatever they use most, instead of
+    opening a category and finding it every time. Cached briefly
+    (60s) since this is read on every single sidebar render but
+    changes rarely (a toggle click clears the cache immediately, so
+    this TTL is just a safety margin against staleness, not the
+    primary freshness mechanism)."""
+    if not SUPABASE_AVAILABLE or not username:
+        return []
+    try:
+        res = (supabase.table("user_favorite_pages").select("page_name")
+              .eq("username", username).order("added_at").execute())
+        return [r["page_name"] for r in (res.data or [])]
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_favorite_pages")
+        return []
+
+
+def toggle_favorite_page(username, page_name):
+    """Adds page_name to username's favorites if not already there,
+    removes it if it is — a single toggle action, matching how the
+    star icon itself behaves (one click, one state flip), rather than
+    separate add/remove functions a caller would need to choose
+    between."""
+    if not SUPABASE_AVAILABLE:
+        return
+    try:
+        existing = (supabase.table("user_favorite_pages").select("id")
+                   .eq("username", username).eq("page_name", page_name).execute())
+        if existing.data:
+            supabase.table("user_favorite_pages").delete().eq("id", existing.data[0]["id"]).execute()
+        else:
+            supabase.table("user_favorite_pages").insert(
+                {"username": username, "page_name": page_name}).execute()
+        fetch_favorite_pages.clear()
+    except Exception as e:
+        log_error(str(e), details={"page": page_name}, endpoint="toggle_favorite_page")
 
 
 def send_grouped_notification(user_name, event_title, items, item_label_fn, category=None, max_listed=5):
@@ -7607,6 +7652,57 @@ def generate_full_backup_zip():
     return buf.getvalue(), table_counts
 
 
+def run_automated_backup():
+    """Generates a full backup and emails it to the Owner as an
+    attachment — the automated counterpart to Owner Console's
+    manual "Generate Full Backup" button. Called by the run_backup
+    automation endpoint, meant to be triggered on a schedule by
+    GitHub Actions (weekly — see that endpoint's own comment for the
+    full reasoning on why this exists at all). Returns a dict
+    (JSON-able) describing what happened either way, so a failure —
+    including one caused by hitting an email attachment size limit
+    as the dataset grows — is never silent; it shows up in this
+    endpoint's own response, and so in the GitHub Actions run log.
+    """
+    zip_bytes, table_counts = generate_full_backup_zip()
+    if not zip_bytes:
+        return {"success": False, "error": "Backup generation produced no data."}
+
+    if not OWNER_USERNAME:
+        return {"success": False, "error": "No Owner configured — nowhere to send the backup.",
+                "tables_backed_up": len(table_counts), "total_rows": sum(table_counts.values())}
+
+    owner_record = next((u for u in fetch_all_users_from_db()
+                         if u.get("username") == OWNER_USERNAME), None)
+    owner_email = (owner_record or {}).get("email")
+    if not owner_email:
+        return {"success": False, "error": "Owner has no email on file.",
+                "tables_backed_up": len(table_counts), "total_rows": sum(table_counts.values())}
+
+    total_rows = sum(table_counts.values())
+    size_mb = len(zip_bytes) / (1024 * 1024)
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    sent, err = send_email_notification(
+        owner_email,
+        f"💾 MWDTS Automated Backup — {date_str}",
+        f"<p>Automated weekly backup completed.</p>"
+        f"<p>{len(table_counts)} tables, {total_rows:,} total row(s), {size_mb:.1f} MB.</p>"
+        f"<p>This is a point-in-time snapshot for disaster recovery — see the attached ZIP. "
+        f"Restoring from it is a manual process (re-inserting the JSON via the Supabase SQL "
+        f"editor or API), not a one-click restore.</p>",
+        _return_error=True,
+        attachment_bytes=zip_bytes,
+        attachment_filename=f"mwdts_backup_{date_str}.zip")
+
+    return {
+        "success": sent,
+        "error": err if not sent else None,
+        "tables_backed_up": len(table_counts),
+        "total_rows": total_rows,
+        "size_mb": round(size_mb, 2),
+    }
+
+
 
     """Builds a formatted Safety & Operations PDF report from data
     that's already computed elsewhere in Analytics — this function
@@ -8422,7 +8518,40 @@ def fetch_asset_status_history(asset_id, start_dt=None, end_dt=None):
         return []
 
 
-def compute_asset_downtime(asset_id, window_start, window_end, down_statuses=("Down", "Maintenance")):
+@st.cache_data(ttl=180, show_spinner=False)
+def fetch_asset_status_history_batch(asset_ids, start_dt=None, end_dt=None):
+    """Batched version of fetch_asset_status_history — ONE query for
+    every asset_id passed in, instead of one query per asset. Built
+    after finding fleet_average_utilization() called
+    compute_asset_utilization() (and so fetch_asset_status_history)
+    once per asset in a loop — at a 500+ vehicle fleet's scale, 500+
+    separate database round-trips, each individually cached by its
+    own asset_id so the cache doesn't help on a cold first load or
+    once the 180s window expires.
+
+    asset_ids must be a tuple — st.cache_data requires hashable
+    arguments. Returns {asset_id: [history_rows...]}, same row shape
+    as fetch_asset_status_history's own return value.
+    """
+    if not SUPABASE_AVAILABLE or not asset_ids:
+        return {}
+    try:
+        q = supabase.table("asset_status_history").select("*").in_("asset_id", list(asset_ids))
+        if start_dt:
+            q = q.gte("changed_at", start_dt.isoformat())
+        if end_dt:
+            q = q.lte("changed_at", end_dt.isoformat())
+        res = q.order("changed_at").execute()
+        _grouped = {}
+        for row in (res.data or []):
+            _grouped.setdefault(row["asset_id"], []).append(row)
+        return _grouped
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_asset_status_history_batch")
+        return {}
+
+
+def compute_asset_downtime(asset_id, window_start, window_end, down_statuses=("Down", "Maintenance"), history=None):
     """Computes hours spent in a 'down' status within [window_start,
     window_end], from real logged transitions — not an estimate.
 
@@ -8441,8 +8570,15 @@ def compute_asset_downtime(asset_id, window_start, window_end, down_statuses=("D
     timestamp of the first known transition, so callers can show
     "data available from X onward" rather than silently presenting a
     partial-window number as if it covered the whole requested range.
+
+    history, if given, is used directly instead of calling
+    fetch_asset_status_history internally — passed by callers (like
+    fleet_average_utilization) that already batch-fetched history for
+    many assets at once, to avoid the same N+1 pattern this function
+    would otherwise cause when called across a whole fleet.
     """
-    history = fetch_asset_status_history(asset_id, start_dt=window_start, end_dt=window_end)
+    if history is None:
+        history = fetch_asset_status_history(asset_id, start_dt=window_start, end_dt=window_end)
     if not history:
         return 0.0, None
 
@@ -8462,14 +8598,18 @@ def compute_asset_downtime(asset_id, window_start, window_end, down_statuses=("D
     return downtime_seconds / 3600.0, coverage_start
 
 
-def compute_asset_utilization(asset_id, window_start, window_end, down_statuses=("Down", "Maintenance")):
+def compute_asset_utilization(asset_id, window_start, window_end, down_statuses=("Down", "Maintenance"), history=None):
     """Utilization % = time NOT down, over the covered window (from
     the first known transition to window_end — see
     compute_asset_downtime's coverage_start for why it isn't the
     full requested window when history doesn't reach that far back).
     Returns (utilization_pct, coverage_start), or (None, None) if
-    there's no history at all to compute from."""
-    downtime_hours, coverage_start = compute_asset_downtime(asset_id, window_start, window_end, down_statuses)
+    there's no history at all to compute from.
+
+    history, if given, is passed straight through to
+    compute_asset_downtime — see that function's own docstring for
+    why (avoiding an N+1 query pattern across a whole fleet)."""
+    downtime_hours, coverage_start = compute_asset_downtime(asset_id, window_start, window_end, down_statuses, history=history)
     if coverage_start is None:
         return None, None
     total_hours = (window_end - coverage_start).total_seconds() / 3600.0
@@ -9436,10 +9576,19 @@ def fleet_average_utilization(assets, window_start, window_end):
     100% (which would overstate it). Returns (avg_pct, assets_counted,
     assets_total) so a caller can show 'based on N of M assets' rather
     than presenting a fleet-wide figure that's silently based on only
-    a fraction of the actual fleet."""
+    a fraction of the actual fleet.
+
+    Batch-fetches status history for every asset in ONE query before
+    the loop, rather than letting compute_asset_utilization fetch
+    each asset's history individually — at a 500+ vehicle fleet's
+    scale, that was 500+ separate database round-trips to compute a
+    single fleet-wide average."""
+    _history_by_asset = fetch_asset_status_history_batch(
+        tuple(a["id"] for a in assets), start_dt=window_start, end_dt=window_end)
     utils = []
     for a in assets:
-        pct, _coverage = compute_asset_utilization(a["id"], window_start, window_end)
+        pct, _coverage = compute_asset_utilization(a["id"], window_start, window_end,
+                                                     history=_history_by_asset.get(a["id"], []))
         if pct is not None:
             utils.append(pct)
     if not utils:
@@ -9554,6 +9703,29 @@ def run_escalations(tasks, permits, triggered_by):
     return {"overdue_notified": overdue_count, "permits_notified": permit_count}
 
 
+def _meter_anomaly_from_values(vals):
+    """Pure computation, no DB access — the actual MAD-based robust
+    z-score check, extracted out of detect_meter_anomaly so it can
+    be reused by the batched version below without a duplicate copy
+    of this logic. vals[0] must be the MOST RECENT reading (same
+    ordering both callers already fetch in)."""
+    if len(vals) < 10:
+        return False
+    sorted_vals = sorted(vals)
+    n = len(sorted_vals)
+    median = sorted_vals[n // 2] if n % 2 else (sorted_vals[n // 2 - 1] + sorted_vals[n // 2]) / 2
+    abs_deviations = sorted([abs(x - median) for x in vals])
+    mad = abs_deviations[n // 2] if n % 2 else (abs_deviations[n // 2 - 1] + abs_deviations[n // 2]) / 2
+    if mad == 0:
+        return False
+    # 0.6745 scales MAD to be comparable to a standard deviation for
+    # normally-distributed data — the standard conversion factor, so
+    # "3.5" below reads like a familiar sigma threshold.
+    robust_z = 0.6745 * (vals[0] - median) / mad
+    return abs(robust_z) > 3.5
+
+
+@st.cache_data(ttl=120, show_spinner=False)
 def detect_meter_anomaly(asset_id):
     """Flags the latest meter reading for an asset as anomalous.
 
@@ -9581,6 +9753,17 @@ def detect_meter_anomaly(asset_id):
 
     Still needs at least 10 readings to say anything meaningful —
     same "not enough data yet" reasoning as before.
+
+    Single-asset version, for the individual asset detail view (the
+    Assets page's expanded "Manage" panel) where exactly one asset is
+    being looked at at a time — see detect_meter_anomalies_batch for
+    the version used when checking MANY assets at once (Equipment
+    Health Dashboard), which this does NOT scale to on its own: one
+    call per asset, uncached-per-argument by nature of each asset
+    having a different ID, would mean 500+ separate queries for a
+    fleet this size on a single page load. Cached here too (ttl=120)
+    since even single-asset use can genuinely repeat (expanding,
+    collapsing, and re-expanding the same asset's panel).
     """
     if not SUPABASE_AVAILABLE:
         return False
@@ -9588,23 +9771,56 @@ def detect_meter_anomaly(asset_id):
         res = supabase.table("meter_readings").select("reading").eq("asset_id", asset_id) \
             .order("recorded_at", desc=True).limit(50).execute()
         vals = [float(r["reading"]) for r in (res.data or []) if r.get("reading") is not None]
-        if len(vals) < 10:
-            return False
-        sorted_vals = sorted(vals)
-        n = len(sorted_vals)
-        median = sorted_vals[n // 2] if n % 2 else (sorted_vals[n // 2 - 1] + sorted_vals[n // 2]) / 2
-        abs_deviations = sorted([abs(x - median) for x in vals])
-        mad = abs_deviations[n // 2] if n % 2 else (abs_deviations[n // 2 - 1] + abs_deviations[n // 2]) / 2
-        if mad == 0:
-            return False
-        # 0.6745 scales MAD to be comparable to a standard deviation
-        # for normally-distributed data — the standard conversion
-        # factor, so "3.5" below reads like a familiar sigma threshold.
-        robust_z = 0.6745 * (vals[0] - median) / mad
-        return abs(robust_z) > 3.5
+        return _meter_anomaly_from_values(vals)
     except Exception as e:
         log_error(str(e), endpoint="detect_meter_anomaly")
         return False
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def detect_meter_anomalies_batch(asset_ids, days=180):
+    """Batched version of detect_meter_anomaly — ONE query for every
+    asset_id passed in, instead of one query per asset. Built after
+    finding compute_asset_health() (used by the Equipment Health
+    Dashboard) called detect_meter_anomaly() once per VISIBLE asset —
+    at a 500+ vehicle fleet's scale, that's 500+ separate database
+    round-trips on a single page load, every time.
+
+    Supabase/PostgREST has no direct way to express "last 50 readings
+    PER asset_id" in one query (that needs a window function, which
+    would mean a custom database view/RPC rather than the plain
+    REST-style queries this file uses everywhere else) — so this
+    fetches every reading within a recent window (default 180 days)
+    for all requested assets in ONE query instead, then caps at 50
+    per asset in Python. A trade-off, not a perfect equivalent: an
+    asset with very sparse readings (fewer than 10 in 180 days) will
+    show "not enough data" here even if it happens to have 10+
+    readings further back than that. Given meter readings are
+    normally logged regularly (daily-to-weekly) on active equipment,
+    180 days comfortably covers enough history for anything actually
+    still in service — an asset with fewer than 10 readings across a
+    full six months genuinely doesn't have enough of a pattern to
+    call a single reading a meaningful outlier against.
+
+    asset_ids must be a tuple (not a list) — st.cache_data requires
+    hashable arguments. Returns {asset_id: bool}.
+    """
+    if not SUPABASE_AVAILABLE or not asset_ids:
+        return {}
+    try:
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat()
+        res = (supabase.table("meter_readings").select("asset_id, reading, recorded_at")
+              .in_("asset_id", list(asset_ids)).gte("recorded_at", cutoff)
+              .order("recorded_at", desc=True).execute())
+        _by_asset = {}
+        for row in (res.data or []):
+            if row.get("reading") is None:
+                continue
+            _by_asset.setdefault(row["asset_id"], []).append(float(row["reading"]))
+        return {aid: _meter_anomaly_from_values(vals[:50]) for aid, vals in _by_asset.items()}
+    except Exception as e:
+        log_error(str(e), endpoint="detect_meter_anomalies_batch")
+        return {}
 
 
 def detect_meter_anomaly_ml(asset_id, lookback=100):
@@ -15924,6 +16140,7 @@ def train_predictive_maintenance_model(tasks, assets):
     return model
 
 
+@st.cache_data(ttl=300, show_spinner=False)
 def get_ml_failure_predictions(tasks, assets):
     """Uses the trained model (if available) to predict each eligible
     asset's next failure gap from its own current history, then
@@ -15931,7 +16148,18 @@ def get_ml_failure_predictions(tasks, assets):
     the MTBF alert does. Returns [] if the model couldn't be trained
     (not enough data / sklearn unavailable) — callers should show the
     MTBF-based alert regardless, and treat this as a bonus, not a
-    replacement."""
+    replacement.
+
+    Cached — this fits an actual ML model (RandomForestRegressor) per
+    eligible asset, the single most expensive computation in this
+    file, yet was being called fresh on every single visit to any of
+    the 3 pages that use it (Analytics, Equipment Health Dashboard —
+    twice), even seconds apart, even though maintenance failure
+    patterns genuinely don't shift meaningfully within a 5-minute
+    window. tasks/assets are lists of dicts, not natively hashable,
+    but st.cache_data handles that itself via its own internal
+    hashing — no signature or call-site change needed to cache this.
+    """
     model = train_predictive_maintenance_model(tasks, assets)
     if model is None:
         return []
@@ -15959,13 +16187,23 @@ def get_ml_failure_predictions(tasks, assets):
     return predictions
 
 
-def compute_asset_health(asset, tasks, ml_predictions_by_asset=None):
+def compute_asset_health(asset, tasks, ml_predictions_by_asset=None, anomaly_by_asset=None):
     """Consolidates EXISTING signals (status, overdue tasks, ML failure
     prediction, meter anomaly) into one traffic-light health rating
     per asset. Nothing here is a new metric — every signal already
     exists elsewhere in the app (Assets page, Analytics, ML prediction
     cards); this just combines them into one at-a-glance view, since
     today they're scattered across three different pages.
+
+    anomaly_by_asset, if given, must come from
+    detect_meter_anomalies_batch — a pre-computed {asset_id: bool}
+    dict, checked instead of calling detect_meter_anomaly() directly.
+    Falls back to the single-asset call when not given, so this
+    function still works standalone, but the Equipment Health
+    Dashboard (checking many assets in one page load) always passes
+    the batch dict — see that page for why calling the single-asset
+    version once per visible asset was a genuine N+1 query problem at
+    a 500+ vehicle fleet's scale.
 
     Returns {"level": "red"|"yellow"|"green", "reasons": [str, ...]}.
     """
@@ -15994,7 +16232,15 @@ def compute_asset_health(asset, tasks, ml_predictions_by_asset=None):
         level = "red"
 
     try:
-        if detect_meter_anomaly(asset["id"]):
+        # .get(..., False), not direct indexing — an asset with fewer
+        # than 10 readings in the batch window is legitimately absent
+        # from anomaly_by_asset (not enough data to say anything, the
+        # same "not enough data" case detect_meter_anomaly itself
+        # returns False for), not an error case. Direct indexing here
+        # would throw for every such asset instead.
+        _has_anomaly = (anomaly_by_asset.get(asset["id"], False) if anomaly_by_asset is not None
+                        else detect_meter_anomaly(asset["id"]))
+        if _has_anomaly:
             reasons.append("Meter reading anomaly detected")
             if level != "red":
                 level = "yellow"
@@ -16018,11 +16264,20 @@ def compute_asset_health(asset, tasks, ml_predictions_by_asset=None):
     return {"level": level, "reasons": reasons}
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def compute_mtbf_hours(tasks, asset_id=None):
     """Mean Time Between Failures for reactive/breakdown work.
 
     Uses the gaps between consecutive failures on an asset. Needs at
     least two failures on the same asset to mean anything.
+
+    Cached — called from 6 different places (multiple times on the
+    same page in at least one case), each one redoing the full same
+    per-asset gap calculation over the same task list from scratch.
+    Pure computation, no DB call — ttl=60 matches fetch_all_tasks'
+    own cache window rather than adding a longer independent one, so
+    this never stays stale longer than the underlying task data
+    already can.
     """
     failures = []
     for t in tasks:
@@ -16047,10 +16302,16 @@ def compute_mtbf_hours(tasks, asset_id=None):
         return None, 0
     return sum(gaps) / len(gaps), len(gaps)
 
+@st.cache_data(ttl=60, show_spinner=False)
 def compute_pm_compliance_v2(tasks):
     """PM compliance = PM tasks completed on or before due date / all
     PM tasks that have come due. Unlike the earlier version this
-    actually checks the completion date against the due date."""
+    actually checks the completion date against the due date.
+
+    Cached — same reasoning as compute_mtbf_hours just above: called
+    from 4 different places, pure computation with no DB call, ttl
+    matched to fetch_all_tasks' own cache window.
+    """
     due_pm = []
     now = datetime.now()
     for t in tasks:
@@ -17091,6 +17352,34 @@ elif not st.session_state.authenticated:
             st.json(_esc_result)
         st.stop()
 
+    # Same reasoning and same token, one endpoint over — until this
+    # existed, the only way to get a database backup at all was the
+    # Owner manually clicking a button in Owner Console. That's the
+    # exact same silent-failure risk pattern weather checks and
+    # escalations had before those got automated: if nobody happens
+    # to remember, there is effectively NO backup running, ever, for
+    # a disaster-recovery feature that specifically exists for the
+    # moment something goes badly wrong. Emails the resulting ZIP to
+    # the Owner as an attachment — reusing the same attachment-email
+    # support built for job-completion PDFs — rather than requiring
+    # any new file-storage infrastructure. Genuinely large future
+    # backups could exceed typical SMTP attachment limits (10-25MB is
+    # common); if that ever happens, the attempt still runs and its
+    # failure is still logged and still visible in this endpoint's own
+    # JSON response (and so in the GitHub Actions run history), rather
+    # than failing completely silently — but it IS a real limit worth
+    # knowing about as your data volume grows.
+    if st.query_params.get("run_backup") is not None:
+        _bak_token = st.query_params.get("token")
+        _bak_expected = _secret_get("AUTOMATION_TRIGGER_TOKEN")
+        if not _bak_expected:
+            st.json({"error": "AUTOMATION_TRIGGER_TOKEN not configured in secrets."})
+        elif _bak_token != _bak_expected:
+            st.json({"error": "Invalid or missing token."})
+        else:
+            st.json(run_automated_backup())
+        st.stop()
+
     render_logo_bar()
     render_poster_slideshow()
     render_ticker_bar()
@@ -17682,6 +17971,22 @@ with st.sidebar:
 
     _active_category = SECTION_TO_CATEGORY.get(st.session_state["_current_nav_section"])
 
+    _my_favorites = [f for f in fetch_favorite_pages(username) if f in nav_options]
+    if _my_favorites:
+        with st.expander("⭐ **My Favorites**", expanded=True):
+            for _section in _my_favorites:
+                _is_current = _section == st.session_state["_current_nav_section"]
+                _fav_cols = st.columns([5, 1])
+                if _fav_cols[0].button(t(f"nav.{_section}"), key=f"favbtn_{_section}",
+                                       type="primary" if _is_current else "secondary",
+                                       use_container_width=True, disabled=_is_current):
+                    st.session_state["_current_nav_section"] = _section
+                    st.session_state["_nav_collapsed"] = True
+                    st.rerun()
+                if _fav_cols[1].button("★", key=f"unfav_{_section}", help="Remove from favorites"):
+                    toggle_favorite_page(username, _section)
+                    st.rerun()
+
     for _cat_name, _cat_sections in NAV_CATEGORIES.items():
         # Filtered to items actually present in this user's final,
         # already role/flag-filtered nav_options — a category with
@@ -17693,11 +17998,17 @@ with st.sidebar:
         with st.expander(f"**{_cat_name}**", expanded=(_cat_name == _active_category)):
             for _section in _visible_items:
                 _is_current = _section == st.session_state["_current_nav_section"]
-                if st.button(t(f"nav.{_section}"), key=f"navbtn_{_section}",
+                _is_favorited = _section in _my_favorites
+                _nav_cols = st.columns([5, 1])
+                if _nav_cols[0].button(t(f"nav.{_section}"), key=f"navbtn_{_section}",
                             type="primary" if _is_current else "secondary",
                             use_container_width=True, disabled=_is_current):
                     st.session_state["_current_nav_section"] = _section
                     st.session_state["_nav_collapsed"] = True
+                    st.rerun()
+                if _nav_cols[1].button("★" if _is_favorited else "☆", key=f"favtoggle_{_section}",
+                                       help="Remove from favorites" if _is_favorited else "Add to favorites"):
+                    toggle_favorite_page(username, _section)
                     st.rerun()
 
     selected_section = st.session_state["_current_nav_section"]
@@ -18160,21 +18471,25 @@ def page_timeline():
         try:
             activities = supabase.table("task_activity").select("*").order("created_at", desc=True).limit(50).execute()
             if activities.data:
-                # Resolve each row's task_id to a title. Deduped via
-                # _task_titles so a task with many log entries only
-                # gets looked up once, not once per row — a small
-                # improvement over the original one-query-per-row
-                # version, not just a rendering change.
+                # ONE batched query for every unique task_id referenced
+                # in these 50 rows, instead of up to 50 individual
+                # ones — the previous version already deduped (so a
+                # task with many log entries was only looked up once,
+                # not once per row), but that could still mean up to
+                # 50 separate round-trips in the worst case (50
+                # activity rows, all for different tasks). Same
+                # N+1-avoidance reasoning as fetch_team_members_for_tasks
+                # elsewhere in this file.
+                _unique_task_ids = list({act.get('task_id') for act in activities.data if act.get('task_id')})
                 _task_titles = {}
-                for act in activities.data:
-                    tid = act.get('task_id')
-                    if tid not in _task_titles:
-                        task = supabase.table("tasks").select("title").eq("id", tid).execute()
-                        _task_titles[tid] = task.data[0]['title'] if task.data else f"Task #{tid}"
+                if _unique_task_ids:
+                    _titles_res = supabase.table("tasks").select("id, title").in_("id", _unique_task_ids).execute()
+                    _task_titles = {row["id"]: row["title"] for row in (_titles_res.data or [])}
 
                 def _activity_phrase(act):
                     verb = str(act.get('action', '')).replace('_', ' ')
-                    return f"{verb} {_task_titles.get(act.get('task_id'), '')}"
+                    tid = act.get('task_id')
+                    return f"{verb} {_task_titles.get(tid, f'Task #{tid}')}"
 
                 render_log_entries(activities.data, action_verb=_activity_phrase)
             else:
@@ -20361,6 +20676,35 @@ def send_task_completion_email(task, completed_by):
             attachment_bytes=pdf_bytes,
             attachment_filename=f"MWDTS_Job_{task.get('id')}_Completion.pdf")
     return send_email_notification(email, subject, body_html)
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def fetch_team_members_for_tasks(task_ids):
+    """Batch version of fetch_task_team_members — ONE query for every
+    task_id passed in, instead of one query per task. Added after
+    discovering the assignment views (Manage Tasks) were calling
+    fetch_task_team_members() once per task INSIDE a render loop —
+    a genuine N+1 query pattern (50 open tasks shown = 50 separate
+    round-trips just for team data), which gets slower every time
+    task volume grows, exactly the kind of thing that compounds into
+    "the app is slow" as a fleet's task history builds up over time.
+
+    task_ids must be a tuple (not a list) so this is hashable —
+    @st.cache_data requires hashable arguments to cache on.
+    Returns {task_id: [full_name, ...]}.
+    """
+    if not SUPABASE_AVAILABLE or not task_ids:
+        return {}
+    try:
+        res = (supabase.table("task_team_members").select("task_id, full_name")
+              .in_("task_id", list(task_ids)).execute())
+        _grouped = {}
+        for row in (res.data or []):
+            _grouped.setdefault(row["task_id"], []).append(row["full_name"])
+        return _grouped
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_team_members_for_tasks")
+        return {}
 
 
 def fetch_task_team_members(task_id):
@@ -23028,6 +23372,21 @@ def page_incidents():
                 st.download_button(t("incidents.download_csv"), data=csv, file_name="incidents_export.csv", mime="text/csv", key="dl_incidents_csv")
         _inc_display = visible
         if visible:
+            # Time-based default, NOT a status filter — unlike a
+            # completed task (genuinely nothing left to do), a closed
+            # or resolved incident stays relevant for safety trend
+            # review, so hiding it by status the way completed tasks
+            # are hidden elsewhere would risk looking like historical
+            # safety data was being tucked away. "Recent by default,
+            # full history one click away" avoids that entirely while
+            # still fixing the same unbounded-render performance
+            # problem found across the rest of the app tonight.
+            _inc_show_all_time = st.checkbox("Show full history (not just the last 90 days)",
+                                             value=False, key="inc_show_all_time")
+            if not _inc_show_all_time:
+                _inc_cutoff = datetime.now() - timedelta(days=90)
+                visible = [i for i in visible if (_parse_dt(i.get("created_at")) or datetime.min) >= _inc_cutoff]
+                _inc_display = visible
             _inc_search = st.text_input(t("incidents.search_placeholder"), "", key="inc_search")
             # Deliberately filters a SEPARATE variable, not `visible` itself —
             # the export button above uses `visible` on purpose, so a quick
@@ -23701,9 +24060,17 @@ def page_equipment_health():
     _health_search = st.text_input("🔍 Search by name, tag, or location", "", key="health_search")
     _visible_assets = quick_filter(assets, _health_search, ["name", "asset_tag", "location"])
 
+    # ONE batched query for every visible asset's meter anomaly check,
+    # instead of one query per asset inside the loop below — at a
+    # 500+ vehicle fleet's scale, calling detect_meter_anomaly()
+    # individually per asset meant 500+ separate database round-trips
+    # on a single page load. See detect_meter_anomalies_batch for the
+    # full reasoning.
+    _anomaly_by_asset = detect_meter_anomalies_batch(tuple(a["id"] for a in _visible_assets))
+
     _scored = []
     for a in _visible_assets:
-        health = compute_asset_health(a, tasks, _health_predictions_by_asset)
+        health = compute_asset_health(a, tasks, _health_predictions_by_asset, _anomaly_by_asset)
         _scored.append((a, health))
 
     _red = [x for x in _scored if x[1]["level"] == "red"]
@@ -24542,8 +24909,18 @@ if selected_section == "Task Dashboard":
 
         if worker_sub == "My Assigned Tasks":
             _worker_team_ids = fetch_task_ids_for_team_member(full_name)
-            my_tasks = [t for t in st.session_state.tasks
-                       if t['assigned_to'] == full_name or t['id'] in _worker_team_ids]
+            _my_tasks_all = [t for t in st.session_state.tasks
+                            if t['assigned_to'] == full_name or t['id'] in _worker_team_ids]
+            # Same fix and reasoning as the Manage Tasks views —
+            # previously showed every task ever assigned to this
+            # worker, including years-old completed ones, with no
+            # filter at all. Likely the single most-visited view in
+            # the whole app (every worker checks this constantly),
+            # so probably the highest-impact fix of all of them for
+            # how slow the app has felt as task volume has grown.
+            _my_show_completed = st.checkbox("Include completed tasks", value=False, key="my_tasks_show_completed")
+            my_tasks = _my_tasks_all if _my_show_completed else \
+                [t for t in _my_tasks_all if t.get('status') not in ("Complete", "Completed", "Closed", "Cancelled")]
             # Fetch permits ONCE for the whole loop instead of per task.
             _all_permits = fetch_permits() if any(t.get('loto') for t in my_tasks) else []
             # Same one-fetch-for-the-whole-loop pattern for linked JSAs —
@@ -24758,12 +25135,26 @@ if selected_section == "Task Dashboard":
                 "Filter by Electrical Dept. subsection",
                 ["All", "Electrical Workshop", "Carbonate Plant", "Auto Electricals"],
                 key="task_mgmt_subsection_filter")
-            _tasks_to_show = st.session_state.tasks
+            # Same fix and same reasoning as the Superintendent's
+            # "Manage Tasks" view — this previously showed EVERY task
+            # ever created with no completion-status filter at all
+            # (only the subsection dropdown above narrowed anything),
+            # which is almost certainly the main reason task volume
+            # made the app feel slow over time.
+            _mgmt_show_completed_v = st.checkbox("Include completed tasks", value=False, key="sup_mgmt_show_completed")
+            _mgmt_search_v = st.text_input("🔍 Search by title or location", "", key="sup_mgmt_task_search")
+            _tasks_to_show = st.session_state.tasks if _mgmt_show_completed_v else \
+                [t2 for t2 in st.session_state.tasks if t2.get('status') not in ("Complete", "Completed", "Closed", "Cancelled")]
+            _tasks_to_show = quick_filter(_tasks_to_show, _mgmt_search_v, ["title", "location"])
             if _subsection_filter != "All":
                 _tasks_to_show = [t2 for t2 in _tasks_to_show if t2.get("subsection") == _subsection_filter]
 
             if not _tasks_to_show:
                 st.info(t("task.info_no_tasks_found"))
+            # ONE query for every visible task's team members, before
+            # the loop — not one query per task inside it (see
+            # fetch_team_members_for_tasks for why that mattered).
+            _team_by_task = fetch_team_members_for_tasks(tuple(t2["id"] for t2 in _tasks_to_show))
             for task in _tasks_to_show:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
@@ -24797,8 +25188,7 @@ if selected_section == "Task Dashboard":
                                                index=worker_names.index(current_assign),
                                                key=f"assign_{task['id']}")
                 _team_options = [w for w in worker_names if w not in ("Unassigned", new_assign)]
-                _current_team = [m["full_name"] for m in fetch_task_team_members(task['id'])
-                                 if m["full_name"] in _team_options]
+                _current_team = [n for n in _team_by_task.get(task['id'], []) if n in _team_options]
                 _new_team = st.multiselect("Team members (in addition to the assignee above)",
                                            _team_options, default=_current_team,
                                            key=f"team_{task['id']}")
@@ -25045,9 +25435,29 @@ if selected_section == "Task Dashboard":
             st.markdown(f"### {t('task.hdr_full_control')}")
             all_users = fetch_all_users_from_db()
             worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
-            if not st.session_state.tasks:
+            # This loop previously ran over EVERY task ever created,
+            # with zero filtering — rendering a full interactive card
+            # (with its own selectbox and multiselect) for every
+            # single one, including years-old completed tasks nobody
+            # would ever need to reassign. That's almost certainly the
+            # main reason task volume made the app feel slow: this
+            # view's render cost grew forever with total historical
+            # task count, not with how many tasks actually need
+            # managing right now. Defaults to open tasks only (what
+            # "full control" realistically means day-to-day), with a
+            # search box and an explicit opt-in to include completed
+            # ones for whoever genuinely needs to find an old task.
+            _mgmt_show_completed = st.checkbox("Include completed tasks", value=False, key="mgmt_show_completed")
+            _mgmt_search = st.text_input("🔍 Search by title or location", "", key="mgmt_task_search")
+            _mgmt_tasks = st.session_state.tasks if _mgmt_show_completed else \
+                [t2 for t2 in st.session_state.tasks if t2.get('status') not in ("Complete", "Completed", "Closed", "Cancelled")]
+            _mgmt_tasks = quick_filter(_mgmt_tasks, _mgmt_search, ["title", "location"])
+            if not _mgmt_tasks:
                 st.info(t("task.info_no_tasks_manage"))
-            for task in st.session_state.tasks:
+            # ONE query for every visible task's team members, before
+            # the loop — see fetch_team_members_for_tasks for why.
+            _team_by_task_s = fetch_team_members_for_tasks(tuple(t2["id"] for t2 in _mgmt_tasks))
+            for task in _mgmt_tasks:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
                 overdue = False
@@ -25079,8 +25489,7 @@ if selected_section == "Task Dashboard":
                                                index=worker_names.index(current_assign),
                                                key=f"sup_assign_{task['id']}")
                 _team_options_s = [w for w in worker_names if w not in ("Unassigned", new_assign)]
-                _current_team_s = [m["full_name"] for m in fetch_task_team_members(task['id'])
-                                   if m["full_name"] in _team_options_s]
+                _current_team_s = [n for n in _team_by_task_s.get(task['id'], []) if n in _team_options_s]
                 _new_team_s = st.multiselect("Team members (in addition to the assignee above)",
                                              _team_options_s, default=_current_team_s,
                                              key=f"sup_team_{task['id']}")
