@@ -5311,9 +5311,48 @@ def register_user_to_db(username, name, requested_role, password, email=None,
     try:
         log_audit(name, "access_request",
                   {"username": username, "requested_role": requested_role})
+        # Notifies everyone who can actually act on this (see
+        # OWNER_CAPABILITIES / the "superintendent" role block above —
+        # both can approve/reject access requests), not just the
+        # single configured Owner as before. Push/in-app AND email,
+        # since different admins check different things — better to
+        # reach someone promptly than have a request sit unseen
+        # because the one person who checks email doesn't get a push,
+        # or vice versa. Every send here is best-effort: a failure
+        # notifying one admin (or one channel) must never fail the
+        # signup itself, and must never stop the others from being
+        # tried too.
+        _admins_to_notify = []
         if OWNER_USERNAME:
-            send_notification(OWNER_USERNAME, "New access request",
-                              f"{name} ({username}) requested access as {requested_role}.")
+            _admins_to_notify.append(OWNER_USERNAME)
+        _all_users_for_notify = []
+        try:
+            _all_users_for_notify = fetch_all_users_from_db()
+            _admins_to_notify += [u["username"] for u in _all_users_for_notify
+                                  if str(u.get("role", "")).strip().lower() == "superintendent"
+                                  and u.get("is_approved") and not u.get("is_suspended")
+                                  and u["username"] not in _admins_to_notify]
+        except Exception as e:
+            log_error(str(e), endpoint="register_user:fetch_superintendents_for_notify")
+
+        _notif_title = "New access request"
+        _notif_body = f"{name} ({username}) requested access as {requested_role}."
+        for _admin_username in _admins_to_notify:
+            try:
+                send_notification(_admin_username, _notif_title, _notif_body)
+            except Exception as e:
+                log_error(str(e), details={"admin": _admin_username}, endpoint="register_user:notify_push")
+            try:
+                _admin_row = next((u for u in _all_users_for_notify
+                                   if u["username"] == _admin_username), None)
+                _admin_email = (_admin_row or {}).get("email")
+                if _admin_email:
+                    send_email_notification(_admin_email, _notif_title,
+                        f"<p>{esc(name)} ({esc(username)}) requested access as "
+                        f"<strong>{esc(requested_role)}</strong>.</p>"
+                        f"<p>Review it in Owner Console → Access Requests.</p>")
+            except Exception as e:
+                log_error(str(e), details={"admin": _admin_username}, endpoint="register_user:notify_email")
     except Exception:
         pass  # never fail a signup because a notification failed
 
@@ -12724,6 +12763,8 @@ SUPPORTED_LANGUAGES = {
 TRANSLATIONS = {
     "en": {
         "nav.Task Dashboard": "Task Dashboard", "nav.Help": "Help", "nav.Assets": "Assets",
+        "nav.Offline Mode": "Offline Mode", "nav.Sync Review": "Sync Review",
+        "nav.Equipment Health": "Equipment Health",
         "nav.Permits": "Permits", "nav.Inventory": "Inventory",
         "nav.Incidents": "Incidents", "nav.Handover": "Handover", "nav.Worker Reports": "Worker Reports",
         "nav.Contractors": "Contractors", "nav.Analytics": "Analytics",
@@ -12933,6 +12974,8 @@ TRANSLATIONS = {
     },
     "fr": {
         "nav.Task Dashboard": "Tableau des tâches", "nav.Help": "Aide", "nav.Assets": "Actifs",
+        "nav.Offline Mode": "Mode hors ligne", "nav.Sync Review": "Vérification de synchronisation",
+        "nav.Equipment Health": "État de l'équipement",
         "nav.Permits": "Permis", "nav.Inventory": "Inventaire",
         "nav.Incidents": "Incidents", "nav.Handover": "Passation de service", "nav.Worker Reports": "Rapports des travailleurs",
         "nav.Contractors": "Sous-traitants", "nav.Analytics": "Analytique",
@@ -13142,6 +13185,8 @@ TRANSLATIONS = {
     },
     "es": {
         "nav.Task Dashboard": "Panel de tareas", "nav.Help": "Ayuda", "nav.Assets": "Activos",
+        "nav.Offline Mode": "Modo sin conexión", "nav.Sync Review": "Revisión de sincronización",
+        "nav.Equipment Health": "Estado del equipo",
         "nav.Permits": "Permisos", "nav.Inventory": "Inventario",
         "nav.Incidents": "Incidentes", "nav.Handover": "Entrega de turno", "nav.Worker Reports": "Informes de trabajadores",
         "nav.Contractors": "Contratistas", "nav.Analytics": "Analítica",
@@ -13351,6 +13396,8 @@ TRANSLATIONS = {
     },
     "pt": {
         "nav.Task Dashboard": "Painel de tarefas", "nav.Help": "Ajuda", "nav.Assets": "Ativos",
+        "nav.Offline Mode": "Modo offline", "nav.Sync Review": "Revisão de sincronização",
+        "nav.Equipment Health": "Saúde do equipamento",
         "nav.Permits": "Permissões", "nav.Inventory": "Inventário",
         "nav.Incidents": "Incidentes", "nav.Handover": "Passagem de turno", "nav.Worker Reports": "Relatórios dos Trabalhadores",
         "nav.Contractors": "Empreiteiros", "nav.Analytics": "Análises",
@@ -13560,6 +13607,8 @@ TRANSLATIONS = {
     },
     "zh": {
         "nav.Task Dashboard": "任务看板", "nav.Help": "帮助", "nav.Assets": "资产",
+        "nav.Offline Mode": "离线模式", "nav.Sync Review": "同步审核",
+        "nav.Equipment Health": "设备健康",
         "nav.Permits": "许可证", "nav.Inventory": "库存",
         "nav.Incidents": "事故", "nav.Handover": "交接", "nav.Worker Reports": "工人报告",
         "nav.Contractors": "承包商", "nav.Analytics": "分析",
@@ -13769,6 +13818,8 @@ TRANSLATIONS = {
     },
     "hi": {
         "nav.Task Dashboard": "कार्य डैशबोर्ड", "nav.Help": "सहायता", "nav.Assets": "संपत्ति",
+        "nav.Offline Mode": "ऑफ़लाइन मोड", "nav.Sync Review": "सिंक समीक्षा",
+        "nav.Equipment Health": "उपकरण स्वास्थ्य",
         "nav.Permits": "परमिट", "nav.Inventory": "इन्वेंटरी",
         "nav.Incidents": "घटनाएं", "nav.Handover": "पाली हस्तांतरण", "nav.Worker Reports": "कर्मचारी रिपोर्ट",
         "nav.Contractors": "ठेकेदार", "nav.Analytics": "विश्लेषण",
@@ -13980,6 +14031,9 @@ TRANSLATIONS = {
         "nav.Task Dashboard": "Adwuma Bɔɔd",
         "nav.Help": "Mmoa",
         "nav.Assets": "Mfidie",
+        "nav.Offline Mode": "Sɛ Network Nni Hɔ (Offline Mode)",
+        "nav.Sync Review": "Nhwehwɛmu Sync (Sync Review)",
+        "nav.Equipment Health": "Mfidie Tebea (Equipment Health)",
         "nav.Permits": "Kwan Krataa (Permits)",
         "nav.Inventory": "Nneɛma Sie",
         "nav.Incidents": "Nsɛnnennen (Incidents)",
