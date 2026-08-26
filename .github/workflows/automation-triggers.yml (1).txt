@@ -1,0 +1,51 @@
+name: Automation Triggers
+
+# Runs the weather check and escalation alerts DIRECTLY against
+# Supabase — it does not call the Streamlit app at all.
+#
+# The previous version pointed curl at ?weather_check=1 and
+# ?run_escalations=1 on the Streamlit URL. That is permanently broken:
+# Streamlit Community Cloud redirects those requests to its own login
+# page even for a Public app, and following the redirect produces an
+# infinite auth loop (curl exit code 47, "too many redirects"). No
+# User-Agent or redirect flag works around it.
+#
+# Running the logic here instead is also more robust in its own right:
+# it no longer depends on the Streamlit app being awake, and a
+# Community Cloud app that has gone to sleep could never have served a
+# scheduled check reliably anyway.
+on:
+  schedule:
+    - cron: '0 * * * *'    # hourly; each check applies its own cooldown
+  workflow_dispatch: {}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_FROM: ${{ secrets.SMTP_FROM }}
+      OWNER_USERNAME: ${{ secrets.OWNER_USERNAME }}
+      MINE_LATITUDE: ${{ secrets.MINE_LATITUDE }}
+      MINE_LONGITUDE: ${{ secrets.MINE_LONGITUDE }}
+      APP_URL: ${{ secrets.APP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Weather check
+        run: python automation/mwdts_automation.py weather
+      # always() so a weather failure doesn't skip escalations —
+      # overdue tasks and expiring isolation permits are the more
+      # safety-critical of the two and must still run.
+      - name: Escalations
+        if: always()
+        run: python automation/mwdts_automation.py escalations
