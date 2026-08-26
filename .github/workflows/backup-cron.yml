@@ -27,20 +27,22 @@ jobs:
     steps:
       - name: Trigger the automated backup
         run: |
-          curl -sf "https://mine-task-tracker-ljc2ppwmwiwtfqwykn2by5.streamlit.app/?run_backup=1&token=${{ secrets.AUTOMATION_TRIGGER_TOKEN }}" \
+          curl -sfL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
+            "https://mine-task-tracker-ljc2ppwmwiwtfqwykn2by5.streamlit.app/?run_backup=1&token=${{ secrets.AUTOMATION_TRIGGER_TOKEN }}" \
             -o backup_response.json
           cat backup_response.json
-          # curl -f only catches HTTP-level failures (bad URL, timeout,
-          # non-200 status) — a run that completes but returns
-          # {"success": false, "error": "..."} in its body (e.g. the
-          # email itself failed to send) would otherwise still show
-          # GREEN here, since the HTTP request itself succeeded. This
-          # explicitly checks the response body too, so the Actions
-          # tab's pass/fail color is actually trustworthy at a glance,
-          # rather than needing someone to remember to open and read
-          # backup_response.json every single week to know if it
-          # really worked.
+          # -L follows redirects instead of just saving the redirect
+          # page and calling that a success — Streamlit Community
+          # Cloud has a confirmed, current issue silently redirecting
+          # automated requests to its own login page even for apps
+          # set to Public; -A sends a real browser User-Agent as a
+          # first attempt at avoiding that redirect entirely. See
+          # Automation Triggers workflow for the fuller explanation.
           if grep -q '"success": false' backup_response.json; then
             echo "Backup reported failure — see backup_response.json above for the reason."
+            exit 1
+          fi
+          if grep -q "streamlit-login\|/-/login\|/-/auth" backup_response.json; then
+            echo "Got redirected to Streamlit's own login page instead of reaching the app."
             exit 1
           fi
