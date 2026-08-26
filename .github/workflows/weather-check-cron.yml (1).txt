@@ -15,6 +15,7 @@ name: Automation Triggers
 # does nothing but two plain HTTP GETs to the app's own automation-
 # trigger endpoints — each one's own cooldown/due-check logic decides
 # whether anything actually needs sending this time, so running this
+#retry
 # hourly doesn't mean hourly emails, it just means neither check is
 # ever more than an hour late.
 on:
