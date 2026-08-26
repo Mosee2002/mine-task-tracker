@@ -1,48 +1,36 @@
 name: Weekly Database Backup
 
-# Before this existed, the ONLY way to get a database backup at all
-# was the Owner manually clicking "Generate Full Backup" in Owner
-# Console — a genuine, real risk for a disaster-recovery feature
-# specifically: if nobody happens to remember, there is effectively
-# no backup running, ever, exactly when it would matter most. Same
-# reasoning as the hourly Automation Triggers workflow (weather
-# checks, escalations) — this is that same missing-timer fix, for
-# backups specifically, kept in its own file since it runs on a very
-# different schedule (weekly, not hourly) from those two.
+# Same rewrite as Automation Triggers: runs directly against Supabase
+# rather than calling a Streamlit endpoint, which Streamlit Community
+# Cloud blocks with an auth-redirect loop. See automation/mwdts_automation.py.
 #
-# Emails the resulting ZIP to the Owner as an attachment — see
-# run_automated_backup() in app.py for the full reasoning, including
-# the real, known limitation as your data grows: most SMTP providers
-# cap attachments around 10-25MB, and a large backup could eventually
-# exceed that. If it ever does, this run shows a failed/red result in
-# the Actions tab (via curl's -f flag) rather than failing silently.
+# Known limit worth watching as data grows: most SMTP providers cap
+# attachments around 10-25MB. The script reports the ZIP size in its
+# JSON output every run, so you can see it trending upward well before
+# it becomes a failure.
 on:
   schedule:
-    - cron: '0 2 * * 0'   # Sunday, 02:00 UTC — adjust the day/time to whatever suits your team
-  workflow_dispatch: {}   # lets you trigger a manual test run from the Actions tab
+    - cron: '0 2 * * 0'    # Sunday 02:00 UTC
+  workflow_dispatch: {}
 
 jobs:
   backup:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_FROM: ${{ secrets.SMTP_FROM }}
+      OWNER_USERNAME: ${{ secrets.OWNER_USERNAME }}
     steps:
-      - name: Trigger the automated backup
-        run: |
-          curl -sfL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
-            "https://mine-task-tracker-ljc2ppwmwiwtfqwykn2by5.streamlit.app/?run_backup=1&token=${{ secrets.AUTOMATION_TRIGGER_TOKEN }}" \
-            -o backup_response.json
-          cat backup_response.json
-          # -L follows redirects instead of just saving the redirect
-          # page and calling that a success — Streamlit Community
-          # Cloud has a confirmed, current issue silently redirecting
-          # automated requests to its own login page even for apps
-          # set to Public; -A sends a real browser User-Agent as a
-          # first attempt at avoiding that redirect entirely. See
-          # Automation Triggers workflow for the fuller explanation.
-          if grep -q '"success": false' backup_response.json; then
-            echo "Backup reported failure — see backup_response.json above for the reason."
-            exit 1
-          fi
-          if grep -q "streamlit-login\|/-/login\|/-/auth" backup_response.json; then
-            echo "Got redirected to Streamlit's own login page instead of reaching the app."
-            exit 1
-          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install requests
+      - name: Run backup
+        run: python automation/mwdts_automation.py backup
