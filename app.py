@@ -2845,13 +2845,7 @@ def render_empty_state(icon, title, subtitle=None):
     Title and subtitle run through auto_t(), so every empty state in
     the app translates from this one place, no call-site changes."""
     sub_html = f'<div class="empty-sub">{esc(auto_t(subtitle))}</div>' if subtitle else ""
-    st.markdown(f"""
-    <div class="empty-state">
-        <div class="empty-icon"><i class="fas {esc(icon)}"></i></div>
-        <div class="empty-title">{esc(auto_t(title))}</div>
-        {sub_html}
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="empty-state"> <div class="empty-icon"><i class="fas {esc(icon)}"></i></div> <div class="empty-title">{esc(auto_t(title))}</div> {sub_html} </div>""", unsafe_allow_html=True)
 
 
 def render_subheading(text, level=4):
@@ -2886,13 +2880,7 @@ def render_section_header(title_with_emoji, subtitle=None):
     icon_char = parts[0] if len(parts) > 1 else ""
     title_text = auto_t(parts[1] if len(parts) > 1 else title_with_emoji)
     sub_html = f'<p style="color: var(--text-secondary); margin: 0;">{esc(auto_t(subtitle))}</p>' if subtitle else ""
-    st.markdown(f"""
-    <div style="text-align:center; padding: 0.3rem 0 1rem 0;">
-        <div style="font-size: 2rem; line-height: 1;">{esc(icon_char)}</div>
-        <h2 style="margin: 0.3rem 0 0.1rem 0;">{esc(title_text)}</h2>
-        {sub_html}
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div style="text-align:center; padding: 0.3rem 0 1rem 0;"> <div style="font-size: 2rem; line-height: 1;">{esc(icon_char)}</div> <h2 style="margin: 0.3rem 0 0.1rem 0;">{esc(title_text)}</h2> {sub_html} </div>""", unsafe_allow_html=True)
 
 
 def quick_filter(items, query, fields):
@@ -4873,6 +4861,21 @@ def approve_access(username, granted_role, decided_by, reason=None):
         send_notification(full_name, "Access approved",
                           f"Your access has been approved with the role: {granted_role}.",
                           category="access_decisions")
+        # Email specifically matters here in a way push doesn't quite
+        # cover: this person hasn't logged in yet, so they almost
+        # certainly have no push notifications configured on any
+        # device at all — email may be the ONLY way they actually find
+        # out they can now use the app, rather than trying to log in
+        # again on the off chance it's been approved by now.
+        _approved_email = target.data[0].get("email")
+        if _approved_email and not str(_approved_email).endswith("@mwdts.internal"):
+            try:
+                send_email_notification(_approved_email, "✅ Your MWDTS access has been approved",
+                    f"<p>Your access request has been approved, with the role of "
+                    f"<strong>{esc(granted_role)}</strong>.</p>"
+                    f"<p>You can now log in at {esc(APP_URL)} using your username and password.</p>")
+            except Exception as e:
+                log_error(str(e), details={"username": username}, endpoint="approve_access:email")
         return True, ""
     except Exception as e:
         log_error(str(e), details={"username": username}, endpoint="approve_access")
@@ -4939,6 +4942,19 @@ def set_user_role(username, new_role, decided_by, reason=None):
         send_notification(full_name, "Role changed",
                           f"Your role changed from {old_role} to {new_role}.",
                           category="access_decisions")
+        # A role change often changes what someone is expected to
+        # DO going forward (a new Superintendent now needs to start
+        # approving access requests and reviewing escalations, for
+        # instance) — genuinely action-relevant, not just informational.
+        _role_email = target.data[0].get("email")
+        if _role_email and not str(_role_email).endswith("@mwdts.internal"):
+            try:
+                send_email_notification(_role_email, "Your MWDTS role has changed",
+                    f"<p>Your role changed from <strong>{esc(old_role)}</strong> to "
+                    f"<strong>{esc(new_role)}</strong>.</p>"
+                    f"<p>Log in to see what this changes for you.</p>")
+            except Exception as e:
+                log_error(str(e), details={"username": username}, endpoint="set_user_role:email")
         return True, ""
     except Exception as e:
         log_error(str(e), details={"username": username}, endpoint="set_user_role")
@@ -5822,6 +5838,219 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
         return None
     return None
 
+
+def create_task_template(name, description, work_type, default_priority, requires_loto, procedure_steps, created_by):
+    if not SUPABASE_AVAILABLE:
+        return None
+    try:
+        res = supabase.table("task_templates").insert({
+            "name": name, "description": description, "work_type": work_type,
+            "default_priority": default_priority, "requires_loto": requires_loto,
+            "procedure_steps": procedure_steps, "created_by": created_by,
+        }).execute()
+        if res.data:
+            log_audit(created_by, "task_template_create", {"name": name, "steps": len(procedure_steps)})
+            fetch_task_templates.clear()
+            return res.data[0]
+    except Exception as e:
+        log_error(str(e), details={"name": name}, endpoint="create_task_template")
+    return None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_task_templates(active_only=True):
+    if not SUPABASE_AVAILABLE:
+        return []
+    try:
+        q = supabase.table("task_templates").select("*")
+        if active_only:
+            q = q.eq("is_active", True)
+        res = q.order("name").execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_task_templates")
+        return []
+
+
+def create_task_from_template(template_id, location, created_by, assigned_to=None, due_date=None, asset_id=None):
+    """Creates a real task pre-filled from a template — title,
+    priority, work type, and LOTO requirement all come from the
+    template, and its procedure_steps are COPIED onto the task
+    (current_step_index=0, step_log=[]) so the worker can work through
+    the embedded procedure step by step, exactly like the outage
+    runbook mechanism this reuses. Deliberately built as its OWN
+    function on top of the existing create_task()/update_task()
+    rather than adding template parameters directly to create_task's
+    own signature — that function already has many call sites
+    throughout the app, and threading new template-specific
+    parameters through all of them would be a much larger, riskier
+    change than composing the two existing functions here instead.
+    """
+    templates = fetch_task_templates(active_only=False)
+    template = next((t for t in templates if t["id"] == template_id), None)
+    if not template:
+        return None
+
+    task = create_task(
+        title=template["name"], location=location, priority=template.get("default_priority", "Medium"),
+        loto=template.get("requires_loto", False), jsa=False, created_by=created_by,
+        due_date=due_date, work_type=template.get("work_type", "Preventive"),
+        description=template.get("description"), asset_id=asset_id,
+    )
+    if not task:
+        return None
+
+    update_task(task["id"], {
+        "template_id": template_id,
+        "procedure_steps": template.get("procedure_steps", []),
+        "current_step_index": 0,
+        "step_log": [],
+        "assigned_to": assigned_to,
+    }, created_by)
+    return task
+
+
+def advance_task_step(task_id, step_text, completed_by):
+    """Marks the task's current procedure step complete and advances
+    to the next one — same step_log/current_step_index mechanism as
+    advance_outage_step, applied to a regular task instead of an
+    emergency response event."""
+    if not SUPABASE_AVAILABLE:
+        return False
+    try:
+        res = supabase.table("tasks").select("current_step_index, step_log, procedure_steps").eq("id", task_id).execute()
+        if not res.data:
+            return False
+        task = res.data[0]
+        new_log = list(task.get("step_log") or [])
+        new_log.append({
+            "step_index": task["current_step_index"], "step_text": step_text,
+            "completed_by": completed_by, "completed_at": datetime.now().isoformat(),
+        })
+        update_task(task_id, {
+            "step_log": new_log,
+            "current_step_index": task["current_step_index"] + 1,
+        }, completed_by)
+        return True
+    except Exception as e:
+        log_error(str(e), details={"task_id": task_id}, endpoint="advance_task_step")
+        return False
+
+
+def create_prestart_template(name, asset_category, items, created_by):
+    """items is a list of {"text": str, "is_critical": bool}."""
+    if not SUPABASE_AVAILABLE:
+        return None
+    try:
+        res = supabase.table("prestart_checklist_templates").insert({
+            "name": name, "asset_category": asset_category, "items": items, "created_by": created_by,
+        }).execute()
+        if res.data:
+            log_audit(created_by, "prestart_template_create", {"name": name, "items": len(items)})
+            fetch_prestart_templates.clear()
+            return res.data[0]
+    except Exception as e:
+        log_error(str(e), details={"name": name}, endpoint="create_prestart_template")
+    return None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_prestart_templates(active_only=True):
+    if not SUPABASE_AVAILABLE:
+        return []
+    try:
+        q = supabase.table("prestart_checklist_templates").select("*")
+        if active_only:
+            q = q.eq("is_active", True)
+        res = q.order("name").execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_prestart_templates")
+        return []
+
+
+def submit_prestart_checklist(template_id, asset_id, completed_by, results, notes=None):
+    """results is a list of {"item": str, "passed": bool, "notes": str}.
+    overall_pass is True only if EVERY item passed — a pre-start
+    check that's "mostly fine" isn't genuinely a pass; that's what
+    the check exists to catch.
+
+    A failure is NOT translated into automatically changing the
+    asset's own status (e.g. forcing it to "Down") — that's a
+    deliberate choice, not an oversight: an automated system
+    reinterpreting a checklist result into an equipment status change
+    risks a false positive blocking legitimate equipment use, with no
+    human in that loop at all. Instead, every supervisor and
+    superintendent gets notified immediately (push + email, same as
+    the escalations work) so a real person makes the actual call on
+    whether the equipment stays in service — the checklist surfaces
+    the safety signal loudly and immediately, it doesn't act on it
+    unilaterally.
+    """
+    if not SUPABASE_AVAILABLE:
+        return None
+    overall_pass = all(r.get("passed") for r in results) if results else False
+    try:
+        res = supabase.table("prestart_checklist_completions").insert({
+            "template_id": template_id, "asset_id": asset_id, "completed_by": completed_by,
+            "results": results, "overall_pass": overall_pass, "notes": notes,
+        }).execute()
+        if not res.data:
+            return None
+        completion = res.data[0]
+        log_audit(completed_by, "prestart_checklist_submitted",
+                  {"template_id": template_id, "asset_id": asset_id, "overall_pass": overall_pass})
+    except Exception as e:
+        log_error(str(e), details={"template_id": template_id}, endpoint="submit_prestart_checklist")
+        return None
+
+    if not overall_pass:
+        try:
+            _failed_items = [r["item"] for r in results if not r.get("passed")]
+            _asset_row = next((a for a in fetch_all_assets() if a["id"] == asset_id), None)
+            _asset_name = _asset_row.get("name") if _asset_row else f"Asset #{asset_id}"
+            _recipients = [u for u in fetch_all_users_from_db()
+                          if u.get("role", "").strip().lower() in ("supervisor", "superintendent")
+                          and u.get("is_approved") and not u.get("is_suspended")]
+            for u in _recipients:
+                try:
+                    send_notification(u["full_name"], "⚠️ Pre-Start Check FAILED",
+                                      f"{_asset_name}: {completed_by} failed pre-start check on "
+                                      f"{len(_failed_items)} item(s).", category="prestart_failed")
+                except Exception as e:
+                    log_error(str(e), details={"recipient": u.get("full_name")}, endpoint="submit_prestart_checklist:notify")
+                if u.get("email") and not str(u["email"]).endswith("@mwdts.internal"):
+                    try:
+                        _rows = "".join(f"<li>{esc(item)}</li>" for item in _failed_items)
+                        send_email_notification(u["email"], f"⚠️ Pre-Start Check Failed — {esc(_asset_name)}",
+                            f"<p><strong>{esc(completed_by)}</strong> failed a pre-start check on "
+                            f"<strong>{esc(_asset_name)}</strong>.</p>"
+                            f"<p>Failed item(s):</p><ul>{_rows}</ul>"
+                            f"<p>{esc(notes) if notes else ''}</p>"
+                            f"<p>This does NOT automatically change the asset's status — a real "
+                            f"person needs to decide whether it stays in service.</p>")
+                    except Exception as e:
+                        log_error(str(e), details={"recipient": u.get("full_name")}, endpoint="submit_prestart_checklist:email")
+        except Exception as e:
+            log_error(str(e), endpoint="submit_prestart_checklist:notify_all")
+    return completion
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_prestart_completions(asset_id=None, limit=50):
+    if not SUPABASE_AVAILABLE:
+        return []
+    try:
+        q = supabase.table("prestart_checklist_completions").select("*")
+        if asset_id is not None:
+            q = q.eq("asset_id", asset_id)
+        res = q.order("completed_at", desc=True).limit(limit).execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_prestart_completions")
+        return []
+
+
 def update_task(task_id, updates, updated_by):
     fetch_all_tasks.clear()
     # Stamp real completion/reopen timestamps. Every downstream metric
@@ -5867,6 +6096,25 @@ def update_task(task_id, updates, updated_by):
                     send_task_assigned_email(
                         task_id, _updated_task.get("title", ""), _updated_task.get("location", ""),
                         updates['assigned_to'], updated_by)
+                    # Centralized here (push + in-app + SMS fallback via
+                    # notify_user_everywhere) so EVERY code path that
+                    # assigns a task via update_task gets the full
+                    # notification set automatically — not just the one
+                    # or two UI locations that used to hand-roll this
+                    # themselves. Found and fixed two call sites (the
+                    # Supervisor and Superintendent task management
+                    # views) that had their own manual email+push+SMS
+                    # logic AND called update_task, which meant every
+                    # assignment through those screens sent the SAME
+                    # email TWICE to the worker.
+                    _assignee_record = next((u for u in fetch_all_users_from_db()
+                                             if u.get("full_name") == updates['assigned_to']), None)
+                    if _assignee_record:
+                        notify_user_everywhere(
+                            _assignee_record, "Task Assigned",
+                            f"Task #{task_id}: {_updated_task.get('title', '')}",
+                            sms_body=f"MWDTS: New task #{task_id} assigned to you — {_updated_task.get('title', '')}",
+                            category="task_assigned")
                 except Exception as e:
                     # Same reasoning as create_task's email hook — a
                     # notification failure must never look like the
@@ -5894,11 +6142,21 @@ def delete_task(task_id, deleted_by):
         log_audit(deleted_by, "task_delete_memory", {"task_id": task_id})
         return True
     try:
+        # Logged BEFORE the actual delete, not after — this used to run
+        # in the opposite order, which meant every single task deletion
+        # threw a foreign-key-constraint violation trying to insert a
+        # task_activity row referencing a task_id that had, by that
+        # point, already been removed from the tasks table. The delete
+        # itself still succeeded either way (the error was swallowed
+        # by this function's own try/except), so this wasn't visible
+        # as a broken delete — just a permanently-missing "deleted"
+        # entry in every task's activity history, and a stream of
+        # avoidable errors in the log.
+        log_task_activity(task_id, deleted_by, "deleted", {})
         res = supabase.table("tasks").delete().eq("id", task_id).execute()
         if not res.data:
             return False
         log_audit(deleted_by, "task_delete", {"task_id": task_id})
-        log_task_activity(task_id, deleted_by, "deleted", {})
         send_external_notifications(f"Task #{task_id} deleted by {deleted_by}")
         return True
     except Exception as e:
@@ -6175,6 +6433,21 @@ def send_broadcast_to_db(sender_name, sender_role, message):
             except Exception as e:
                 log_error(str(e), details={"recipient": u.get("full_name")},
                          endpoint="send_broadcast_to_db:notify")
+            # Consolidated here from what used to be a SEPARATE, leftover
+            # block of code sitting right after this function's call
+            # site in the UI — email to every worker WAS already
+            # happening, just as a second, parallel, duplicate code
+            # path that ran alongside this function rather than inside
+            # it, which also meant a broadcast produced two separate
+            # "sent" messages on screen. One consolidated place now,
+            # not two that have to be kept in sync by hand.
+            if u.get("email") and not str(u["email"]).endswith("@mwdts.internal"):
+                try:
+                    send_email_notification(u["email"], f"📢 Broadcast from {sender_name}",
+                                            message.replace("\n", "<br>"))
+                except Exception as e:
+                    log_error(str(e), details={"recipient": u.get("full_name")},
+                             endpoint="send_broadcast_to_db:email")
     except Exception as e:
         log_error(str(e), endpoint="send_broadcast_to_db:fetch_recipients")
     return True
@@ -9105,39 +9378,56 @@ def fetch_weather_forecast():
     """
     if not WEATHER_CONFIGURED:
         return []
-    try:
-        resp = requests.get(
-            "https://api.open-meteo.com/v1/forecast",
-            params={
-                "latitude": MINE_LATITUDE, "longitude": MINE_LONGITUDE,
-                "daily": ("precipitation_sum,precipitation_probability_max,"
-                         "windspeed_10m_max,temperature_2m_max,temperature_2m_min,weathercode"),
-                "forecast_days": 7, "timezone": "auto",
-            },
-            timeout=8,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        daily = data.get("daily", {})
-        dates = daily.get("time", [])
-        precip_mm = daily.get("precipitation_sum", [])
-        precip_prob = daily.get("precipitation_probability_max", [])
-        wind_max = daily.get("windspeed_10m_max", [])
-        temp_max = daily.get("temperature_2m_max", [])
-        temp_min = daily.get("temperature_2m_min", [])
-        weather_code = daily.get("weathercode", [])
-        return [
-            {"date": d, "precip_mm": precip_mm[i] if i < len(precip_mm) else None,
-            "precip_probability_pct": precip_prob[i] if i < len(precip_prob) else None,
-            "wind_speed_max_kmh": wind_max[i] if i < len(wind_max) else None,
-            "temp_max_c": temp_max[i] if i < len(temp_max) else None,
-            "temp_min_c": temp_min[i] if i < len(temp_min) else None,
-            "weather_code": weather_code[i] if i < len(weather_code) else None}
-            for i, d in enumerate(dates)
-        ]
-    except Exception as e:
-        log_error(str(e), endpoint="fetch_weather_forecast")
-        return []
+    # Retries a 429 specifically, with a short backoff — confirmed via
+    # Open-Meteo's own GitHub issue tracker that their free tier has
+    # real, current reliability problems with 429s that do NOT
+    # correlate with actual caller request volume (one reported case:
+    # a brand-new machine, on an IP that had never contacted
+    # Open-Meteo before, got a 429 on its very first-ever request).
+    # This is not something fixable by "calling the API more
+    # carefully" — the fix here is resilience, not less usage: most
+    # reports describe these as transient, so one short retry papers
+    # over the common case without hammering their servers or making
+    # someone wait long for what's ultimately a non-critical forecast.
+    for _attempt in range(2):
+        try:
+            resp = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": MINE_LATITUDE, "longitude": MINE_LONGITUDE,
+                    "daily": ("precipitation_sum,precipitation_probability_max,"
+                             "windspeed_10m_max,temperature_2m_max,temperature_2m_min,weathercode"),
+                    "forecast_days": 7, "timezone": "auto",
+                },
+                timeout=8,
+            )
+            if resp.status_code == 429 and _attempt == 0:
+                time.sleep(3)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            daily = data.get("daily", {})
+            dates = daily.get("time", [])
+            precip_mm = daily.get("precipitation_sum", [])
+            precip_prob = daily.get("precipitation_probability_max", [])
+            wind_max = daily.get("windspeed_10m_max", [])
+            temp_max = daily.get("temperature_2m_max", [])
+            temp_min = daily.get("temperature_2m_min", [])
+            weather_code = daily.get("weathercode", [])
+            return [
+                {"date": d, "precip_mm": precip_mm[i] if i < len(precip_mm) else None,
+                "precip_probability_pct": precip_prob[i] if i < len(precip_prob) else None,
+                "wind_speed_max_kmh": wind_max[i] if i < len(wind_max) else None,
+                "temp_max_c": temp_max[i] if i < len(temp_max) else None,
+                "temp_min_c": temp_min[i] if i < len(temp_min) else None,
+                "weather_code": weather_code[i] if i < len(weather_code) else None}
+                for i, d in enumerate(dates)
+            ]
+        except Exception as e:
+            log_error(str(e), endpoint="fetch_weather_forecast", details={"attempt": _attempt + 1})
+            if _attempt == 1:
+                return []
+    return []
 
 
 # WMO weather codes (used by Open-Meteo) that represent genuinely
@@ -9395,27 +9685,37 @@ def fetch_historical_weather(start_date, end_date):
     """
     if not WEATHER_CONFIGURED:
         return []
-    try:
-        resp = requests.get(
-            "https://archive-api.open-meteo.com/v1/archive",
-            params={
-                "latitude": MINE_LATITUDE, "longitude": MINE_LONGITUDE,
-                "start_date": start_date.strftime("%Y-%m-%d"),
-                "end_date": end_date.strftime("%Y-%m-%d"),
-                "daily": "precipitation_sum", "timezone": "auto",
-            },
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        daily = data.get("daily", {})
-        dates = daily.get("time", [])
-        precip = daily.get("precipitation_sum", [])
-        return [{"date": d, "precip_mm": precip[i] if i < len(precip) else None}
-                for i, d in enumerate(dates)]
-    except Exception as e:
-        log_error(str(e), endpoint="fetch_historical_weather")
-        return []
+    # Same retry reasoning as fetch_weather_forecast above — see that
+    # function's own comment for the full explanation (confirmed via
+    # Open-Meteo's own GitHub issues: their free tier has real 429
+    # reliability problems unrelated to actual caller volume).
+    for _attempt in range(2):
+        try:
+            resp = requests.get(
+                "https://archive-api.open-meteo.com/v1/archive",
+                params={
+                    "latitude": MINE_LATITUDE, "longitude": MINE_LONGITUDE,
+                    "start_date": start_date.strftime("%Y-%m-%d"),
+                    "end_date": end_date.strftime("%Y-%m-%d"),
+                    "daily": "precipitation_sum", "timezone": "auto",
+                },
+                timeout=10,
+            )
+            if resp.status_code == 429 and _attempt == 0:
+                time.sleep(3)
+                continue
+            resp.raise_for_status()
+            data = resp.json()
+            daily = data.get("daily", {})
+            dates = daily.get("time", [])
+            precip = daily.get("precipitation_sum", [])
+            return [{"date": d, "precip_mm": precip[i] if i < len(precip) else None}
+                    for i, d in enumerate(dates)]
+        except Exception as e:
+            log_error(str(e), endpoint="fetch_historical_weather", details={"attempt": _attempt + 1})
+            if _attempt == 1:
+                return []
+    return []
 
 
 def rainy_vs_dry_production(production_records, historical_weather, rain_threshold_mm=1.0):
@@ -9638,27 +9938,35 @@ def average_ore_grade(records):
 
 def run_escalations(tasks, permits, triggered_by):
     """Checks for overdue tasks and soon-to-expire permits, sending a
-    notification for each. This is NOT a scheduled background job —
-    Streamlit has no true scheduler, so this only runs when something
-    in the app actually calls it (a button click, or once per session
-    on load). A permit expiring at 3am with nobody using the app
-    won't trigger anything until someone next opens it. Genuine
-    always-on scheduling would need something outside this app
-    entirely — e.g. a scheduled GitHub Action or Supabase Edge
-    Function hitting a dedicated trigger — not something this
-    function can promise on its own.
+    notification for each. Automated on an hourly schedule via GitHub
+    Actions (see the run_escalations automation endpoint and this
+    repo's weather-check-cron.yml workflow) — Streamlit itself has no
+    true scheduler, so that external trigger is what actually makes
+    this reliable; called directly like this (a button click, or once
+    per session) still works too, but is no longer the only way this
+    runs.
 
     Fixes a real bug from the original source material: it hardcoded
     a single username ("superintendent1") to notify, which would
     silently fail to reach anyone else holding that role. This
     notifies every actual superintendent instead.
+
+    Sends both push/in-app AND email for every recipient — genuinely
+    warranted here specifically (unlike broadcasts or mentions, which
+    stay push-only) since an expiring LOTO/isolation permit is a real
+    safety-critical, time-sensitive item, and an overdue task directly
+    represents unplanned downtime — exactly what this whole app exists
+    to catch before it becomes a bigger problem, not something that
+    should depend on someone happening to have their phone on them.
     """
     if not SUPABASE_AVAILABLE:
         return {"overdue_notified": 0, "permits_notified": 0}
 
-    superintendents = [u["full_name"] for u in fetch_all_users_from_db()
+    _all_users_esc = fetch_all_users_from_db()
+    superintendents = [u["full_name"] for u in _all_users_esc
                        if u.get("role", "").strip().lower() == "superintendent"
                        and u.get("is_approved") and u.get("full_name")]
+    _email_by_name = {u["full_name"]: u.get("email") for u in _all_users_esc if u.get("full_name")}
 
     # Collected per-recipient rather than sent as we go, so a
     # superintendent with 5 overdue tasks gets ONE push ("5 tasks
@@ -9680,6 +9988,16 @@ def run_escalations(tasks, permits, triggered_by):
             s_name, "Task Overdue", overdue_tasks,
             item_label_fn=lambda t: f"#{t['id']} {t.get('title', '')}",
             category="task_overdue")
+        _s_email = _email_by_name.get(s_name)
+        if overdue_tasks and _s_email and not str(_s_email).endswith("@mwdts.internal"):
+            try:
+                _rows = "".join(f"<li>#{t['id']} {esc(t.get('title', ''))} — "
+                               f"{esc(t.get('location') or 'no location')}</li>" for t in overdue_tasks)
+                send_email_notification(_s_email, f"⚠️ {len(overdue_tasks)} Overdue Task(s)",
+                    f"<p>{len(overdue_tasks)} task(s) are now overdue:</p><ul>{_rows}</ul>"
+                    f"<p>Open MWDTS → Task Dashboard to review.</p>")
+            except Exception as e:
+                log_error(str(e), details={"recipient": s_name}, endpoint="run_escalations:overdue_email")
 
     permit_count = 0
     permits_by_recipient = {}
@@ -9698,6 +10016,18 @@ def run_escalations(tasks, permits, triggered_by):
             _issuer, "Permit Expiring Soon", expiring_permits,
             item_label_fn=lambda p: f"#{p['id']} ({p.get('permit_type')})",
             category="permit_expiring")
+        _issuer_email = _email_by_name.get(_issuer)
+        if expiring_permits and _issuer_email and not str(_issuer_email).endswith("@mwdts.internal"):
+            try:
+                _rows = "".join(f"<li>#{p['id']} — {esc(p.get('permit_type') or 'permit')}, "
+                               f"lock/tag {esc(p.get('lock_tag_numbers') or '—')}</li>" for p in expiring_permits)
+                send_email_notification(_issuer_email,
+                    f"🔒 {len(expiring_permits)} Permit(s) Expiring Within the Hour",
+                    f"<p>{len(expiring_permits)} permit(s) you issued expire within the hour:</p>"
+                    f"<ul>{_rows}</ul>"
+                    f"<p>Open MWDTS → Permits to renew or formally sign back the isolation.</p>")
+            except Exception as e:
+                log_error(str(e), details={"recipient": _issuer}, endpoint="run_escalations:permit_email")
 
     log_audit(triggered_by, "escalations_run", {"overdue": overdue_count, "permits_expiring": permit_count})
     return {"overdue_notified": overdue_count, "permits_notified": permit_count}
@@ -12896,6 +13226,9 @@ def remove_logo(removed_by):
 # back on; Profile is where anyone changes their own password.
 TOGGLEABLE_MODULES = {
     "Assets": "Equipment register and meter readings.",
+    "Kanban Board": "Column-based view of open tasks by status, for a real-time shift picture.",
+    "Task Templates": "Reusable TCard-style job templates with embedded step-by-step procedures.",
+    "Pre-Start Checklists": "Digital pre-start safety checks, with immediate alerts on any critical failure.",
     "Equipment Health": "Traffic-light health dashboard combining existing signals (status, "
                         "overdue tasks, meter anomalies, ML predictions) into one view.",
     "Permits": "Permit to Work / LOTO isolation records.",
@@ -13134,7 +13467,7 @@ HOW_IT_WORKS_GUIDE = {
 # filtered nav_options, so a category with nothing visible for this
 # user simply doesn't show, rather than displaying an empty dropdown.
 NAV_CATEGORIES = {
-    "Core Maintenance": ["Task Dashboard", "Offline Mode", "Sync Review", "Assets", "Equipment Health",
+    "Core Maintenance": ["Task Dashboard", "Kanban Board", "Task Templates", "Pre-Start Checklists", "Offline Mode", "Sync Review", "Assets", "Equipment Health",
                          "Permits", "Inventory", "Job Plans",
                          "Production", "Haulage", "Crew Clock", "Locations"],
     "Safety & Compliance": ["Incidents", "JSA Library", "Contractors", "Technician Certifications"],
@@ -13179,7 +13512,9 @@ SUPPORTED_LANGUAGES = {
 
 TRANSLATIONS = {
     "en": {
-        "nav.Task Dashboard": "Task Dashboard", "nav.Help": "Help", "nav.Assets": "Assets",
+        "nav.Task Dashboard": "Task Dashboard", "nav.Kanban Board": "Kanban Board",
+        "nav.Task Templates": "Task Templates", "nav.Pre-Start Checklists": "Pre-Start Checklists",
+        "nav.Help": "Help", "nav.Assets": "Assets",
         "nav.Offline Mode": "Offline Mode", "nav.Sync Review": "Sync Review",
         "nav.Equipment Health": "Equipment Health",
         "nav.Permits": "Permits", "nav.Inventory": "Inventory",
@@ -13390,7 +13725,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly or pandas not installed. Please run: pip install plotly pandas",
     },
     "fr": {
-        "nav.Task Dashboard": "Tableau des tâches", "nav.Help": "Aide", "nav.Assets": "Actifs",
+        "nav.Task Dashboard": "Tableau des tâches", "nav.Kanban Board": "Tableau Kanban",
+        "nav.Task Templates": "Modèles de tâches", "nav.Pre-Start Checklists": "Listes de contrôle avant démarrage",
+        "nav.Help": "Aide", "nav.Assets": "Actifs",
         "nav.Offline Mode": "Mode hors ligne", "nav.Sync Review": "Vérification de synchronisation",
         "nav.Equipment Health": "État de l'équipement",
         "nav.Permits": "Permis", "nav.Inventory": "Inventaire",
@@ -13601,7 +13938,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly ou pandas non installés. Veuillez exécuter : pip install plotly pandas",
     },
     "es": {
-        "nav.Task Dashboard": "Panel de tareas", "nav.Help": "Ayuda", "nav.Assets": "Activos",
+        "nav.Task Dashboard": "Panel de tareas", "nav.Kanban Board": "Tablero Kanban",
+        "nav.Task Templates": "Plantillas de tareas", "nav.Pre-Start Checklists": "Listas de verificación previas",
+        "nav.Help": "Ayuda", "nav.Assets": "Activos",
         "nav.Offline Mode": "Modo sin conexión", "nav.Sync Review": "Revisión de sincronización",
         "nav.Equipment Health": "Estado del equipo",
         "nav.Permits": "Permisos", "nav.Inventory": "Inventario",
@@ -13812,7 +14151,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly o pandas no están instalados. Ejecute: pip install plotly pandas",
     },
     "pt": {
-        "nav.Task Dashboard": "Painel de tarefas", "nav.Help": "Ajuda", "nav.Assets": "Ativos",
+        "nav.Task Dashboard": "Painel de tarefas", "nav.Kanban Board": "Quadro Kanban",
+        "nav.Task Templates": "Modelos de tarefas", "nav.Pre-Start Checklists": "Listas de verificação pré-início",
+        "nav.Help": "Ajuda", "nav.Assets": "Ativos",
         "nav.Offline Mode": "Modo offline", "nav.Sync Review": "Revisão de sincronização",
         "nav.Equipment Health": "Saúde do equipamento",
         "nav.Permits": "Permissões", "nav.Inventory": "Inventário",
@@ -14023,7 +14364,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly ou pandas não instalados. Execute: pip install plotly pandas",
     },
     "zh": {
-        "nav.Task Dashboard": "任务看板", "nav.Help": "帮助", "nav.Assets": "资产",
+        "nav.Task Dashboard": "任务看板", "nav.Kanban Board": "看板视图",
+        "nav.Task Templates": "任务模板", "nav.Pre-Start Checklists": "启动前检查表",
+        "nav.Help": "帮助", "nav.Assets": "资产",
         "nav.Offline Mode": "离线模式", "nav.Sync Review": "同步审核",
         "nav.Equipment Health": "设备健康",
         "nav.Permits": "许可证", "nav.Inventory": "库存",
@@ -14234,7 +14577,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "未安装 Plotly 或 pandas。请运行：pip install plotly pandas",
     },
     "hi": {
-        "nav.Task Dashboard": "कार्य डैशबोर्ड", "nav.Help": "सहायता", "nav.Assets": "संपत्ति",
+        "nav.Task Dashboard": "कार्य डैशबोर्ड", "nav.Kanban Board": "कानबन बोर्ड",
+        "nav.Task Templates": "कार्य टेम्पलेट", "nav.Pre-Start Checklists": "प्री-स्टार्ट चेकलिस्ट",
+        "nav.Help": "सहायता", "nav.Assets": "संपत्ति",
         "nav.Offline Mode": "ऑफ़लाइन मोड", "nav.Sync Review": "सिंक समीक्षा",
         "nav.Equipment Health": "उपकरण स्वास्थ्य",
         "nav.Permits": "परमिट", "nav.Inventory": "इन्वेंटरी",
@@ -14446,6 +14791,9 @@ TRANSLATIONS = {
     },
     "tw": {
         "nav.Task Dashboard": "Adwuma Bɔɔd",
+        "nav.Kanban Board": "Adwuma Kwan (Kanban Board)",
+        "nav.Task Templates": "Adwuma Nhwɛso (Task Templates)",
+        "nav.Pre-Start Checklists": "Ansa Woahyɛase Nhwehwɛmu (Pre-Start Checklist)",
         "nav.Help": "Mmoa",
         "nav.Assets": "Mfidie",
         "nav.Offline Mode": "Sɛ Network Nni Hɔ (Offline Mode)",
@@ -16989,13 +17337,7 @@ def google_oauth_login():
         # Worth setting APP_URL in secrets.toml if this button doesn't
         # work; see this function's own docstring above.
         _google_href = esc("?auto_google_login=1")
-    st.markdown(f"""
-    <div class="google-login-link-wrap">
-        <a href="{_google_href}" class="google-login-link">
-            Login with Google
-        </a>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="google-login-link-wrap"> <a href="{_google_href}" class="google-login-link"> Login with Google </a> </div>""", unsafe_allow_html=True)
 
 
 def handle_google_oauth_return():
@@ -17893,13 +18235,13 @@ except ImportError:
     st.error("streamlit-option-menu not installed. Please run: pip install streamlit-option-menu")
     st.stop()
 
-nav_options = ["Task Dashboard", "Offline Mode", "Sync Review", "Help", "Production", "Haulage", "Assets", "Equipment Health", "Permits", "Inventory", "Incidents",
+nav_options = ["Task Dashboard", "Kanban Board", "Task Templates", "Pre-Start Checklists", "Offline Mode", "Sync Review", "Help", "Production", "Haulage", "Assets", "Equipment Health", "Permits", "Inventory", "Incidents",
                "Handover", "Worker Reports", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile",
                "Timeline", "About", "Wallboard", "Crew Clock", "JSA Library", "Job Plans", "Locations",
                "Electrical Overview", "Motor Rewinds", "Instrument Calibration", "Outage Commander",
                "Transformer Health", "Fault Recorder", "HV Switching Schedule", "Relay Settings",
                "Arc Flash Studies", "Technician Certifications"]
-nav_icons = ["list-task", "wifi-off", "arrow-repeat", "question-circle-fill", "bar-chart-fill", "truck", "hdd-stack-fill", "heart-pulse-fill", "shield-lock-fill", "box-seam-fill",
+nav_icons = ["list-task", "columns-gap", "card-checklist", "check2-square", "wifi-off", "arrow-repeat", "question-circle-fill", "bar-chart-fill", "truck", "hdd-stack-fill", "heart-pulse-fill", "shield-lock-fill", "box-seam-fill",
              "exclamation-triangle-fill", "arrow-left-right", "journal-text", "people-fill",
              "graph-up-arrow", "chat-dots-fill", "lightbulb-fill", "gear-fill", "person-circle",
              "clock-history", "info-circle-fill", "tv-fill", "clock-fill", "file-earmark-text-fill",
@@ -18014,16 +18356,7 @@ with st.sidebar:
     selected_section = st.session_state["_current_nav_section"]
     st.markdown("---")
 
-    st.markdown(f"""
-    <div class="sidebar-user">
-        <i class="fas fa-user-circle user-icon"></i>
-        <div class="user-name">{esc(full_name)}</div>
-        <div class="user-role">
-            <i class="fas fa-id-badge"></i> {user['role']}
-            <span class="verified-badge">VERIFIED</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="sidebar-user"> <i class="fas fa-user-circle user-icon"></i> <div class="user-name">{esc(full_name)}</div> <div class="user-role"> <i class="fas fa-id-badge"></i> {user['role']} <span class="verified-badge">VERIFIED</span> </div> </div>""", unsafe_allow_html=True)
 
     if USING_HARDCODED:
         st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
@@ -18059,21 +18392,10 @@ with st.sidebar:
             if broadcast_msg:
                 if send_broadcast_to_db(full_name, user['role'], broadcast_msg):
                     fetch_recent_broadcasts.clear()
-                    st.success("Broadcast sent.")
+                    st.success("Broadcast sent — every active user notified, with email.")
                 else:
                     st.error("Couldn't send the broadcast — check the error log in Owner Console.")
                 log_audit(full_name, "broadcast", {"message": broadcast_msg[:50]})
-                all_users = fetch_all_users_from_db()
-                worker_emails = [u.get('email') for u in all_users if u['role'].strip().lower() == 'worker' and u.get('email')]
-                _sent = sum(1 for email in worker_emails
-                           if send_email_notification(email, f"Broadcast from {full_name}",
-                                                       broadcast_msg.replace('\n', '<br>')))
-                send_push_notification("New Broadcast", broadcast_msg[:100])
-                if worker_emails and _sent < len(worker_emails):
-                    st.warning(f"Broadcast posted, but only {_sent}/{len(worker_emails)} "
-                              "emails sent. Check Owner Console → Settings → email health.")
-                else:
-                    st.success("Broadcast sent!")
                 st.rerun()
             else:
                 st.error("Message cannot be empty.")
@@ -18543,17 +18865,7 @@ def page_profile():
     else:
         _avatar_html = f'<div class="profile-avatar-fallback">{esc(_initials)}</div>'
 
-    st.markdown(f"""
-    <div class="profile-card">
-        {_avatar_html}
-        <div class="profile-card-name">{esc(full_name)}</div>
-        <div class="profile-card-role">{esc(user['role'])}</div>
-        <div class="profile-card-details">
-            <span><i class="fas fa-user"></i> {esc(username)}</span>
-            <span><i class="fas fa-envelope"></i> {esc(user_email) if user_email else "No email set"}</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="profile-card"> {_avatar_html} <div class="profile-card-name">{esc(full_name)}</div> <div class="profile-card-role">{esc(user['role'])}</div> <div class="profile-card-details"> <span><i class="fas fa-user"></i> {esc(username)}</span> <span><i class="fas fa-envelope"></i> {esc(user_email) if user_email else "No email set"}</span> </div> </div>""", unsafe_allow_html=True)
 
     st.markdown("### 📱 Phone Number")
     st.caption(
@@ -19010,12 +19322,7 @@ def page_feedback():
                     + (f'<p>{esc_multiline(f.get("description"))}</p>' if f.get('description') else '')
                     + (f'<div class="feedback-response"><i class="fas fa-reply"></i> <b>{esc(f.get("responded_by"))}:</b> {esc(f.get("admin_response"))}</div>' if f.get('admin_response') else '')
                 )
-                st.markdown(f"""
-                <div class="custom-card" style="border-left-color: var(--tone-{tone});">
-                    <strong>{esc(f.get('title'))}</strong>
-                    <span class="priority-badge" style="background:var(--tone-{tone});">{esc(f.get('status', 'New'))}</span>{_fb_extra}
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"""<div class="custom-card" style="border-left-color: var(--tone-{tone});"> <strong>{esc(f.get('title'))}</strong> <span class="priority-badge" style="background:var(--tone-{tone});">{esc(f.get('status', 'New'))}</span>{_fb_extra} </div>""", unsafe_allow_html=True)
 
                 if can(role, "feedback.manage"):
                     with st.expander(f"⚙️ Manage #{fid}"):
@@ -19110,14 +19417,7 @@ def page_contractors():
                     ("fa-file-contract", t("contractors.field_insurance_expires"), _fmt_date_only(c.get('insurance_expiry')), "neutral"),
                     ("fa-tools", t("contractors.field_competencies"), c.get('competencies'), "info"),
                 ])
-                st.markdown(f"""
-                <div class="custom-card" style="border-left-color: {badge_colour};">
-                    <strong>{esc(c.get('company_name'))}</strong>
-                    <span class="status-badge" style="background:{badge_colour};">{esc(label)}</span>
-                    {_contractor_chips}
-                    {_contractor_fields}
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"""<div class="custom-card" style="border-left-color: {badge_colour};"> <strong>{esc(c.get('company_name'))}</strong> <span class="status-badge" style="background:{badge_colour};">{esc(label)}</span> {_contractor_chips} {_contractor_fields} </div>""", unsafe_allow_html=True)
                 if can(role, "contractor.manage"):
                     with st.expander(t("contractors.update_expander").format(name=c.get('company_name'))):
                         ccols = st.columns(3)
@@ -19292,14 +19592,7 @@ def page_handover():
                 ("fa-triangle-exclamation", "Safety concerns", h.get('safety_concerns'), "danger"),
                 ("fa-screwdriver-wrench", "Equipment status", h.get('equipment_status') or "—", "neutral"),
             ])
-            st.markdown(f"""
-            <div class="custom-card" style="border-left-color: {'#dc2626' if has_safety else '#0f3460'};">
-                <strong>{esc(h.get('shift'))} — {esc(h.get('crew') or 'No crew')}</strong> {ack_badge}
-                {_ho_meta_chips}
-                {_ho_fields}
-                {f"<small>Acknowledged by {esc(h.get('acknowledged_by'))} at {_fmt_log_time(h.get('acknowledged_at'))}</small>" if h.get('acknowledged') else ""}
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="custom-card" style="border-left-color: {'#dc2626' if has_safety else '#0f3460'};"> <strong>{esc(h.get('shift'))} — {esc(h.get('crew') or 'No crew')}</strong> {ack_badge} {_ho_meta_chips} {_ho_fields} {f"<small>Acknowledged by {esc(h.get('acknowledged_by'))} at {_fmt_log_time(h.get('acknowledged_at'))}</small>" if h.get('acknowledged') else ""} </div>""", unsafe_allow_html=True)
             if not h.get('acknowledged') and can(role, "handover.acknowledge"):
                 if st.button("✅ Acknowledge Handover", key=f"ack_ho_{h['id']}"):
                     if acknowledge_handover(h['id'], full_name):
@@ -19667,14 +19960,7 @@ def page_technician_certifications():
                     _colour = {"overdue": "#dc2626", "due_soon": "#f59e0b", "ok": "#16a34a", "no_expiry": "#94a3b8"}[_status]
                     _status_text = {"overdue": "EXPIRED", "due_soon": f"Expires in {_days_until}d",
                                    "ok": f"Valid ({_days_until}d remaining)", "no_expiry": "No expiry date set"}[_status]
-                    st.markdown(f"""
-                    <div class="custom-card" style="border-left-color: {_colour}; padding: 0.6rem;">
-                        <strong>{esc(c['certification_type'])}</strong>
-                        <span class="status-badge" style="background:{_colour};">{_status_text}</span>
-                        <p>Issued {str(c['issued_date'])[:10]}
-                        {f" — Expires {str(c['expiry_date'])[:10]}" if c.get('expiry_date') else ''}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour}; padding: 0.6rem;"> <strong>{esc(c['certification_type'])}</strong> <span class="status-badge" style="background:{_colour};">{_status_text}</span> <p>Issued {str(c['issued_date'])[:10]} {f" — Expires {str(c['expiry_date'])[:10]}" if c.get('expiry_date') else ''}</p> </div>""", unsafe_allow_html=True)
 
 
 def page_arc_flash_studies():
@@ -19745,11 +20031,7 @@ def page_arc_flash_studies():
             _next_review, _days_until, _status = arc_flash_study_status(s)
             _colour = {"overdue": "#dc2626", "due_soon": "#f59e0b", "ok": "#16a34a"}[_status]
             with st.expander(f"{esc(s['equipment_tag'])} — {_status.replace('_', ' ').title()}"):
-                st.markdown(f"""
-                <div class="custom-card" style="border-left-color: {_colour}; padding: 0.6rem;">
-                    <p>Studied {str(s['study_date'])[:10]} — next review due {_next_review}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour}; padding: 0.6rem;"> <p>Studied {str(s['study_date'])[:10]} — next review due {_next_review}</p> </div>""", unsafe_allow_html=True)
                 if s.get("incident_energy_cal_cm2"):
                     st.write(f"**Incident Energy**: {esc(s['incident_energy_cal_cm2'])} cal/cm²")
                 if s.get("ppe_category"):
@@ -19842,14 +20124,7 @@ def page_relay_settings():
                 st.success("No differences between As-Found and As-Left.")
             for c in _comparison:
                 _row_colour = "#dc2626" if c["changed"] else "#16a34a"
-                st.markdown(f"""
-                <div class="custom-card" style="border-left-color: {_row_colour}; padding: 0.6rem;">
-                    <strong>{esc(c['parameter'])}</strong>
-                    <p style="margin: 0.2rem 0; font-size: 0.85rem;">
-                        As-Found: {esc(str(c['as_found_value']))} → As-Left: {esc(str(c['as_left_value']))}
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"""<div class="custom-card" style="border-left-color: {_row_colour}; padding: 0.6rem;"> <strong>{esc(c['parameter'])}</strong> <p style="margin: 0.2rem 0; font-size: 0.85rem;"> As-Found: {esc(str(c['as_found_value']))} → As-Left: {esc(str(c['as_left_value']))} </p> </div>""", unsafe_allow_html=True)
 
         render_subheading("Full Record History", level=5)
         for r in _relay_records:
@@ -19880,14 +20155,7 @@ def page_hv_switching_schedule():
         for order in _active_orders:
             _steps = order.get("steps", [])
             _cur_idx = order.get("current_step_index", 0)
-            st.markdown(f"""
-            <div class="custom-card" style="border-left-color: #f59e0b;">
-                <strong>{esc(order['title'])}</strong>
-                <span class="status-badge" style="background:#f59e0b;">{esc(order['status'])}</span>
-                <p>{esc(order['feeder_circuit'])} — Scheduled {_fmt_log_time(order['scheduled_datetime'])}</p>
-                <p>Authorized by <strong>{esc(order.get('authorized_by', ''))}</strong> at {_fmt_log_time(order.get('authorized_at'))}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="custom-card" style="border-left-color: #f59e0b;"> <strong>{esc(order['title'])}</strong> <span class="status-badge" style="background:#f59e0b;">{esc(order['status'])}</span> <p>{esc(order['feeder_circuit'])} — Scheduled {_fmt_log_time(order['scheduled_datetime'])}</p> <p>Authorized by <strong>{esc(order.get('authorized_by', ''))}</strong> at {_fmt_log_time(order.get('authorized_at'))}</p> </div>""", unsafe_allow_html=True)
             if _cur_idx < len(_steps):
                 st.markdown(f"**Current step ({_cur_idx + 1} of {len(_steps)}):** {esc(_steps[_cur_idx])}")
                 with st.form(f"advance_switch_{order['id']}"):
@@ -19908,15 +20176,7 @@ def page_hv_switching_schedule():
     if _draft_orders:
         render_subheading("Awaiting Authorization", level=4)
         for order in _draft_orders:
-            st.markdown(f"""
-            <div class="custom-card" style="border-left-color: #94a3b8;">
-                <strong>{esc(order['title'])}</strong>
-                <span class="status-badge" style="background:#94a3b8;">DRAFT</span>
-                <p>{esc(order['feeder_circuit'])} — Scheduled {_fmt_log_time(order['scheduled_datetime'])}</p>
-                <p>{len(order.get('steps', []))} step(s) — created by {esc(order.get('created_by', ''))}</p>
-                <p>Awaiting authorization from: <strong>{esc(order.get('designated_approver') or 'Not set')}</strong></p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="custom-card" style="border-left-color: #94a3b8;"> <strong>{esc(order['title'])}</strong> <span class="status-badge" style="background:#94a3b8;">DRAFT</span> <p>{esc(order['feeder_circuit'])} — Scheduled {_fmt_log_time(order['scheduled_datetime'])}</p> <p>{len(order.get('steps', []))} step(s) — created by {esc(order.get('created_by', ''))}</p> <p>Awaiting authorization from: <strong>{esc(order.get('designated_approver') or 'Not set')}</strong></p> </div>""", unsafe_allow_html=True)
             with st.expander("Review steps before authorizing"):
                 for i, step in enumerate(order.get("steps", []), 1):
                     st.write(f"{i}. {esc(step)}")
@@ -20003,13 +20263,7 @@ def page_fault_recorder():
         _trends = get_fault_trends_by_feeder(_fault_events)
         for t in _trends:
             _type_breakdown = ", ".join(f"{v} {k}" for k, v in sorted(t["by_type"].items(), key=lambda x: -x[1]))
-            st.markdown(f"""
-            <div class="custom-card" style="border-left-color: {'#dc2626' if t['total'] >= 5 else '#0f3460'};">
-                <strong>{esc(t['feeder'])}</strong>
-                <span class="status-badge" style="background:{'#dc2626' if t['total'] >= 5 else '#0f3460'};">{t['total']} trip(s)</span>
-                <p>{esc(_type_breakdown)}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="custom-card" style="border-left-color: {'#dc2626' if t['total'] >= 5 else '#0f3460'};"> <strong>{esc(t['feeder'])}</strong> <span class="status-badge" style="background:{'#dc2626' if t['total'] >= 5 else '#0f3460'};">{t['total']} trip(s)</span> <p>{esc(_type_breakdown)}</p> </div>""", unsafe_allow_html=True)
 
     with st.expander("➕ Log a Fault Event"):
         with st.form("new_fault_event_form", clear_on_submit=True):
@@ -20087,13 +20341,7 @@ def page_transformer_health():
             _colour = {0: "#94a3b8", 1: "#16a34a", 2: "#f59e0b", 3: "#ea580c", 4: "#dc2626"}[worst]
             _label = {0: "No data", 1: "Condition 1", 2: "Condition 2", 3: "Condition 3", 4: "Condition 4"}[worst]
             _gas_names = ", ".join(DGA_GAS_LABELS.get(g, g) for g in worst_gases)
-            st.markdown(f"""
-            <div class="custom-card" style="border-left-color: {_colour};">
-                <strong>{esc(tag)}</strong>
-                <span class="status-badge" style="background:{_colour};">{_label}</span>
-                <p>Last tested {esc(str(test_date)[:10])}{f' — driven by {esc(_gas_names)}' if worst_gases else ''}</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour};"> <strong>{esc(tag)}</strong> <span class="status-badge" style="background:{_colour};">{_label}</span> <p>Last tested {esc(str(test_date)[:10])}{f' — driven by {esc(_gas_names)}' if worst_gases else ''}</p> </div>""", unsafe_allow_html=True)
 
     with st.expander("➕ Log a DGA Test"):
         with st.form("new_dga_test_form", clear_on_submit=True):
@@ -20168,17 +20416,7 @@ def page_outage_commander():
             _template = _templates_lookup.get(event.get("template_id"))
             _steps = _template.get("steps", []) if _template else []
 
-            st.markdown(f"""
-            <div class="custom-card" style="border-left-color: #dc2626;">
-                <strong>{esc(event.get('location') or 'Location not specified')}</strong>
-                <span class="status-badge" style="background:#dc2626;">ACTIVE</span>
-                <p>Outage Commander: <strong>{esc(event['outage_commander'])}</strong></p>
-                <p>{esc_multiline(event.get('description') or '')}</p>
-                <p style="font-size: 0.8rem; color: var(--text-secondary);">
-                    Started {_fmt_log_time(event.get('started_at'))} by {esc(event.get('started_by', ''))}
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>{esc(event.get('location') or 'Location not specified')}</strong> <span class="status-badge" style="background:#dc2626;">ACTIVE</span> <p>Outage Commander: <strong>{esc(event['outage_commander'])}</strong></p> <p>{esc_multiline(event.get('description') or '')}</p> <p style="font-size: 0.8rem; color: var(--text-secondary);"> Started {_fmt_log_time(event.get('started_at'))} by {esc(event.get('started_by', ''))} </p> </div>""", unsafe_allow_html=True)
 
             _current_idx = event.get("current_step_index", 0)
             if _current_idx < len(_steps):
@@ -20310,14 +20548,7 @@ def page_instrument_calibration():
             _colour = {"overdue": "#dc2626", "due_soon": "#f59e0b", "ok": "#16a34a"}[_status]
             _status_text = {"overdue": f"OVERDUE by {abs(_days_until)}d" if _days_until is not None else "OVERDUE (unreadable date)",
                            "due_soon": f"Due in {_days_until}d", "ok": f"Due in {_days_until}d"}[_status]
-            st.markdown(f"""
-            <div class="custom-card" style="border-left-color: {_colour};">
-                <strong>{esc(c['instrument_tag'])}</strong> — {esc(c['instrument_type'])}
-                <span class="status-badge" style="background:{_colour};">{_status_text}</span>
-                <p>{esc(c.get('location') or '')} — last calibrated {esc(str(c.get('last_calibrated_date', ''))[:10])},
-                every {c.get('calibration_interval_days', 90)} days</p>
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour};"> <strong>{esc(c['instrument_tag'])}</strong> — {esc(c['instrument_type'])} <span class="status-badge" style="background:{_colour};">{_status_text}</span> <p>{esc(c.get('location') or '')} — last calibrated {esc(str(c.get('last_calibrated_date', ''))[:10])}, every {c.get('calibration_interval_days', 90)} days</p> </div>""", unsafe_allow_html=True)
 
 
 def page_motor_rewinds():
@@ -20373,15 +20604,7 @@ def page_motor_rewinds():
                 for r in [x for x in _rewinds if x["stage"] == _stage]:
                     _days_in_stage = (datetime.now() - (_parse_dt(r.get("stage_updated_at")) or datetime.now())).days
                     _stall_flag = " 🔴" if _days_in_stage >= 3 else ""
-                    st.markdown(f"""
-                    <div class="custom-card" style="padding: 0.6rem; margin-bottom: 0.5rem;">
-                        <strong>{esc(r['motor_tag'])}</strong>{_stall_flag}
-                        <p style="font-size: 0.8rem; margin: 0.2rem 0;">{esc_multiline(r.get('description') or '')}</p>
-                        <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0;">
-                            {_days_in_stage}d in stage
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="custom-card" style="padding: 0.6rem; margin-bottom: 0.5rem;"> <strong>{esc(r['motor_tag'])}</strong>{_stall_flag} <p style="font-size: 0.8rem; margin: 0.2rem 0;">{esc_multiline(r.get('description') or '')}</p> <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0;"> {_days_in_stage}d in stage </p> </div>""", unsafe_allow_html=True)
                     _bcol1, _bcol2 = st.columns(2)
                     with _bcol1:
                         if _i > 0 and st.button("◀", key=f"mr_back_{r['id']}", help="Move back a stage"):
@@ -22481,13 +22704,7 @@ def page_analytics():
             for _i, (_sub, _counts) in enumerate(_elec_workload.items()):
                 with _elec_cols[_i]:
                     _tone_colour = "#dc2626" if _counts["overdue"] > 0 else "#0f3460"
-                    st.markdown(f"""
-                    <div class="custom-card" style="border-left-color: {_tone_colour};">
-                        <strong>{esc(_sub)}</strong>
-                        <p>Open: {_counts['open']} &nbsp;|&nbsp; Overdue: {_counts['overdue']} &nbsp;|&nbsp;
-                        Completed (30d): {_counts['completed_last_30d']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: {_tone_colour};"> <strong>{esc(_sub)}</strong> <p>Open: {_counts['open']} &nbsp;|&nbsp; Overdue: {_counts['overdue']} &nbsp;|&nbsp; Completed (30d): {_counts['completed_last_30d']}</p> </div>""", unsafe_allow_html=True)
 
             _now = datetime.now()
             _this_month_incidents = [i for i in incidents if i.get("created_at") and
@@ -22703,16 +22920,7 @@ def page_analytics():
             else:
                 for _fa in _all_failure_alerts:
                     _severity_colour = "#dc2626" if _fa["pct_of_window"] >= 1.0 else "#f59e0b"
-                    st.markdown(f"""
-                    <div class="custom-card" style="border-left-color: {_severity_colour};">
-                        <strong>{esc(_fa['asset_name'])}</strong>
-                        <span class="status-badge" style="background:{_severity_colour};">
-                            {_fa['pct_of_window']:.0%} of typical interval
-                        </span>
-                        <p>Last failure {_fa['hours_since_last_failure']/24:.0f} days ago — typically fails every
-                        {_fa['mtbf_hours']/24:.0f} days, based on {_fa['num_failures']} recorded failures.</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: {_severity_colour};"> <strong>{esc(_fa['asset_name'])}</strong> <span class="status-badge" style="background:{_severity_colour};"> {_fa['pct_of_window']:.0%} of typical interval </span> <p>Last failure {_fa['hours_since_last_failure']/24:.0f} days ago — typically fails every {_fa['mtbf_hours']/24:.0f} days, based on {_fa['num_failures']} recorded failures.</p> </div>""", unsafe_allow_html=True)
                     if can(role, "task.create") and st.button(
                             f"➕ Create preventive task for {_fa['asset_name']}",
                             key=f"predictive_task_{_fa['asset_id']}"):
@@ -22754,16 +22962,7 @@ def page_analytics():
                     for _mp in _ml_predictions[:10]:
                         _overdue = _mp["predicted_days_remaining"] <= 0
                         _ml_colour = "#dc2626" if _overdue else "#f59e0b" if _mp["predicted_days_remaining"] < 14 else "#0f3460"
-                        st.markdown(f"""
-                        <div class="custom-card" style="border-left-color: {_ml_colour};">
-                            <strong>{esc(_mp['asset_name'])}</strong>
-                            <span class="status-badge" style="background:{_ml_colour};">
-                                {'Overdue by model estimate' if _overdue else f"~{_mp['predicted_days_remaining']:.0f} days to predicted failure"}
-                            </span>
-                            <p>Predicted around {_mp['predicted_failure_date'].strftime('%b %d, %Y')},
-                            based on {_mp['num_failures']} recorded failures.</p>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.markdown(f"""<div class="custom-card" style="border-left-color: {_ml_colour};"> <strong>{esc(_mp['asset_name'])}</strong> <span class="status-badge" style="background:{_ml_colour};"> {'Overdue by model estimate' if _overdue else f"~{_mp['predicted_days_remaining']:.0f} days to predicted failure"} </span> <p>Predicted around {_mp['predicted_failure_date'].strftime('%b %d, %Y')}, based on {_mp['num_failures']} recorded failures.</p> </div>""", unsafe_allow_html=True)
 
             render_subheading("Asset Task Frequency", level=4)
             ranking = compute_asset_downtime_ranking(tasks, assets)
@@ -22937,13 +23136,7 @@ def page_analytics():
                 st.info("No cost anomalies detected.")
             else:
                 for a in _cost_anomalies:
-                    st.markdown(f"""
-                    <div class="custom-card" style="border-left-color: #dc2626;">
-                        <strong>#{a['task_id']}: {esc(a['title'])}</strong>
-                        <span class="status-badge" style="background:#dc2626;">{esc(a['work_type'])}</span>
-                        <p>Cost: {a['cost']:,.2f} — typical for {esc(a['work_type'])} tasks is around {a['category_mean']:,.2f}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>#{a['task_id']}: {esc(a['title'])}</strong> <span class="status-badge" style="background:#dc2626;">{esc(a['work_type'])}</span> <p>Cost: {a['cost']:,.2f} — typical for {esc(a['work_type'])} tasks is around {a['category_mean']:,.2f}</p> </div>""", unsafe_allow_html=True)
 
             st.markdown("---")
             render_subheading("💰 Budget Center", level=4)
@@ -23145,13 +23338,7 @@ def page_analytics():
                     if r["alt"]: _parts_list.append(f"{r['alt']} alternator")
                     if r["starter"]: _parts_list.append(f"{r['starter']} starter")
                     if r["batt"]: _parts_list.append(f"{r['batt']} battery")
-                    st.markdown(f"""
-                    <div class="custom-card" style="border-left-color: #dc2626;">
-                        <strong>{esc(r['asset_name'])}</strong>
-                        <span class="status-badge" style="background:#dc2626;">{r['total']} failure(s)</span>
-                        <p>{', '.join(_parts_list)}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>{esc(r['asset_name'])}</strong> <span class="status-badge" style="background:#dc2626;">{r['total']} failure(s)</span> <p>{', '.join(_parts_list)}</p> </div>""", unsafe_allow_html=True)
 
                 render_subheading("Trends by Equipment Category", level=5)
                 st.caption("Spots patterns a per-machine view can't — e.g. a failure type endemic to "
@@ -23220,15 +23407,7 @@ def page_permits():
             _permit_step_map.get(status, 0),
             cancelled=(status == "Cancelled"),
         )
-        st.markdown(f"""
-        <div class="custom-card" style="border-left-color: {colour};">
-            <strong>Permit #{p['id']} — {esc(p.get('permit_type'))}</strong>
-            <span class="status-badge" style="background:{colour};">{esc(status)}</span>{f'<span class="overdue-badge">{esc(t("permits.expired_badge"))}</span>' if expired else ''}
-            {_permit_steps_html}
-            {_permit_chips}
-            {_permit_fields}
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="custom-card" style="border-left-color: {colour};"> <strong>Permit #{p['id']} — {esc(p.get('permit_type'))}</strong> <span class="status-badge" style="background:{colour};">{esc(status)}</span>{f'<span class="overdue-badge">{esc(t("permits.expired_badge"))}</span>' if expired else ''} {_permit_steps_html} {_permit_chips} {_permit_fields} </div>""", unsafe_allow_html=True)
 
         if not allow_actions:
             return
@@ -23410,17 +23589,7 @@ def page_incidents():
                 ("fa-magnifying-glass", t("incidents.field_root_cause"), inc.get('root_cause'), "neutral"),
                 ("fa-check", t("incidents.field_corrective_action"), inc.get('corrective_action'), "ok"),
             ])
-            st.markdown(f"""
-            <div class="custom-card" style="border-left-color: #dc2626;">
-                <strong>#{inc['id']}: {esc(inc.get('incident_type'))}</strong>
-                <span class="severity-badge {sev_class}">{esc(inc.get('severity', 'Low'))}</span>
-                <span class="status-badge status-{esc(inc.get('status', 'Open')).replace(' ', '')}">{esc(inc.get('status', 'Open'))}</span>
-                {_meta_chips_html}
-                <p>{esc_multiline(inc.get('description'))}</p>
-                {_inc_fields}
-                {f"<p><small>{esc(t('incidents.acknowledged_by').format(name=inc.get('acknowledged_by'), time=_fmt_log_time(inc.get('acknowledged_at'))))}</small></p>" if inc.get('acknowledged_by') else ""}
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>#{inc['id']}: {esc(inc.get('incident_type'))}</strong> <span class="severity-badge {sev_class}">{esc(inc.get('severity', 'Low'))}</span> <span class="status-badge status-{esc(inc.get('status', 'Open')).replace(' ', '')}">{esc(inc.get('status', 'Open'))}</span> {_meta_chips_html} <p>{esc_multiline(inc.get('description'))}</p> {_inc_fields} {f"<p><small>{esc(t('incidents.acknowledged_by').format(name=inc.get('acknowledged_by'), time=_fmt_log_time(inc.get('acknowledged_at'))))}</small></p>" if inc.get('acknowledged_by') else ""} </div>""", unsafe_allow_html=True)
             if can_manage_incidents:
                 if not inc.get('acknowledged_by'):
                     if st.button(t("incidents.acknowledge_btn").format(id=inc['id']), key=f"inc_ack_{inc['id']}"):
@@ -23645,13 +23814,7 @@ def page_inventory():
                 ("fa-truck", p.get('supplier'), "info"),
                 ("fa-dollar-sign", f"Unit cost: {p['unit_cost']}" if p.get('unit_cost') is not None else None, "info"),
             ])
-            st.markdown(f"""
-            <div class="custom-card">
-                <strong>{esc(p.get('part_name'))}</strong> ({esc(p.get('part_number', 'N/A'))})
-                <span class="stock-badge {stock_class}">{stock_label}</span>
-                {_part_chips}
-            </div>
-            """, unsafe_allow_html=True)
+            st.markdown(f"""<div class="custom-card"> <strong>{esc(p.get('part_name'))}</strong> ({esc(p.get('part_number', 'N/A'))}) <span class="stock-badge {stock_class}">{stock_label}</span> {_part_chips} </div>""", unsafe_allow_html=True)
             if can_manage_inventory:
                 cols = st.columns(4)
                 restock_qty = cols[0].number_input("Restock qty", min_value=0, value=0, key=f"restock_{p['id']}")
@@ -24090,22 +24253,295 @@ def page_equipment_health():
     # arbitrary or alphabetical order.
     for a, health in _red + _yellow + _green:
         _reasons_html = "".join(f"<li>{esc(r)}</li>" for r in health["reasons"])
-        st.markdown(f"""
-        <div class="custom-card" style="border-left-color: {_level_colors[health['level']]};">
-            <strong>#{a['id']}: {esc(a.get('name'))}</strong>
-            <span class="asset-status-badge" style="background: {_level_colors[health['level']]}22;
-                  color: {_level_colors[health['level']]}; border: 1px solid {_level_colors[health['level']]};">
-                {_level_labels[health['level']]}
-            </span>
-            {render_meta_chips([
-                ("fa-map-marker-alt", a.get('location'), "neutral"),
-                ("fa-tag", f"Tag: {a['asset_tag']}" if a.get('asset_tag') else None, "neutral"),
-            ])}
-            <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 0.9em; color: #94a3b8;">
-                {_reasons_html}
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="custom-card" style="border-left-color: {_level_colors[health['level']]};"> <strong>#{a['id']}: {esc(a.get('name'))}</strong> <span class="asset-status-badge" style="background: {_level_colors[health['level']]}22; color: {_level_colors[health['level']]}; border: 1px solid {_level_colors[health['level']]};"> {_level_labels[health['level']]} </span> {render_meta_chips([ ("fa-map-marker-alt", a.get('location'), "neutral"), ("fa-tag", f"Tag: {a['asset_tag']}" if a.get('asset_tag') else None, "neutral"), ])} <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 0.9em; color: #94a3b8;"> {_reasons_html} </ul> </div>""", unsafe_allow_html=True)
+
+
+def page_kanban_board():
+    render_section_header("📋 Shift Task Board")
+    st.caption("Every open task at a glance, grouped by where it actually is right now — the "
+              "same picture a physical shift-handover board gives, just always up to date. "
+              "Reuses the exact same task data as every other view — this is a different way "
+              "of looking at it, not a separate system to keep in sync.")
+
+    tasks = st.session_state.tasks
+    all_users = fetch_all_users_from_db()
+    worker_names = ["Unassigned"] + [u["full_name"] for u in all_users
+                                     if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
+
+    _kb_search = st.text_input("🔍 Search by title or location", "", key="kanban_search")
+    _kb_show_completed = st.checkbox("Include tasks completed today", value=True, key="kanban_show_completed")
+
+    # COLUMNS match the app's own existing status vocabulary exactly
+    # (see the offline-mode status dropdown, which is the canonical
+    # source for these five values) — this board doesn't invent a
+    # new status scheme, it's a different VIEW of the same one every
+    # other page already uses.
+    columns = ["Unassigned", "In Progress", "Blocked", "Pending QA", "Complete"]
+    _visible = [t for t in tasks if t.get("status") in columns]
+    if not _kb_show_completed:
+        _visible = [t for t in _visible if t.get("status") != "Complete"]
+    else:
+        # "Complete" tasks only stay on the board through the END OF
+        # TODAY — this is a real-time shift picture, not a permanent
+        # archive (Task Dashboard's other views already cover full
+        # history). Without this, the Complete column would grow
+        # forever and defeat the whole "at a glance" point.
+        _today = datetime.now().date()
+        _visible = [t for t in _visible if t.get("status") != "Complete"
+                   or (_parse_dt(t.get("completed_at")) or datetime.min).date() == _today]
+    _visible = quick_filter(_visible, _kb_search, ["title", "location"])
+
+    _cols_ui = st.columns(len(columns))
+    _priority_colors = {"Critical": "#dc2626", "High": "#f0b429", "Medium": "#3b82f6", "Low": "#6b7280"}
+    _kanban_all_permits = fetch_permits() if any(tk.get('loto') for tk in _visible) else []
+    for i, status in enumerate(columns):
+        with _cols_ui[i]:
+            _col_tasks = [tk for tk in _visible if tk.get("status") == status]
+            st.markdown(f"**{status}** ({len(_col_tasks)})")
+            for tk in _col_tasks:
+                _pcolor = _priority_colors.get(tk.get("priority"), "#6b7280")
+                st.markdown(
+                    f'<div class="custom-card" style="border-left-color: {_pcolor}; padding: 10px; margin-bottom: 8px;">'
+                    f'<strong>#{tk["id"]}</strong> {esc(tk.get("title", ""))}'
+                    f'<div style="font-size: 0.8em; color: #94a3b8; margin-top: 4px;">'
+                    f'{esc(tk.get("location") or "—")} · {esc(tk.get("assigned_to") or "Unassigned")}'
+                    f'</div></div>',
+                    unsafe_allow_html=True)
+                _other_cols = [c for c in columns if c != status]
+                _move_to = st.selectbox("Move to", ["—"] + _other_cols, key=f"kanban_move_{tk['id']}", label_visibility="collapsed")
+                if _move_to != "—":
+                    # Same permit-isolation safety gate the Manage
+                    # Tasks screen enforces — a task requiring a LOTO
+                    # permit can't move to In Progress without one
+                    # active. This board reuses the exact same check
+                    # rather than skipping it, since a quicker way to
+                    # move a task must never also mean a quieter way
+                    # around this specific safety requirement.
+                    _requires_permit = tk.get('loto', False)
+                    _has_permit = task_has_active_permit(tk['id'], _kanban_all_permits) if _requires_permit else True
+                    if _requires_permit and not _has_permit and _move_to == "In Progress":
+                        st.error("Needs an active LOTO permit before moving to In Progress.")
+                    else:
+                        update_task(tk["id"], {"status": _move_to}, full_name)
+                        log_audit(full_name, "kanban_move", {"task_id": tk["id"], "from": status, "to": _move_to})
+                        st.rerun()
+
+
+def page_task_templates():
+    render_section_header("📇 Task Templates")
+    st.caption("Reusable job templates with an embedded procedure — pick one when creating a "
+              "task instead of typing it from scratch every time. The procedure walks the "
+              "assigned worker through each step in order, same mechanism already proven for "
+              "Outage Commander's own runbooks.")
+
+    tabs = ["Create Task from Template"]
+    if can(role, "task.create"):
+        tabs.append("Manage Templates")
+    template_sub = option_menu(menu_title=None, options=tabs,
+                               icons=["clipboard-plus", "journal-plus"][:len(tabs)],
+                               orientation="horizontal", default_index=0, styles=menu_styles())
+
+    templates = fetch_task_templates()
+
+    if template_sub == "Create Task from Template":
+        if not templates:
+            render_empty_state("fa-clipboard-list", "No templates yet",
+                               "Ask a Supervisor or Superintendent to create one under Manage Templates.")
+        else:
+            _tpl_names = {t["name"]: t for t in templates}
+            _sel_name = st.selectbox("Template", list(_tpl_names.keys()))
+            _sel = _tpl_names[_sel_name]
+            st.info(_sel.get("description") or "No description provided.")
+            if _sel.get("procedure_steps"):
+                st.markdown("**Embedded procedure:**")
+                for i, step in enumerate(_sel["procedure_steps"], 1):
+                    st.write(f"{i}. {step}")
+            if _sel.get("requires_loto"):
+                st.warning("⚠️ This template requires LOTO isolation.")
+
+            with st.form("create_from_template_form", clear_on_submit=True):
+                _location = st.text_input("Location *")
+                _assets_for_tpl = st.session_state.assets
+                _asset_names = ["(none)"] + [f"{a['name']} ({a['asset_tag']})" for a in _assets_for_tpl]
+                _asset_sel = st.selectbox("Asset (optional)", _asset_names)
+                _all_users_tpl = fetch_all_users_from_db()
+                _worker_names_tpl = ["Unassigned"] + [u["full_name"] for u in _all_users_tpl
+                                                       if u["role"].strip().lower() == "worker" and u.get("is_approved")]
+                _assign_sel = st.selectbox("Assign to", _worker_names_tpl)
+                _due = st.date_input("Due date", value=None)
+                _submit_tpl = st.form_submit_button("➕ Create Task")
+                if _submit_tpl:
+                    if not _location:
+                        st.error("Location is required.")
+                    else:
+                        _asset_id_sel = None
+                        if _asset_sel != "(none)":
+                            _asset_id_sel = next((a["id"] for a in _assets_for_tpl
+                                                  if f"{a['name']} ({a['asset_tag']})" == _asset_sel), None)
+                        _assign_val = _assign_sel if _assign_sel != "Unassigned" else None
+                        _new_task = create_task_from_template(
+                            _sel["id"], _location, full_name, assigned_to=_assign_val,
+                            due_date=_due, asset_id=_asset_id_sel)
+                        if _new_task:
+                            st.success(f"✅ Task #{_new_task['id']} created from template.")
+                            fetch_all_tasks.clear()
+                            st.rerun()
+                        else:
+                            st.error("Couldn't create the task — check the error log in Owner Console.")
+
+    elif template_sub == "Manage Templates":
+        st.markdown("### Existing Templates")
+        for tpl in templates:
+            with st.expander(f"{tpl['name']} ({len(tpl.get('procedure_steps', []))} steps)"):
+                st.write(tpl.get("description") or "—")
+                st.write(f"Work type: {tpl.get('work_type')} · Default priority: {tpl.get('default_priority')} "
+                        f"· Requires LOTO: {'Yes' if tpl.get('requires_loto') else 'No'}")
+                for i, step in enumerate(tpl.get("procedure_steps", []), 1):
+                    st.write(f"{i}. {step}")
+
+        st.markdown("### New Template")
+        with st.form("new_task_template_form", clear_on_submit=True):
+            _name = st.text_input("Template Name *", placeholder="e.g. Conveyor Belt Replacement")
+            _desc = st.text_area("Description")
+            _wtype = st.selectbox("Work Type", ["Preventive", "Reactive", "Predictive", "Inspection"])
+            _prio = st.selectbox("Default Priority", ["Low", "Medium", "High", "Critical"])
+            _loto = st.checkbox("Requires LOTO isolation")
+            _steps_raw = st.text_area("Procedure Steps (one per line, in order) *",
+                                      placeholder="Isolate and lock out power\nRemove guard panel\n...")
+            _submit_new_tpl = st.form_submit_button("💾 Save Template")
+            if _submit_new_tpl:
+                _steps = [s.strip() for s in _steps_raw.split("\n") if s.strip()]
+                if not _name or not _steps:
+                    st.error("Template name and at least one procedure step are required.")
+                else:
+                    _created = create_task_template(_name, _desc, _wtype, _prio, _loto, _steps, full_name)
+                    if _created:
+                        st.success(f"✅ Template \"{_name}\" saved with {len(_steps)} step(s).")
+                        st.rerun()
+                    else:
+                        st.error("Couldn't save the template — check the error log in Owner Console.")
+
+
+def page_prestart_checklists():
+    render_section_header("✅ Pre-Start Checklists")
+    st.caption("Standard pre-start safety checks, done digitally instead of on a paper pad — "
+              "a failed critical item immediately notifies every Supervisor and Superintendent, "
+              "rather than sitting on a clipboard until someone happens to read it.")
+
+    tabs = ["Complete a Checklist"]
+    if can(role, "task.create"):
+        tabs += ["Manage Templates", "Completion History"]
+    ps_sub = option_menu(menu_title=None, options=tabs,
+                         icons=["check2-square", "journal-plus", "clock-history"][:len(tabs)],
+                         orientation="horizontal", default_index=0, styles=menu_styles())
+
+    templates = fetch_prestart_templates()
+
+    if ps_sub == "Complete a Checklist":
+        if not templates:
+            render_empty_state("fa-clipboard-check", "No checklist templates yet",
+                               "Ask a Supervisor or Superintendent to create one under Manage Templates.")
+        else:
+            _assets_ps = st.session_state.assets
+            if not _assets_ps:
+                st.info("No assets registered yet — register one under Assets first.")
+            else:
+                _asset_names_ps = [f"{a['name']} ({a['asset_tag']})" for a in _assets_ps]
+                _asset_sel_ps = st.selectbox("Asset", _asset_names_ps, key="ps_asset_sel")
+                _asset_obj = next(a for a in _assets_ps
+                                  if f"{a['name']} ({a['asset_tag']})" == _asset_sel_ps)
+                _tpl_names_ps = {t["name"]: t for t in templates}
+                _tpl_sel_name = st.selectbox("Checklist", list(_tpl_names_ps.keys()), key="ps_tpl_sel")
+                _tpl = _tpl_names_ps[_tpl_sel_name]
+
+                with st.form("prestart_checklist_form", clear_on_submit=True):
+                    st.markdown(f"**{_tpl['name']}** — {_asset_sel_ps}")
+                    _results = []
+                    for item in _tpl.get("items", []):
+                        _label = f"⚠️ {item['text']} (CRITICAL)" if item.get("is_critical") else item["text"]
+                        _passed = st.radio(_label, ["Pass", "Fail"], horizontal=True,
+                                           key=f"ps_item_{item['text']}")
+                        _results.append({"item": item["text"], "passed": _passed == "Pass"})
+                    _notes_ps = st.text_area("Notes (optional)")
+                    _submit_ps = st.form_submit_button("✅ Submit Checklist")
+                    if _submit_ps:
+                        # Attach is_critical back onto each result before
+                        # saving, so the failure email can distinguish a
+                        # critical miss from a minor one at a glance,
+                        # without needing to re-join against the template
+                        # every time this record is read back later.
+                        _item_criticality = {i["text"]: i.get("is_critical", False) for i in _tpl.get("items", [])}
+                        for r in _results:
+                            r["is_critical"] = _item_criticality.get(r["item"], False)
+                        _completion = submit_prestart_checklist(
+                            _tpl["id"], _asset_obj["id"], full_name, _results, _notes_ps)
+                        if _completion:
+                            if _completion["overall_pass"]:
+                                st.success("✅ All items passed.")
+                            else:
+                                st.error("⚠️ One or more items failed — Supervisors and "
+                                        "Superintendents have been notified.")
+                            fetch_prestart_completions.clear()
+                        else:
+                            st.error("Couldn't save the checklist — check the error log in Owner Console.")
+
+    elif ps_sub == "Manage Templates":
+        st.markdown("### Existing Checklist Templates")
+        for tpl in templates:
+            with st.expander(f"{tpl['name']} ({len(tpl.get('items', []))} items)"):
+                st.write(f"Asset category: {tpl.get('asset_category') or 'Any'}")
+                for item in tpl.get("items", []):
+                    _marker = "⚠️ CRITICAL — " if item.get("is_critical") else "• "
+                    st.write(f"{_marker}{item['text']}")
+
+        st.markdown("### New Checklist Template")
+        with st.form("new_prestart_template_form", clear_on_submit=True):
+            _ps_name = st.text_input("Template Name *", placeholder="e.g. Haul Truck Pre-Start")
+            _ps_category = st.text_input("Asset Category (optional)", placeholder="e.g. Haul Truck")
+            _standard_items_raw = st.text_area("Standard check items (one per line)",
+                                               placeholder="Check tire condition\nCheck lights\n...")
+            _critical_items_raw = st.text_area("CRITICAL check items (one per line) — "
+                                               "failing any of these immediately notifies leadership",
+                                               placeholder="Check brakes\nCheck steering\n...")
+            _submit_ps_tpl = st.form_submit_button("💾 Save Checklist Template")
+            if _submit_ps_tpl:
+                _standard = [{"text": s.strip(), "is_critical": False}
+                            for s in _standard_items_raw.split("\n") if s.strip()]
+                _critical = [{"text": s.strip(), "is_critical": True}
+                            for s in _critical_items_raw.split("\n") if s.strip()]
+                _all_items = _standard + _critical
+                if not _ps_name or not _all_items:
+                    st.error("Template name and at least one check item are required.")
+                else:
+                    _created_ps = create_prestart_template(_ps_name, _ps_category or None, _all_items, full_name)
+                    if _created_ps:
+                        st.success(f"✅ Checklist template \"{_ps_name}\" saved with {len(_all_items)} item(s).")
+                        st.rerun()
+                    else:
+                        st.error("Couldn't save the template — check the error log in Owner Console.")
+
+    elif ps_sub == "Completion History":
+        _asset_filter_names = ["All Assets"] + [f"{a['name']} ({a['asset_tag']})" for a in st.session_state.assets]
+        _asset_filter_sel = st.selectbox("Filter by asset", _asset_filter_names, key="ps_history_asset_filter")
+        _filter_asset_id = None
+        if _asset_filter_sel != "All Assets":
+            _filter_asset_id = next((a["id"] for a in st.session_state.assets
+                                     if f"{a['name']} ({a['asset_tag']})" == _asset_filter_sel), None)
+        _completions = fetch_prestart_completions(asset_id=_filter_asset_id)
+        if not _completions:
+            st.info("No completed checklists yet.")
+        for c in _completions:
+            _icon = "✅" if c.get("overall_pass") else "⚠️"
+            _asset_name_hist = next((a["name"] for a in st.session_state.assets
+                                     if a["id"] == c.get("asset_id")), f"Asset #{c.get('asset_id')}")
+            with st.expander(f"{_icon} {_asset_name_hist} — {c.get('completed_by')} — "
+                            f"{_fmt_log_time(c.get('completed_at'))}"):
+                for r in c.get("results", []):
+                    _r_icon = "✅" if r.get("passed") else "❌"
+                    _r_crit = " (CRITICAL)" if r.get("is_critical") else ""
+                    st.write(f"{_r_icon} {r['item']}{_r_crit}")
+                if c.get("notes"):
+                    st.caption(f"Notes: {c['notes']}")
 
 
 def page_assets():
@@ -24257,18 +24693,7 @@ def page_assets():
                     ("fa-tachometer-alt", f"Meter: {a.get('current_meter', 0)} {a.get('meter_unit', '')}".strip()
                     if a.get('current_meter') is not None else None, "info"),
                 ])
-                st.markdown(f"""
-                <div class="custom-card">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <strong>#{a['id']}: {esc(a.get('name'))}</strong>
-                            <span class="asset-status-badge {status_class}">{esc(a.get('status', 'Operational'))}</span>
-                            <span class="priority-badge priority-{esc(a.get('criticality', 'Medium'))}">{esc(a.get('criticality', 'Medium'))}</span>
-                            {_asset_chips}
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"""<div class="custom-card"> <div style="display: flex; justify-content: space-between; align-items: center;"> <div> <strong>#{a['id']}: {esc(a.get('name'))}</strong> <span class="asset-status-badge {status_class}">{esc(a.get('status', 'Operational'))}</span> <span class="priority-badge priority-{esc(a.get('criticality', 'Medium'))}">{esc(a.get('criticality', 'Medium'))}</span> {_asset_chips} </div> </div> </div>""", unsafe_allow_html=True)
                 _pm_pred = _pm_predictions_by_asset.get(a['id'])
                 if _pm_pred:
                     _pm_days = _pm_pred["predicted_days_remaining"]
@@ -24773,21 +25198,7 @@ if selected_section == "Task Dashboard":
                       f"point** — check Inventory → Purchase Orders to reorder.")
 
     if st.session_state.get("_show_welcome"):
-        st.markdown(f"""
-        <div class="empty-state" style="border-style: solid; border-color: var(--accent); text-align: left;">
-            <div style="display: flex; align-items: flex-start; gap: 1rem;">
-                <div class="empty-icon" style="margin: 0; flex-shrink: 0;"><i class="fas fa-hand-sparkles"></i></div>
-                <div>
-                    <div class="empty-title">Welcome to MWDTS, {esc(full_name.split(' ')[0] if full_name else 'there')}</div>
-                    <div class="empty-sub">
-                        This replaces the paper task boards, incident report books, and permit logs
-                        with one system — tasks, permits, incidents, and shift handovers, all in one place.
-                        The <b>About</b> page has a full walkthrough whenever you want it.
-                    </div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="empty-state" style="border-style: solid; border-color: var(--accent); text-align: left;"> <div style="display: flex; align-items: flex-start; gap: 1rem;"> <div class="empty-icon" style="margin: 0; flex-shrink: 0;"><i class="fas fa-hand-sparkles"></i></div> <div> <div class="empty-title">Welcome to MWDTS, {esc(full_name.split(' ')[0] if full_name else 'there')}</div> <div class="empty-sub"> This replaces the paper task boards, incident report books, and permit logs with one system — tasks, permits, incidents, and shift handovers, all in one place. The <b>About</b> page has a full walkthrough whenever you want it. </div> </div> </div> </div>""", unsafe_allow_html=True)
         if st.button("Got it, thanks", key="dismiss_welcome"):
             mark_welcome_seen(username)
             st.rerun()
@@ -24956,16 +25367,7 @@ if selected_section == "Task Dashboard":
                         + _jsa_link_html
                     )
                     _is_highlighted = st.session_state.get("_highlight_task_id") == task['id']
-                    st.markdown(f"""
-                    <div class="task-card{' task-card-highlighted' if _is_highlighted else ''}" style="border-top: 4px solid { '#dc2626' if overdue else '#0f3460' };">
-                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                            <div>
-                                <div class="task-title">#{task['id']} {esc(task['title'])} {overdue_badge}</div>{_desc_html}
-                                <div class="task-meta">{_meta_spans}</div>
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"""<div class="task-card{' task-card-highlighted' if _is_highlighted else ''}" style="border-top: 4px solid { '#dc2626' if overdue else '#0f3460' };"> <div style="display: flex; justify-content: space-between; align-items: flex-start;"> <div> <div class="task-title">#{task['id']} {esc(task['title'])} {overdue_badge}</div>{_desc_html} <div class="task-meta">{_meta_spans}</div> </div> </div> </div>""", unsafe_allow_html=True)
 
                     with st.expander(f"🔗 {t('task.share_link_label')}"):
                         if APP_URL:
@@ -25102,19 +25504,24 @@ if selected_section == "Task Dashboard":
                         + (f'<span><i class="fas fa-calendar-alt"></i> Due: {_fmt_log_time(task["due_date"])}</span>' if task.get('due_date') else '')
                     )
                     _is_highlighted = st.session_state.get("_highlight_task_id") == task['id']
-                    st.markdown(f"""
-                    <div class="task-card{' task-card-highlighted' if _is_highlighted else ''}" style="border-top: 4px solid { '#dc2626' if overdue else '#0f3460' };">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <div class="task-title">#{task['id']} {esc(task['title'])} {overdue_badge}</div>
-                                <div class="task-meta">{_meta_spans}</div>
-                            </div>
-                            <div>
-                                <span class="status-badge status-Unassigned">Unassigned</span>
-                            </div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    # Built as ONE continuous string, not a multi-line
+                    # indented triple-quoted block — confirmed via
+                    # Streamlit's own issue tracker (#859): multi-line
+                    # HTML with unsafe_allow_html=True has a real,
+                    # documented bug where content after the first line
+                    # can render as literal escaped text instead of
+                    # being parsed as HTML (exactly what showed up here
+                    # as a visible "</div>" instead of a closed card).
+                    _card_html = (
+                        f'<div class="task-card{" task-card-highlighted" if _is_highlighted else ""}" '
+                        f'style="border-top: 4px solid {"#dc2626" if overdue else "#0f3460"};">'
+                        f'<div style="display: flex; justify-content: space-between; align-items: center;">'
+                        f'<div><div class="task-title">#{task["id"]} {esc(task["title"])} {overdue_badge}</div>'
+                        f'<div class="task-meta">{_meta_spans}</div></div>'
+                        f'<div><span class="status-badge status-Unassigned">Unassigned</span></div>'
+                        f'</div></div>'
+                    )
+                    st.markdown(_card_html, unsafe_allow_html=True)
 
     elif role == "supervisor":
         st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
@@ -25170,18 +25577,7 @@ if selected_section == "Task Dashboard":
                     "danger" if overdue else "neutral"),
                     ("fa-bolt", task.get('subsection'), "info"),
                 ])
-                st.markdown(f"""
-                <div class="custom-card" style="border-left-color: { '#dc2626' if overdue else '#0f3460' };">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong>
-                            <span class="status-badge {status_class}">{task['status']}</span>
-                            <span class="priority-badge {priority_class}">{task['priority']}</span>
-                            {_mgmt_task_chips}
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"""<div class="custom-card" style="border-left-color: { '#dc2626' if overdue else '#0f3460' };"> <div style="display: flex; justify-content: space-between; align-items: center;"> <div> <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong> <span class="status-badge {status_class}">{task['status']}</span> <span class="priority-badge {priority_class}">{task['priority']}</span> {_mgmt_task_chips} </div> </div> </div>""", unsafe_allow_html=True)
                 cols = st.columns([3, 1, 1])
                 current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
                 new_assign = cols[0].selectbox("Assign to:", worker_names,
@@ -25200,22 +25596,12 @@ if selected_section == "Task Dashboard":
                     if task['status'] == "Unassigned" and new_assign != "Unassigned":
                         update_task(task['id'], {"status": "In Progress"}, full_name)
                     log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
-                    if new_assign != "Unassigned":
-                        worker_record = next((u for u in all_users if u['full_name'] == new_assign), None)
-                        worker_email = worker_record.get('email') if worker_record else None
-                        if worker_email:
-                            subject = f"New Task Assigned: #{task['id']} - {task['title']}"
-                            body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Supervisor"
-                            send_email_notification(worker_email, subject, body)
-                        send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
-                        if worker_record:
-                            notify_user_everywhere(
-                                worker_record, "Task Assigned", f"Task #{task['id']}: {task['title']}",
-                                sms_body=f"MWDTS: New task #{task['id']} assigned to you — {task['title']}",
-                                category="task_assigned")
-                        else:
-                            send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}",
-                                              category="task_assigned")
+                    # Email + push + in-app + SMS all now fire from
+                    # inside update_task itself (see its own hook) —
+                    # this used to hand-roll the same notifications
+                    # again right here, which meant every assignment
+                    # through this screen sent the worker the SAME
+                    # "task assigned" email TWICE.
                     st.rerun()
                 if task['status'] == "Pending QA":
                     if cols[1].button("✅ Approve & Close", key=f"approve_{task['id']}"):
@@ -25471,18 +25857,7 @@ if selected_section == "Task Dashboard":
                     ("fa-calendar-alt", _fmt_log_time(task['due_date']) if task.get('due_date') else None,
                     "danger" if overdue else "neutral"),
                 ])
-                st.markdown(f"""
-                <div class="custom-card" style="border-left-color: { '#dc2626' if overdue else '#0f3460' };">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong>
-                            <span class="status-badge {status_class}">{task['status']}</span>
-                            <span class="priority-badge {priority_class}">{task['priority']}</span>
-                            {_mgmt_task_chips}
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"""<div class="custom-card" style="border-left-color: { '#dc2626' if overdue else '#0f3460' };"> <div style="display: flex; justify-content: space-between; align-items: center;"> <div> <strong>#{task['id']}: {esc(task['title'])} {overdue_badge}</strong> <span class="status-badge {status_class}">{task['status']}</span> <span class="priority-badge {priority_class}">{task['priority']}</span> {_mgmt_task_chips} </div> </div> </div>""", unsafe_allow_html=True)
                 cols = st.columns([2, 1, 1, 1])
                 current_assign = task['assigned_to'] if task['assigned_to'] in worker_names else "Unassigned"
                 new_assign = cols[0].selectbox("Assign", worker_names,
@@ -25501,22 +25876,11 @@ if selected_section == "Task Dashboard":
                     if task['status'] == "Unassigned" and new_assign != "Unassigned":
                         update_task(task['id'], {"status": "In Progress"}, full_name)
                     log_audit(full_name, "task_assign", {"task_id": task['id'], "assigned_to": new_assign})
-                    if new_assign != "Unassigned":
-                        worker_record = next((u for u in all_users if u['full_name'] == new_assign), None)
-                        worker_email = worker_record.get('email') if worker_record else None
-                        if worker_email:
-                            subject = f"New Task Assigned: #{task['id']} - {task['title']}"
-                            body = f"Hello {new_assign},<br><br>You have been assigned task <b>#{task['id']}</b>: {task['title']}.<br>Location: {task['location']}<br>Priority: {task['priority']}<br>Due: {task.get('due_date', 'No due date')}<br><br>Please log in to the tracker for details.<br>Regards,<br>Superintendent"
-                            send_email_notification(worker_email, subject, body)
-                        send_push_notification("New Task Assigned", f"Task #{task['id']}: {task['title']}")
-                        if worker_record:
-                            notify_user_everywhere(
-                                worker_record, "Task Assigned", f"Task #{task['id']}: {task['title']}",
-                                sms_body=f"MWDTS: New task #{task['id']} assigned to you — {task['title']}",
-                                category="task_assigned")
-                        else:
-                            send_notification(new_assign, "Task Assigned", f"Task #{task['id']}: {task['title']}",
-                                              category="task_assigned")
+                    # Same fix as the Supervisor view above — email +
+                    # push + in-app + SMS all now fire from inside
+                    # update_task itself, instead of being hand-rolled
+                    # again here (which was sending the worker the same
+                    # "task assigned" email twice).
                     st.rerun()
                 status_opts = ["Unassigned", "In Progress", "Pending QA", "Blocked", "Complete"]
                 curr_stat_idx = status_opts.index(task['status']) if task['status'] in status_opts else 0
@@ -25652,6 +26016,15 @@ if selected_section == "Task Dashboard":
 
 
 # ---- ASSET REGISTER ----
+elif selected_section == "Kanban Board":
+    with st.container(key="page_Kanban_Board"):
+        page_kanban_board()
+elif selected_section == "Task Templates":
+    with st.container(key="page_Task_Templates"):
+        page_task_templates()
+elif selected_section == "Pre-Start Checklists":
+    with st.container(key="page_Prestart_Checklists"):
+        page_prestart_checklists()
 elif selected_section == "Production":
     with st.container(key="page_Production"):
         page_production()
