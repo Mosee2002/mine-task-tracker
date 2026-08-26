@@ -1,0 +1,66 @@
+name: Automation Triggers
+
+# Streamlit has no built-in background job scheduler at all. Both of
+# the checks below (weather emails, and overdue-task/expiring-permit
+# escalations) have real logic already built in app.py that decides
+# EVERY time whether anything is actually due to send — but neither
+# one can run on its own; something has to actually call it. Before
+# this workflow existed, neither ever did, on any kind of reliable
+# schedule — weather emails never arrived at all, and escalations
+# only fired "once per session, if a Superintendent happens to open
+# the Task Dashboard," which could mean an overdue task at 2am gets
+# zero alert to anyone until someone next happens to log in.
+#
+# This workflow is that missing timer, for both. It runs hourly and
+# does nothing but two plain HTTP GETs to the app's own automation-
+# trigger endpoints — each one's own cooldown/due-check logic decides
+# whether anything actually needs sending this time, so running this
+# hourly doesn't mean hourly emails, it just means neither check is
+# ever more than an hour late.
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch: {}   # lets you trigger a manual test run from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the weather-check automation endpoint
+        run: |
+          curl -sfL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
+            "https://mine-task-tracker-ljc2ppwmwiwtfqwykn2by5.streamlit.app/?weather_check=1&token=${{ secrets.AUTOMATION_TRIGGER_TOKEN }}" \
+            -o weather_response.json
+          cat weather_response.json
+          # -f makes curl itself fail (non-zero exit) on an HTTP error
+          # status, so a broken URL/token shows up as a failed red run
+          # in the Actions tab rather than silently doing nothing.
+          # -L makes curl actually FOLLOW a redirect instead of just
+          # saving the redirect page itself and calling that a
+          # success — which is exactly what was happening before this
+          # fix: Streamlit Community Cloud was silently redirecting
+          # this request to its own login page (a real, current,
+          # community-reported platform issue, not something specific
+          # to this app), and without -L, curl just saved THAT HTML
+          # page and reported success, since a 3xx redirect status
+          # isn't treated as an error by -f on its own.
+          # -A sends a real browser User-Agent instead of curl's own
+          # default (which doesn't send one at all) — worth trying
+          # first since it's the simplest possible fix, in case
+          # Streamlit's redirect is triggered by traffic that doesn't
+          # look like a normal browser.
+          if grep -q "streamlit-login\|/-/login\|/-/auth" weather_response.json; then
+            echo "Got redirected to Streamlit's own login page instead of reaching the app — the User-Agent workaround did not resolve this. See the chat conversation for the larger architectural fix this may need."
+            exit 1
+          fi
+
+      - name: Ping the escalations automation endpoint
+        run: |
+          curl -sfL -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" \
+            "https://mine-task-tracker-ljc2ppwmwiwtfqwykn2by5.streamlit.app/?run_escalations=1&token=${{ secrets.AUTOMATION_TRIGGER_TOKEN }}" \
+            -o escalations_response.json
+          cat escalations_response.json
+          if grep -q "streamlit-login\|/-/login\|/-/auth" escalations_response.json; then
+            echo "Got redirected to Streamlit's own login page instead of reaching the app — the User-Agent workaround did not resolve this."
+            exit 1
+          fi
