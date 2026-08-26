@@ -7976,7 +7976,7 @@ def run_automated_backup():
     }
 
 
-
+def generate_pdf_report(tasks, assets, incidents):
     """Builds a formatted Safety & Operations PDF report from data
     that's already computed elsewhere in Analytics — this function
     doesn't calculate anything new, it reuses the exact same
@@ -8482,6 +8482,82 @@ def send_push_notification(title, body):
 # -------------------------------
 # 20. RECURRING TASK HANDLER
 # -------------------------------
+def suggest_rostered_assignee(exclude_names=None):
+    """Picks a worker who is ACTUALLY ON SHIFT right now to take an
+    auto-generated recurring task, instead of dumping every rolled-
+    forward PM into "Unassigned" for someone to hand out later.
+
+    Chooses whoever currently has the FEWEST open tasks among those
+    rostered on — a simple, explainable load-balance rather than
+    always landing on the same name (which is what picking the first
+    match would do, and would quietly overload one person over time).
+
+    Returns None if nobody is rostered on right now, or if the roster
+    isn't being used at all — and every caller falls back to
+    "Unassigned" exactly as before in that case. That fallback
+    matters: a site that doesn't keep its roster current must not end
+    up with tasks silently assigned to someone who isn't there.
+    """
+    try:
+        _on_shift = get_workers_on_shift()
+        if not _on_shift:
+            return None
+        _users = fetch_all_users_from_db()
+        _by_username = {u.get("username"): u for u in _users}
+        _candidates = []
+        for _row in _on_shift:
+            _u = _by_username.get(_row.get("username"))
+            if not _u or not _u.get("is_approved") or _u.get("is_suspended"):
+                continue
+            if _u.get("role", "").strip().lower() != "worker":
+                continue
+            _name = _u.get("full_name")
+            if not _name or (exclude_names and _name in exclude_names):
+                continue
+            _candidates.append(_name)
+        if not _candidates:
+            return None
+        _open_counts = {name: 0 for name in _candidates}
+        for _t in st.session_state.get("tasks", []):
+            _a = _t.get("assigned_to")
+            if _a in _open_counts and _t.get("status") not in ("Complete", "Closed", "Cancelled"):
+                _open_counts[_a] += 1
+        return min(_open_counts, key=_open_counts.get)
+    except Exception as e:
+        log_error(str(e), endpoint="suggest_rostered_assignee")
+        return None
+
+
+def _notify_auto_assigned(task_row, assignee_name):
+    """Tells a worker about a task the SYSTEM assigned to them (a
+    rolled-forward recurring/PM task), not a person. Needed because
+    handle_recurring_tasks writes straight to the tasks table for
+    performance rather than going through update_task, so none of
+    that function's normal assignment-notification hooks fire — and
+    an auto-assignment nobody is told about is worse than no
+    auto-assignment at all. Best-effort throughout: a notification
+    failure must never break the recurring-task pass itself."""
+    try:
+        _record = next((u for u in fetch_all_users_from_db()
+                        if u.get("full_name") == assignee_name), None)
+        _title = task_row.get("title", "")
+        _tid = task_row.get("id")
+        if _record:
+            notify_user_everywhere(
+                _record, "Task Auto-Assigned",
+                f"Scheduled task #{_tid}: {_title} — assigned to you because you're on shift.",
+                sms_body=f"MWDTS: scheduled task #{_tid} assigned to you — {_title}",
+                category="task_assigned")
+            _email = _record.get("email")
+            if _email and not str(_email).endswith("@mwdts.internal"):
+                send_email_notification(_email, f"🔧 Scheduled Task Assigned — #{_tid}: {_title}",
+                    f"<p>Scheduled maintenance task <strong>#{_tid}: {esc(_title)}</strong> "
+                    f"has been assigned to you because you're currently rostered on shift.</p>"
+                    f"<p>Location: {esc(task_row.get('location') or '—')}</p>")
+    except Exception as e:
+        log_error(str(e), details={"assignee": assignee_name}, endpoint="_notify_auto_assigned")
+
+
 def handle_recurring_tasks():
     """Roll forward due preventive-maintenance tasks.
 
@@ -8531,14 +8607,20 @@ def handle_recurring_tasks():
                     continue
                 if current_reading < task['next_meter_threshold']:
                     continue
+                # Auto-assign to whoever is actually rostered on right
+                # now, rather than defaulting every rolled-forward PM
+                # to "Unassigned" for someone to hand out manually
+                # later. Falls back to "Unassigned" exactly as before
+                # when nobody is rostered — see suggest_rostered_assignee.
+                _meter_assignee = suggest_rostered_assignee()
                 new_meter_task = {
                     "title": task['title'],
                     "location": task['location'],
                     "priority": task['priority'],
                     "loto": task.get('loto', False),
                     "jsa": task.get('jsa', False),
-                    "status": "Unassigned",
-                    "assigned_to": "Unassigned",
+                    "status": "In Progress" if _meter_assignee else "Unassigned",
+                    "assigned_to": _meter_assignee or "Unassigned",
                     "due_date": now.isoformat(),
                     "is_recurring": True,
                     "recurrence_type": "meter-based",
@@ -8564,6 +8646,15 @@ def handle_recurring_tasks():
                     log_error("New meter-based task instance created, but failed to advance "
                              "the original's next_meter_threshold — it may be recreated again next check",
                              details={"task_id": task["id"]}, endpoint="handle_recurring_tasks_meter")
+                # These recurring paths insert straight into the tasks
+                # table rather than going through create_task/update_task,
+                # so none of the usual notification hooks fire — which
+                # means an auto-assigned worker would otherwise never be
+                # told the task exists at all. Auto-assigning silently
+                # would be worse than not auto-assigning, so it's sent
+                # explicitly here.
+                if _meter_assignee:
+                    _notify_auto_assigned(_insert_res.data[0], _meter_assignee)
                 continue
 
             # Uses the timezone-safe parser, not datetime.fromisoformat()
@@ -8595,14 +8686,17 @@ def handle_recurring_tasks():
                                  "blocking writes to tasks", details={"task_id": task["id"]},
                                  endpoint="handle_recurring_tasks")
                     continue
+                # Same roster-aware auto-assignment as the meter-based
+                # path above — see suggest_rostered_assignee.
+                _recurring_assignee = suggest_rostered_assignee()
                 new_task = {
                     "title": task['title'],
                     "location": task['location'],
                     "priority": task['priority'],
                     "loto": task.get('loto', False),
                     "jsa": task.get('jsa', False),
-                    "status": "Unassigned",
-                    "assigned_to": "Unassigned",
+                    "status": "In Progress" if _recurring_assignee else "Unassigned",
+                    "assigned_to": _recurring_assignee or "Unassigned",
                     "due_date": next_due.isoformat(),
                     "is_recurring": True,
                     "recurrence_type": recurrence_type,
@@ -8627,6 +8721,11 @@ def handle_recurring_tasks():
                     log_error("New recurring task instance created, but failed to advance "
                              "the original's due_date — it may be recreated again next check",
                              details={"task_id": task["id"]}, endpoint="handle_recurring_tasks")
+                # Same reasoning as the meter-based path above — this
+                # insert bypasses the normal notification hooks, so an
+                # auto-assigned worker is told explicitly here.
+                if _recurring_assignee:
+                    _notify_auto_assigned(_insert_res.data[0], _recurring_assignee)
     except Exception as e:
         log_error(str(e), endpoint="handle_recurring_tasks")
 
@@ -11126,6 +11225,114 @@ def accept_permit(permit_id, accepted_by):
     updates = {"accepted_by": accepted_by, "accepted_at": datetime.now().isoformat(), "status": "Active"}
     return _update_permit(permit_id, updates, accepted_by, "permit_accept")
 
+def request_permit_extension(permit_id, requested_until, reason, requested_by):
+    """Asks an authorised person to extend a permit's validity. Does
+    NOT itself extend anything — see PHASE 68 in schema_additions.sql
+    for why silent auto-renewal was deliberately not built: the
+    expiry is the safety checkpoint, so a human keeps deciding. This
+    removes the paperwork around that decision, not the decision.
+    """
+    if not SUPABASE_AVAILABLE:
+        return False
+    fetch_permits.clear()
+    try:
+        res = supabase.table("permits").update({
+            "extension_requested_by": requested_by,
+            "extension_requested_at": datetime.now().isoformat(),
+            "extension_requested_until": requested_until.isoformat(),
+            "extension_reason": reason,
+            "extension_status": "Pending",
+        }).eq("id", permit_id).execute()
+        if not res.data:
+            return False
+        log_audit(requested_by, "permit_extension_request",
+                  {"permit_id": permit_id, "until": requested_until.isoformat()})
+    except Exception as e:
+        log_error(str(e), details={"permit_id": permit_id}, endpoint="request_permit_extension")
+        return False
+
+    # Notify everyone who can actually decide this — and by email as
+    # well as push, since an expiring isolation is time-critical and
+    # a request nobody sees in time is the same as no request at all.
+    try:
+        _permit = next((p for p in fetch_permits() if p["id"] == permit_id), None)
+        _deciders = [u for u in fetch_all_users_from_db()
+                     if u.get("role", "").strip().lower() in ("supervisor", "superintendent")
+                     and u.get("is_approved") and not u.get("is_suspended")]
+        for u in _deciders:
+            try:
+                send_notification(u["full_name"], "🔒 Permit Extension Requested",
+                                  f"{requested_by} requested an extension on permit #{permit_id}.",
+                                  category="permit_expiring")
+            except Exception as e:
+                log_error(str(e), endpoint="request_permit_extension:notify")
+            if u.get("email") and not str(u["email"]).endswith("@mwdts.internal"):
+                try:
+                    send_email_notification(u["email"],
+                        f"🔒 Permit Extension Requested — #{permit_id}",
+                        f"<p><strong>{esc(requested_by)}</strong> requested an extension on "
+                        f"permit <strong>#{permit_id}</strong>"
+                        + (f" ({esc(_permit.get('permit_type'))})" if _permit else "") + ".</p>"
+                        f"<p>Requested until: {esc(requested_until.strftime('%b %d, %Y %H:%M'))}</p>"
+                        f"<p>Reason: {esc(reason or '—')}</p>"
+                        f"<p>Open MWDTS → Permits to approve or reject. The permit is NOT extended "
+                        f"until someone approves it.</p>")
+                except Exception as e:
+                    log_error(str(e), endpoint="request_permit_extension:email")
+    except Exception as e:
+        log_error(str(e), endpoint="request_permit_extension:notify_all")
+    return True
+
+
+def decide_permit_extension(permit_id, approve, decided_by):
+    """Approves or rejects a pending extension request. Only on
+    APPROVAL does valid_until actually move — a rejection leaves the
+    original expiry exactly as it was, so the permit still expires on
+    schedule and the existing hourly escalation alert still fires."""
+    if not SUPABASE_AVAILABLE:
+        return False
+    fetch_permits.clear()
+    try:
+        _permit = next((p for p in fetch_permits() if p["id"] == permit_id), None)
+        if not _permit or _permit.get("extension_status") != "Pending":
+            return False
+        _updates = {
+            "extension_status": "Approved" if approve else "Rejected",
+            "extension_decided_by": decided_by,
+            "extension_decided_at": datetime.now().isoformat(),
+        }
+        if approve:
+            _updates["valid_until"] = _permit.get("extension_requested_until")
+        res = supabase.table("permits").update(_updates).eq("id", permit_id).execute()
+        if not res.data:
+            return False
+        log_audit(decided_by, "permit_extension_decision",
+                  {"permit_id": permit_id, "approved": approve})
+    except Exception as e:
+        log_error(str(e), details={"permit_id": permit_id}, endpoint="decide_permit_extension")
+        return False
+
+    try:
+        _requester = (_permit or {}).get("extension_requested_by")
+        if _requester:
+            _rec = next((u for u in fetch_all_users_from_db()
+                         if u.get("full_name") == _requester), None)
+            _verb = "approved" if approve else "REJECTED"
+            send_notification(_requester, f"Permit extension {_verb}",
+                              f"Your extension request on permit #{permit_id} was {_verb} by {decided_by}.",
+                              category="permit_expiring")
+            if _rec and _rec.get("email") and not str(_rec["email"]).endswith("@mwdts.internal"):
+                send_email_notification(_rec["email"],
+                    f"Permit extension {_verb} — #{permit_id}",
+                    f"<p>Your extension request on permit <strong>#{permit_id}</strong> was "
+                    f"<strong>{_verb}</strong> by {esc(decided_by)}.</p>"
+                    + ("" if approve else "<p>The permit's original expiry still applies — "
+                                          "sign the isolation back or raise a new permit.</p>"))
+    except Exception as e:
+        log_error(str(e), endpoint="decide_permit_extension:notify")
+    return True
+
+
 def sign_back_permit(permit_id, signed_back_by):
     fetch_permits.clear()
     updates = {"signed_back_by": signed_back_by, "signed_back_at": datetime.now().isoformat(), "status": "Closed"}
@@ -12698,6 +12905,98 @@ def generate_worker_report_draft(username, full_name, report_date):
         "incomplete_tasks": incomplete,
         "items_used": items_used_list,
         "locations": ", ".join(locations),
+    }
+
+
+def generate_handover_draft(shift_hours=12):
+    """Auto-drafts the four free-text handover fields from data the
+    app already has, so a supervisor REVIEWS and corrects rather than
+    retyping what the system already knows. Same principle and
+    structure as generate_worker_report_draft above, applied to the
+    shift handover instead of an individual worker's daily report.
+
+    Deliberately returns editable TEXT, not a locked-in record: the
+    supervisor is always the one who decides what actually gets
+    handed over. Lost context between crews is a recognised
+    contributor to incidents, so the goal is to make a complete
+    handover the easy default — never to remove the human judgment
+    about what genuinely matters this shift, which is exactly the
+    part a generated summary can't do.
+
+    shift_hours is the lookback window (12h matches the standard
+    day/night rotation this app's own shift options assume). Anything
+    still open is included regardless of age — "outstanding" is about
+    current state, not when it started, same reasoning as the worker
+    report draft's own incomplete-task handling.
+    """
+    _now = datetime.now()
+    _window_start = _now - timedelta(hours=shift_hours)
+    tasks = st.session_state.get("tasks", [])
+
+    _completed = [t2 for t2 in tasks if t2.get("status") == "Complete"
+                  and (_parse_dt(t2.get("completed_at")) or datetime.min) >= _window_start]
+    _outstanding = [t2 for t2 in tasks
+                    if t2.get("status") not in ("Complete", "Closed", "Cancelled")]
+
+    _completed_text = "\n".join(
+        f"- #{t2['id']} {t2.get('title', '')} ({t2.get('location') or 'no location'})"
+        f" — {t2.get('assigned_to') or 'unassigned'}"
+        for t2 in _completed) or "(No tasks recorded complete in this window.)"
+
+    # Overdue first — the single most important thing an incoming
+    # crew needs to see, so it must not be buried mid-list.
+    _overdue = [t2 for t2 in _outstanding
+                if t2.get("due_date") and (_parse_dt(t2["due_date"]) or datetime.max) < _now]
+    _not_overdue = [t2 for t2 in _outstanding if t2 not in _overdue]
+    _outstanding_lines = (
+        [f"- ⚠️ OVERDUE #{t2['id']} {t2.get('title', '')} ({t2.get('location') or 'no location'})"
+         f" — {t2.get('assigned_to') or 'unassigned'}" for t2 in _overdue] +
+        [f"- #{t2['id']} {t2.get('title', '')} ({t2.get('location') or 'no location'})"
+         f" — {t2.get('assigned_to') or 'unassigned'}" for t2 in _not_overdue]
+    )
+    _outstanding_text = "\n".join(_outstanding_lines) or "(Nothing outstanding.)"
+
+    # Equipment: assets not currently in service, plus any pre-start
+    # checklist that FAILED within the window — a failed pre-start is
+    # exactly the kind of thing that must not get lost between crews.
+    _assets = st.session_state.get("assets", [])
+    _down = [a for a in _assets if (a.get("status") or "").strip() in ("Down", "Maintenance")]
+    _equipment_lines = [f"- {a.get('name')} ({a.get('asset_tag') or 'no tag'}) — {a.get('status')}"
+                        for a in _down]
+    try:
+        _asset_names = {a["id"]: a.get("name") for a in _assets}
+        for c in fetch_prestart_completions(limit=100):
+            if c.get("overall_pass"):
+                continue
+            if (_parse_dt(c.get("completed_at")) or datetime.min) < _window_start:
+                continue
+            _failed = [r["item"] for r in (c.get("results") or []) if not r.get("passed")]
+            _equipment_lines.append(
+                f"- ⚠️ PRE-START FAILED: {_asset_names.get(c.get('asset_id'), 'Unknown asset')}"
+                f" — {', '.join(_failed)} (by {c.get('completed_by')})")
+    except Exception as e:
+        log_error(str(e), endpoint="generate_handover_draft:prestart")
+    _equipment_text = "\n".join(_equipment_lines) or "(All equipment in service, no failed pre-starts.)"
+
+    # Safety: incidents raised in the window. Left BLANK when there
+    # are none, rather than pre-filled with "no concerns" — this
+    # field triggers a notification when filled, and a supervisor
+    # should actively affirm there were no concerns, not have that
+    # claim auto-written on their behalf.
+    _incidents = [i for i in st.session_state.get("incidents", [])
+                  if (_parse_dt(i.get("created_at")) or datetime.min) >= _window_start]
+    _safety_text = "\n".join(
+        f"- #{i['id']} {i.get('incident_type', '')} at {i.get('location') or 'no location'}"
+        f" (severity: {i.get('severity') or 'n/a'}) — reported by {i.get('reported_by')}"
+        for i in _incidents)
+
+    return {
+        "work_completed": _completed_text,
+        "work_outstanding": _outstanding_text,
+        "equipment_status": _equipment_text,
+        "safety_concerns": _safety_text,
+        "counts": {"completed": len(_completed), "outstanding": len(_outstanding),
+                   "overdue": len(_overdue), "incidents": len(_incidents)},
     }
 
 
@@ -15036,6 +15335,12 @@ TRANSLATIONS = {
     },
     "fat": {
         "nav.Task Dashboard": "Edwuma Bɔɔd",
+        "nav.Kanban Board": "Edwuma Kwan (Kanban Board)",
+        "nav.Task Templates": "Edwuma Nhwɛso (Task Templates)",
+        "nav.Pre-Start Checklists": "Ansa Woahyɛase Nhwehwɛmu (Pre-Start Checklist)",
+        "nav.Offline Mode": "Sɛ Network Nnyi Hɔ (Offline Mode)",
+        "nav.Sync Review": "Nhwehwɛmu Sync (Sync Review)",
+        "nav.Equipment Health": "Mfidzie Tebea (Equipment Health)",
         "nav.Help": "Mboa",
         "nav.Assets": "Mfidzie",
         "nav.Permits": "Kwan Krataa (Permits)",
@@ -19609,14 +19914,41 @@ def page_handover():
             supervisor_names = [u['full_name'] for u in all_users_ho
                                 if u['role'].strip().lower() in ('supervisor', 'superintendent')
                                 and u.get('is_approved') and u['full_name'] != full_name]
+
+            # Draft button sits OUTSIDE the form deliberately — a
+            # button inside an st.form can't trigger a rerun until the
+            # form is submitted, so the generated text would never
+            # reach the fields it's meant to pre-fill. Stored in
+            # session_state so it survives the rerun and lands in the
+            # text areas below as their starting value.
+            _ho_cols = st.columns([1, 1])
+            _ho_hours = _ho_cols[1].selectbox("Shift length", [8, 12], index=1,
+                                              key="ho_draft_hours",
+                                              help="How far back to look when drafting.")
+            if _ho_cols[0].button("✨ Draft from shift data", use_container_width=True):
+                st.session_state["_handover_draft"] = generate_handover_draft(shift_hours=_ho_hours)
+                st.rerun()
+            _draft = st.session_state.get("_handover_draft") or {}
+            if _draft:
+                _c = _draft["counts"]
+                st.info(f"Drafted from {_c['completed']} completed, {_c['outstanding']} outstanding "
+                       f"({_c['overdue']} overdue), {_c['incidents']} incident(s) in the last "
+                       f"{_ho_hours}h. **Review and correct everything below before submitting** — "
+                       "this is a starting point, not a finished handover.")
+
             with st.form("handover_form", clear_on_submit=True):
                 shift = st.selectbox("Shift", ["Day Shift", "Night Shift", "Swing Shift", "Weekend Day", "Weekend Night"])
                 crew = st.text_input("Crew / Team", max_chars=100)
                 incoming = st.selectbox("Incoming Supervisor", ["TBA"] + supervisor_names)
-                work_completed = st.text_area("Work Completed This Shift *")
-                work_outstanding = st.text_area("Work Outstanding / Handed Over *")
-                safety_concerns = st.text_area("Safety Concerns", placeholder="Leave blank if none. Anything entered here triggers a notification.")
-                equipment_status = st.text_area("Equipment Status / Defects")
+                work_completed = st.text_area("Work Completed This Shift *",
+                                              value=_draft.get("work_completed", ""))
+                work_outstanding = st.text_area("Work Outstanding / Handed Over *",
+                                                value=_draft.get("work_outstanding", ""))
+                safety_concerns = st.text_area("Safety Concerns",
+                                               value=_draft.get("safety_concerns", ""),
+                                               placeholder="Leave blank if none. Anything entered here triggers a notification.")
+                equipment_status = st.text_area("Equipment Status / Defects",
+                                                value=_draft.get("equipment_status", ""))
                 submitted = st.form_submit_button("📤 Submit Handover")
                 if submitted:
                     if work_completed and work_outstanding:
@@ -19625,6 +19957,7 @@ def page_handover():
                                             work_completed, work_outstanding,
                                             safety_concerns, equipment_status)
                         if h:
+                            st.session_state.pop("_handover_draft", None)
                             st.success("Handover logged.")
                             st.rerun()
                         else:
@@ -23439,6 +23772,57 @@ def page_permits():
                 else:
                     st.error(t("permits.cancel_failed"))
 
+        # --- Extension request / approval ---
+        # Not silent auto-renewal: see PHASE 68 in schema_additions.sql.
+        # The expiry is the safety checkpoint, so a person still
+        # decides — this only removes the paperwork around that.
+        _ext_status = p.get("extension_status")
+        if _ext_status == "Pending":
+            _req_until = _parse_dt(p.get("extension_requested_until"))
+            st.warning(
+                f"⏳ Extension requested by **{esc(p.get('extension_requested_by') or '—')}** until "
+                f"**{_fmt_log_time(p.get('extension_requested_until'))}** — "
+                f"reason: {esc(p.get('extension_reason') or '—')}")
+            if can(role, "permit.issue"):
+                _dcols = st.columns(2)
+                if _dcols[0].button("✅ Approve extension", key=f"permit_ext_ok_{p['id']}"):
+                    if decide_permit_extension(p['id'], True, full_name):
+                        st.success("Extension approved — permit validity updated.")
+                        st.rerun()
+                    else:
+                        st.error("Couldn't record the decision.")
+                if _dcols[1].button("❌ Reject extension", key=f"permit_ext_no_{p['id']}"):
+                    if decide_permit_extension(p['id'], False, full_name):
+                        st.info("Rejected — the original expiry still applies.")
+                        st.rerun()
+                    else:
+                        st.error("Couldn't record the decision.")
+            else:
+                st.caption("Waiting on a Supervisor or Superintendent to decide.")
+        elif status in ("Issued", "Active"):
+            if _ext_status == "Rejected":
+                st.caption(f"A previous extension request was rejected by "
+                          f"{esc(p.get('extension_decided_by') or '—')}.")
+            with st.expander("⏱️ Request an extension"):
+                st.caption("This does not extend the permit by itself — an authorised person "
+                          "reviews and decides, because the expiry exists to force a re-check "
+                          "that the isolation is still valid.")
+                _ext_hours = st.number_input("Extend by (hours)", min_value=1, max_value=24, value=4,
+                                             key=f"permit_ext_hrs_{p['id']}")
+                _ext_reason = st.text_input("Reason", key=f"permit_ext_why_{p['id']}",
+                                            placeholder="e.g. job running long, isolation unchanged")
+                if st.button("📨 Send extension request", key=f"permit_ext_send_{p['id']}"):
+                    if not _ext_reason.strip():
+                        st.error("A reason is required — whoever decides needs to know why.")
+                    else:
+                        _base = _parse_dt(p.get("valid_until")) or datetime.now()
+                        _new_until = max(_base, datetime.now()) + timedelta(hours=int(_ext_hours))
+                        if request_permit_extension(p['id'], _new_until, _ext_reason.strip(), full_name):
+                            st.success("Requested — Supervisors and Superintendents notified.")
+                            st.rerun()
+                        else:
+                            st.error("Couldn't send the request.")
+
     if permit_sub == "Active Permits":
         live = [p for p in all_permits if p.get('status') in ("Issued", "Active")]
         if not live:
@@ -24214,6 +24598,42 @@ def page_equipment_health():
         return
 
     tasks = st.session_state.tasks
+
+    # Real-time equipment status board — a scannable "what's actually
+    # running right now" summary, kept separate from the health
+    # scoring below because they answer genuinely different
+    # questions: status is a FACT someone recorded (is this machine
+    # in service?), health is an ASSESSMENT combining several signals
+    # (is this machine likely to give trouble?). A machine can be
+    # running fine right now and still be amber on health, or be down
+    # for a scheduled job while perfectly healthy — collapsing the
+    # two into one number would hide exactly that distinction.
+    _status_counts = {}
+    for a in assets:
+        _s = (a.get("status") or "Unknown").strip() or "Unknown"
+        _status_counts[_s] = _status_counts.get(_s, 0) + 1
+    _status_order = ["In Service", "Maintenance", "Down", "Retired"]
+    _ordered = [s for s in _status_order if s in _status_counts] + \
+               [s for s in sorted(_status_counts) if s not in _status_order]
+    _status_cols = st.columns(max(len(_ordered), 1))
+    _status_icons = {"In Service": "🟢", "Maintenance": "🟡", "Down": "🔴", "Retired": "⚪"}
+    for _i, _s in enumerate(_ordered):
+        _status_cols[_i].metric(f"{_status_icons.get(_s, '⚪')} {_s}", _status_counts[_s])
+
+    _down_now = [a for a in assets if (a.get("status") or "").strip() == "Down"]
+    if _down_now:
+        with st.expander(f"🔴 {len(_down_now)} asset(s) currently DOWN", expanded=True):
+            for a in _down_now:
+                _open_on_asset = [t2 for t2 in tasks if t2.get("asset_id") == a["id"]
+                                  and t2.get("status") not in ("Complete", "Closed", "Cancelled")]
+                _cost = compute_asset_downtime_cost(a, 1) if a.get("downtime_cost_per_hour") else None
+                st.markdown(
+                    f"**{esc(a.get('name'))}** ({esc(a.get('asset_tag') or 'no tag')}) — "
+                    f"{esc(a.get('location') or 'no location')} · "
+                    f"{len(_open_on_asset)} open task(s)"
+                    + (f" · ${a['downtime_cost_per_hour']:,.2f}/hr while down" if _cost else ""))
+    st.markdown("---")
+
     _health_predictions_by_asset = {}
     if SKLEARN_AVAILABLE:
         _health_predictions_by_asset = {
@@ -25439,6 +25859,37 @@ if selected_section == "Task Dashboard":
                                 log_audit(full_name, "task_status_change",
                                           {"task_id": task['id'], "new_status": new_status})
                                 st.rerun()
+
+                    # Embedded procedure from a task template (TCard).
+                    # Only renders for tasks actually created from a
+                    # template — an ordinary task has no procedure_steps
+                    # and shows nothing here at all.
+                    _proc_steps = task.get("procedure_steps") or []
+                    if _proc_steps:
+                        _step_idx = task.get("current_step_index") or 0
+                        _done_log = {e.get("step_index"): e for e in (task.get("step_log") or [])}
+                        with st.expander(f"📋 Procedure ({min(_step_idx, len(_proc_steps))}/"
+                                        f"{len(_proc_steps)} steps done)",
+                                        expanded=_step_idx < len(_proc_steps)):
+                            for _si, _stext in enumerate(_proc_steps):
+                                if _si < _step_idx:
+                                    _entry = _done_log.get(_si, {})
+                                    st.markdown(f"✅ ~~{esc(_stext)}~~")
+                                    if _entry.get("completed_by"):
+                                        st.caption(f"    {_entry['completed_by']} · "
+                                                  f"{_fmt_log_time(_entry.get('completed_at'))}")
+                                elif _si == _step_idx:
+                                    st.markdown(f"**➡️ Step {_si + 1}: {esc(_stext)}**")
+                                    if st.button("✓ Mark this step done",
+                                                key=f"procstep_{task['id']}_{_si}_{idx}"):
+                                        if advance_task_step(task['id'], _stext, full_name):
+                                            st.rerun()
+                                        else:
+                                            st.error("Couldn't record that step.")
+                                else:
+                                    st.markdown(f"◻️ {esc(_stext)}")
+                            if _step_idx >= len(_proc_steps):
+                                st.success("All procedure steps complete.")
 
                     with st.expander("💬 Comments"):
                         render_presence_indicator(f"task:{task['id']}", username, full_name)
