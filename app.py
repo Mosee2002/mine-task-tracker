@@ -7041,18 +7041,40 @@ def render_presence_indicator(view_context, username, full_name):
 # normal use once approved there — nothing bypasses server-side
 # checks (permit gates, version conflicts, etc.), and nothing is
 # ever applied without a human reviewing it first.
-def render_offline_capture_component(my_tasks, username, full_name, app_url=""):
+def render_offline_capture_component(my_tasks, username, full_name, app_url="", assets=None, prestart_templates=None):
     """Returns the HTML/JS for the offline capture page. my_tasks is
     the list of task dicts to cache client-side for offline viewing
     and action-queueing — pass whatever the current user should be
     able to work on offline (their assigned tasks). app_url, if
     given, is used for the real-connectivity check against the app's
     own /?health=1 endpoint (see updateBanner below) — falls back to
-    trusting navigator.onLine alone if not provided."""
+    trusting navigator.onLine alone if not provided.
+
+    assets/prestart_templates, if given, additionally enable the
+    Pre-Start Checklist tab — a genuinely safety-relevant gap this
+    page had before: pre-start checks often happen right at the
+    equipment itself, which can easily be exactly where signal is
+    weakest, and a check that can't be submitted offline risks simply
+    being skipped rather than done and synced later.
+    """
     tasks_json = json.dumps([
         {"id": t["id"], "title": t.get("title", ""), "location": t.get("location", ""),
         "status": t.get("status", ""), "priority": t.get("priority", "")}
         for t in my_tasks
+    ])
+    # Only name/tag/category needed client-side — not the asset's full
+    # record (meter readings, cost fields, etc.), which the offline
+    # page has no use for and would only bloat what has to fit in
+    # localStorage.
+    assets_json = json.dumps([
+        {"id": a["id"], "name": a.get("name", ""), "asset_tag": a.get("asset_tag", ""),
+        "category": a.get("category", ""), "location": a.get("location", "")}
+        for a in (assets or [])
+    ])
+    prestart_templates_json = json.dumps([
+        {"id": t["id"], "name": t.get("name", ""), "asset_category": t.get("asset_category"),
+        "items": t.get("items", [])}
+        for t in (prestart_templates or [])
     ])
     return f"""
 <!DOCTYPE html>
@@ -7090,12 +7112,46 @@ def render_offline_capture_component(my_tasks, username, full_name, app_url=""):
 </style>
 </head>
 <body>
-  <div id="statusBanner" class="banner offline">Checking connection...</div>
+  <div id="statusBanner" class="banner offline">{esc(auto_t("Checking connection..."))}</div>
   <div id="syncedCaption" class="synced-caption"></div>
 
   <div class="tabs">
-    <button class="tab-btn active" id="tabTasksBtn" onclick="showTab('tasks')">📋 Tasks</button>
-    <button class="tab-btn" id="tabIncidentBtn" onclick="showTab('incident')">🚨 Report Incident</button>
+    <button class="tab-btn active" id="tabTasksBtn" onclick="showTab('tasks')">📋 {esc(auto_t("Tasks"))}</button>
+    <button class="tab-btn" id="tabIncidentBtn" onclick="showTab('incident')">🚨 {esc(auto_t("Report Incident"))}</button>
+    <button class="tab-btn" id="tabPrestartBtn" onclick="showTab('prestart')">✅ {esc(auto_t("Pre-Start"))}</button>
+    <button class="tab-btn" id="tabLogbookBtn" onclick="showTab('logbook')">📔 {esc(auto_t("Logbook"))}</button>
+  </div>
+
+  <div id="logbookTab" class="hidden">
+    <div class="task">
+      <h4>{esc(auto_t("Logbook Entry"))}</h4>
+      <label>{esc(auto_t("Entry"))}</label>
+      <textarea id="lb_text" placeholder="{esc(auto_t('e.g. Conveyor #3 running rough, keeping an eye on it'))}"></textarea>
+      <label>{esc(auto_t("Location (optional)"))}</label>
+      <select id="lb_location"></select>
+      <label>{esc(auto_t("Category"))}</label>
+      <select id="lb_category">
+        <option value="Observation">{esc(auto_t("Observation"))}</option>
+        <option value="Equipment">{esc(auto_t("Equipment"))}</option>
+        <option value="Safety">{esc(auto_t("Safety"))}</option>
+        <option value="General">{esc(auto_t("General"))}</option>
+      </select>
+      <button onclick="queueLogbookEntry()">{esc(auto_t("Queue entry"))}</button>
+    </div>
+  </div>
+
+  <div id="prestartTab" class="hidden">
+    <div class="task">
+      <h4>{esc(auto_t("Pre-Start Checklist"))}</h4>
+      <label>{esc(auto_t("Asset"))}</label>
+      <select id="ps_asset"></select>
+      <label>{esc(auto_t("Checklist"))}</label>
+      <select id="ps_template" onchange="renderPrestartItems()"></select>
+      <div id="ps_items"></div>
+      <label>{esc(auto_t("Notes (optional)"))}</label>
+      <textarea id="ps_notes"></textarea>
+      <button onclick="queuePrestartChecklist()">{esc(auto_t("Queue checklist"))}</button>
+    </div>
   </div>
 
   <div id="tasksTab">
@@ -7104,42 +7160,85 @@ def render_offline_capture_component(my_tasks, username, full_name, app_url=""):
 
   <div id="incidentTab" class="hidden">
     <div class="task">
-      <h4>Report a Safety Incident</h4>
-      <label>Incident type</label>
+      <h4>{esc(auto_t("Report a Safety Incident"))}</h4>
+      <label>{esc(auto_t("Incident type"))}</label>
       <select id="inc_type">
-        <option>Near Miss</option>
-        <option>Injury</option>
-        <option>Equipment Damage</option>
-        <option>Environmental</option>
-        <option>Other</option>
+        <option value="Near Miss">{esc(auto_t("Near Miss"))}</option>
+        <option value="Injury">{esc(auto_t("Injury"))}</option>
+        <option value="Equipment Damage">{esc(auto_t("Equipment Damage"))}</option>
+        <option value="Environmental">{esc(auto_t("Environmental"))}</option>
+        <option value="Other">{esc(auto_t("Other"))}</option>
       </select>
-      <label>Severity</label>
+      <label>{esc(auto_t("Severity"))}</label>
       <select id="inc_severity">
-        <option>Low</option>
-        <option>Medium</option>
-        <option>High</option>
-        <option>Critical</option>
+        <option value="Low">{esc(auto_t("Low"))}</option>
+        <option value="Medium">{esc(auto_t("Medium"))}</option>
+        <option value="High">{esc(auto_t("High"))}</option>
+        <option value="Critical">{esc(auto_t("Critical"))}</option>
       </select>
-      <label>Location</label>
-      <input type="text" id="inc_location" placeholder="Where did this happen?">
-      <label>Description</label>
-      <textarea id="inc_description" placeholder="What happened?"></textarea>
-      <button onclick="queueIncident()">Queue incident report</button>
+      <label>{esc(auto_t("Location"))}</label>
+      <input type="text" id="inc_location" placeholder="{esc(auto_t('Where did this happen?'))}">
+      <label>{esc(auto_t("Description"))}</label>
+      <textarea id="inc_description" placeholder="{esc(auto_t('What happened?'))}"></textarea>
+      <button onclick="queueIncident()">{esc(auto_t("Queue incident report"))}</button>
     </div>
   </div>
 
   <div class="queue-box">
-    <strong>📋 Queued offline actions: <span id="queueCount">0</span></strong>
+    <strong>📋 {esc(auto_t("Queued offline actions:"))} <span id="queueCount">0</span></strong>
     <div id="queueList"></div>
-    <button class="export-btn" onclick="exportQueue()">📤 Export queue (copy this into Sync Review)</button>
-    <button class="export-btn clear-btn" onclick="clearQueue()">🗑️ Clear queue</button>
-    <textarea id="exportArea" readonly placeholder="Exported JSON will appear here — copy it and paste into the Sync Review page in the main app."></textarea>
+    <button class="export-btn" onclick="exportQueue()">📤 {esc(auto_t("Export queue (copy this into Sync Review)"))}</button>
+    <button class="export-btn clear-btn" onclick="clearQueue()">🗑️ {esc(auto_t("Clear queue"))}</button>
+    <textarea id="exportArea" readonly placeholder="{esc(auto_t('Exported JSON will appear here — copy it and paste into the Sync Review page in the main app.'))}"></textarea>
   </div>
 
 <script>
 const MY_TASKS = {tasks_json};
+const MY_ASSETS = {assets_json};
+const PRESTART_TEMPLATES = {prestart_templates_json};
 const USERNAME = {json.dumps(username)};
 const FULL_NAME = {json.dumps(full_name)};
+// Translated once, server-side, at render time (this whole page is
+// generated while the person is still online — that's a requirement
+// of offline mode anyway, so there's no cost to doing real
+// translation here rather than shipping English-only text into a
+// page specifically meant to be used with no connection). auto_t()
+// checks curated human translations first, falls back to a cached
+// AI translation, and fails safe to English on any error — see its
+// own docstring. Declared once here and referenced by name below,
+// rather than calling auto_t() inline at each use, so the SAME
+// translated string is reused everywhere it appears instead of
+// risking drift between two call sites for what should be identical
+// text.
+const T_STATUS_QUEUED = {json.dumps(auto_t("Status change queued offline. Export and review it in the app once you're back online."))};
+const T_COMMENT_QUEUED = {json.dumps(auto_t("Comment queued offline."))};
+const T_DESCRIBE_INCIDENT = {json.dumps(auto_t("Please describe what happened."))};
+const T_INCIDENT_QUEUED = {json.dumps(auto_t("Incident report queued offline. Export and review it as soon as you're back online — don't wait if this is urgent and you have any other way to report it."))};
+const T_SELECT_ASSET_CHECKLIST = {json.dumps(auto_t("Select an asset and a checklist."))};
+const T_PRESTART_QUEUED = {json.dumps(auto_t("Pre-start checklist queued offline. Export and sync it as soon as you're back online — if any item failed, don't use the equipment until that's been reviewed."))};
+const T_WRITE_SOMETHING = {json.dumps(auto_t("Please write something for the entry."))};
+const T_LOGBOOK_QUEUED = {json.dumps(auto_t("Logbook entry queued offline. Export and sync it as soon as you're back online."))};
+const T_PHOTO_PROCESS_FAIL = {json.dumps(auto_t("Couldn't process that photo."))};
+const T_PHOTO_TOO_LARGE = {json.dumps(auto_t("Even compressed, this photo is too large for offline storage. Try a different photo, or attach it normally once back online."))};
+const T_PHOTO_QUEUED = {json.dumps(auto_t("Photo queued offline (compressed to fit)."))};
+const T_ONLINE_BANNER = {json.dumps(auto_t("🟢 Online — you can also just use the main app normally right now."))};
+const T_OFFLINE_BANNER = {json.dumps(auto_t("🔴 Offline — actions below are queued locally until you export them."))};
+const T_LAST_SYNCED_PREFIX = {json.dumps(auto_t("Task list last synced:"))};
+const T_QUEUE_STATUS_BTN = {json.dumps(auto_t("Queue status change"))};
+const T_QUEUE_COMMENT_BTN = {json.dumps(auto_t("Queue comment"))};
+const T_QUEUE_PHOTO_BTN = {json.dumps(auto_t("Queue photo"))};
+const T_COMPRESS_NOTE = {json.dumps(auto_t("Photos are auto-compressed to fit offline storage."))};
+const T_COMMENT_PLACEHOLDER = {json.dumps(auto_t("Add a comment..."))};
+const T_STATUS_IN_PROGRESS = {json.dumps(auto_t("In Progress"))};
+const T_STATUS_PENDING_QA = {json.dumps(auto_t("Pending QA"))};
+const T_STATUS_BLOCKED = {json.dumps(auto_t("Blocked"))};
+const T_STATUS_COMPLETE = {json.dumps(auto_t("Complete"))};
+const T_PASS = {json.dumps(auto_t("Pass"))};
+const T_FAIL = {json.dumps(auto_t("Fail"))};
+const T_CRITICAL_SUFFIX = {json.dumps(auto_t("(CRITICAL)"))};
+const T_INCIDENT_LABEL = {json.dumps(auto_t("(incident)"))};
+const T_NOTHING_QUEUED = {json.dumps(auto_t("Nothing queued yet."))};
+const T_CONFIRM_CLEAR_QUEUE = {json.dumps(auto_t("Clear the offline queue? Only do this AFTER you've successfully pasted/reviewed it in Sync Review."))};
 const APP_URL = {json.dumps(app_url)};
 const QUEUE_KEY = "mwdts_offline_queue_" + USERNAME;
 const SYNC_TS_KEY = "mwdts_last_synced_" + USERNAME;
@@ -7154,8 +7253,12 @@ localStorage.setItem(SYNC_TS_KEY, new Date().toISOString());
 function showTab(name) {{
   document.getElementById("tasksTab").classList.toggle("hidden", name !== "tasks");
   document.getElementById("incidentTab").classList.toggle("hidden", name !== "incident");
+  document.getElementById("prestartTab").classList.toggle("hidden", name !== "prestart");
+  document.getElementById("logbookTab").classList.toggle("hidden", name !== "logbook");
   document.getElementById("tabTasksBtn").classList.toggle("active", name === "tasks");
   document.getElementById("tabIncidentBtn").classList.toggle("active", name === "incident");
+  document.getElementById("tabPrestartBtn").classList.toggle("active", name === "prestart");
+  document.getElementById("tabLogbookBtn").classList.toggle("active", name === "logbook");
 }}
 
 function loadQueue() {{
@@ -7179,8 +7282,8 @@ function renderQueue() {{
   const q = loadQueue();
   document.getElementById("queueCount").textContent = q.length;
   document.getElementById("queueList").innerHTML = q.map(a =>
-    `<div class="queue-item">${{a.task_id ? "#" + a.task_id + " " + a.task_title : "(incident)"}} — ${{a.action_type}} (${{new Date(a.queued_at).toLocaleString()}})</div>`
-  ).join("") || "<div class='queue-item'>Nothing queued yet.</div>";
+    `<div class="queue-item">${{a.task_id ? "#" + a.task_id + " " + a.task_title : T_INCIDENT_LABEL}} — ${{a.action_type}} (${{new Date(a.queued_at).toLocaleString()}})</div>`
+  ).join("") || "<div class='queue-item'>" + T_NOTHING_QUEUED + "</div>";
 }}
 
 function exportQueue() {{
@@ -7189,7 +7292,7 @@ function exportQueue() {{
 }}
 
 function clearQueue() {{
-  if (confirm("Clear the offline queue? Only do this AFTER you've successfully pasted/reviewed it in Sync Review.")) {{
+  if (confirm(T_CONFIRM_CLEAR_QUEUE)) {{
     localStorage.removeItem(QUEUE_KEY);
     renderQueue();
     document.getElementById("exportArea").value = "";
@@ -7198,19 +7301,19 @@ function clearQueue() {{
 
 function updateStatus(taskId, taskTitle, selectEl) {{
   queueAction(taskId, taskTitle, "status_change", {{new_status: selectEl.value}});
-  alert("Status change queued offline. Export and review it in the app once you're back online.");
+  alert(T_STATUS_QUEUED);
 }}
 
 function addComment(taskId, taskTitle, inputEl) {{
   if (!inputEl.value.trim()) return;
   queueAction(taskId, taskTitle, "comment", {{comment: inputEl.value.trim()}});
   inputEl.value = "";
-  alert("Comment queued offline.");
+  alert(T_COMMENT_QUEUED);
 }}
 
 function queueIncident() {{
   const description = document.getElementById("inc_description").value.trim();
-  if (!description) {{ alert("Please describe what happened."); return; }}
+  if (!description) {{ alert(T_DESCRIBE_INCIDENT); return; }}
   queueAction(null, "(incident report)", "incident", {{
     incident_type: document.getElementById("inc_type").value,
     severity: document.getElementById("inc_severity").value,
@@ -7219,7 +7322,87 @@ function queueIncident() {{
   }});
   document.getElementById("inc_location").value = "";
   document.getElementById("inc_description").value = "";
-  alert("Incident report queued offline. Export and review it as soon as you're back online — don't wait if this is urgent and you have any other way to report it.");
+  alert(T_INCIDENT_QUEUED);
+}}
+
+function populatePrestartDropdowns() {{
+  const assetSel = document.getElementById("ps_asset");
+  assetSel.innerHTML = MY_ASSETS.map(function(a) {{
+    return '<option value="' + a.id + '">' + a.name + ' (' + (a.asset_tag || 'no tag') + ')</option>';
+  }}).join("");
+  const tplSel = document.getElementById("ps_template");
+  tplSel.innerHTML = PRESTART_TEMPLATES.map(function(t) {{
+    return '<option value="' + t.id + '">' + t.name + '</option>';
+  }}).join("");
+  renderPrestartItems();
+}}
+
+// Regenerates the pass/fail rows whenever the selected checklist
+// changes, since each template has its own item list — mirrors how
+// the real (online) Pre-Start Checklists page builds this same form
+// from a template's items.
+function renderPrestartItems() {{
+  const tplId = document.getElementById("ps_template").value;
+  const tpl = PRESTART_TEMPLATES.filter(function(t) {{ return String(t.id) === String(tplId); }})[0];
+  const container = document.getElementById("ps_items");
+  if (!tpl) {{ container.innerHTML = ""; return; }}
+  container.innerHTML = tpl.items.map(function(item, idx) {{
+    // item.text itself is whatever a Supervisor typed when building
+    // the template — not UI chrome, so it stays exactly as entered;
+    // only the surrounding critical-flag marker is translated.
+    const label = (item.is_critical ? "⚠️ " : "") + item.text + (item.is_critical ? " " + T_CRITICAL_SUFFIX : "");
+    return '<div style="margin-top:8px;"><label>' + label + '</label>' +
+      '<select id="ps_item_' + idx + '"><option value="pass">' + T_PASS + '</option><option value="fail">' + T_FAIL + '</option></select></div>';
+  }}).join("");
+}}
+
+function queuePrestartChecklist() {{
+  const assetSel = document.getElementById("ps_asset");
+  const tplSel = document.getElementById("ps_template");
+  if (!assetSel.value || !tplSel.value) {{ alert(T_SELECT_ASSET_CHECKLIST); return; }}
+  const tpl = PRESTART_TEMPLATES.filter(function(t) {{ return String(t.id) === String(tplSel.value); }})[0];
+  const asset = MY_ASSETS.filter(function(a) {{ return String(a.id) === String(assetSel.value); }})[0];
+  const results = tpl.items.map(function(item, idx) {{
+    return {{
+      item: item.text,
+      passed: document.getElementById("ps_item_" + idx).value === "pass",
+      is_critical: !!item.is_critical,
+    }};
+  }});
+  queueAction(null, asset.name, "prestart_checklist", {{
+    template_id: tpl.id, asset_id: asset.id, results: results,
+    notes: document.getElementById("ps_notes").value.trim(),
+  }});
+  document.getElementById("ps_notes").value = "";
+  alert(T_PRESTART_QUEUED);
+}}
+
+// Derived from MY_ASSETS' own location field rather than a separate
+// embedded list — same reasoning as the online Logbook page, which
+// derives its own location dropdown from the assets already on hand
+// instead of a redundant second data source that could drift out of
+// sync with it.
+function populateLogbookDropdowns() {{
+  const locSel = document.getElementById("lb_location");
+  const seen = {{}};
+  const locations = [];
+  MY_ASSETS.forEach(function(a) {{
+    if (a.location && !seen[a.location]) {{ seen[a.location] = true; locations.push(a.location); }}
+  }});
+  locSel.innerHTML = '<option value="">—</option>' +
+    locations.map(function(l) {{ return '<option value="' + l + '">' + l + '</option>'; }}).join("");
+}}
+
+function queueLogbookEntry() {{
+  const text = document.getElementById("lb_text").value.trim();
+  if (!text) {{ alert(T_WRITE_SOMETHING); return; }}
+  queueAction(null, "(logbook entry)", "logbook_entry", {{
+    entry_text: text,
+    location: document.getElementById("lb_location").value || null,
+    category: document.getElementById("lb_category").value,
+  }});
+  document.getElementById("lb_text").value = "";
+  alert(T_LOGBOOK_QUEUED);
 }}
 
 // Compresses an image client-side (resize to MAX_PHOTO_DIMENSION on
@@ -7251,37 +7434,41 @@ function addPhoto(taskId, taskTitle, fileInput) {{
   const file = fileInput.files[0];
   if (!file) return;
   compressImage(file, function(dataUrl) {{
-    if (!dataUrl) {{ alert("Couldn't process that photo."); fileInput.value = ""; return; }}
+    if (!dataUrl) {{ alert(T_PHOTO_PROCESS_FAIL); fileInput.value = ""; return; }}
     // Rough byte estimate from a base64 data URL: length * 0.75
     const approxBytes = dataUrl.length * 0.75;
     if (approxBytes > MAX_PHOTO_BYTES) {{
-      alert("Even compressed, this photo is too large for offline storage. Try a different photo, or attach it normally once back online.");
+      alert(T_PHOTO_TOO_LARGE);
       fileInput.value = "";
       return;
     }}
     queueAction(taskId, taskTitle, "photo", {{filename: file.name, data_base64: dataUrl}});
-    alert("Photo queued offline (compressed to fit).");
+    alert(T_PHOTO_QUEUED);
     fileInput.value = "";
   }});
 }}
 
 function renderTasks() {{
+  const statusLabels = {{
+    "In Progress": T_STATUS_IN_PROGRESS, "Pending QA": T_STATUS_PENDING_QA,
+    "Blocked": T_STATUS_BLOCKED, "Complete": T_STATUS_COMPLETE,
+  }};
   document.getElementById("taskList").innerHTML = MY_TASKS.map(t => `
     <div class="task">
       <h4>#${{t.id}}: ${{t.title}}</h4>
-      <div>${{t.location || ""}} — ${{t.status}} — ${{t.priority || ""}}</div>
+      <div>${{t.location || ""}} — ${{statusLabels[t.status] || t.status}} — ${{t.priority || ""}}</div>
       <select id="status_${{t.id}}">
-        <option value="In Progress" ${{t.status==="In Progress"?"selected":""}}>In Progress</option>
-        <option value="Pending QA" ${{t.status==="Pending QA"?"selected":""}}>Pending QA</option>
-        <option value="Blocked" ${{t.status==="Blocked"?"selected":""}}>Blocked</option>
-        <option value="Complete" ${{t.status==="Complete"?"selected":""}}>Complete</option>
+        <option value="In Progress" ${{t.status==="In Progress"?"selected":""}}>${{T_STATUS_IN_PROGRESS}}</option>
+        <option value="Pending QA" ${{t.status==="Pending QA"?"selected":""}}>${{T_STATUS_PENDING_QA}}</option>
+        <option value="Blocked" ${{t.status==="Blocked"?"selected":""}}>${{T_STATUS_BLOCKED}}</option>
+        <option value="Complete" ${{t.status==="Complete"?"selected":""}}>${{T_STATUS_COMPLETE}}</option>
       </select>
-      <button onclick="updateStatus(${{t.id}}, ${{JSON.stringify(t.title)}}, document.getElementById('status_${{t.id}}'))">Queue status change</button>
-      <input type="text" id="comment_${{t.id}}" placeholder="Add a comment...">
-      <button onclick="addComment(${{t.id}}, ${{JSON.stringify(t.title)}}, document.getElementById('comment_${{t.id}}'))">Queue comment</button>
+      <button onclick="updateStatus(${{t.id}}, ${{JSON.stringify(t.title)}}, document.getElementById('status_${{t.id}}'))">${{T_QUEUE_STATUS_BTN}}</button>
+      <input type="text" id="comment_${{t.id}}" placeholder="${{T_COMMENT_PLACEHOLDER}}">
+      <button onclick="addComment(${{t.id}}, ${{JSON.stringify(t.title)}}, document.getElementById('comment_${{t.id}}'))">${{T_QUEUE_COMMENT_BTN}}</button>
       <input type="file" accept="image/*" capture="environment" id="photo_${{t.id}}">
-      <div class="compress-note">Photos are auto-compressed to fit offline storage.</div>
-      <button onclick="addPhoto(${{t.id}}, ${{JSON.stringify(t.title)}}, document.getElementById('photo_${{t.id}}'))">Queue photo</button>
+      <div class="compress-note">${{T_COMPRESS_NOTE}}</div>
+      <button onclick="addPhoto(${{t.id}}, ${{JSON.stringify(t.title)}}, document.getElementById('photo_${{t.id}}'))">${{T_QUEUE_PHOTO_BTN}}</button>
     </div>
   `).join("");
 }}
@@ -7289,7 +7476,7 @@ function renderTasks() {{
 function renderSyncedCaption() {{
   const ts = localStorage.getItem(SYNC_TS_KEY);
   document.getElementById("syncedCaption").textContent = ts
-    ? "Task list last synced: " + new Date(ts).toLocaleString()
+    ? T_LAST_SYNCED_PREFIX + " " + new Date(ts).toLocaleString()
     : "";
 }}
 
@@ -7317,10 +7504,10 @@ function updateBanner() {{
   const b = document.getElementById("statusBanner");
   if (reallyOnline) {{
     b.className = "banner online";
-    b.textContent = "🟢 Online — you can also just use the main app normally right now.";
+    b.textContent = T_ONLINE_BANNER;
   }} else {{
     b.className = "banner offline";
-    b.textContent = "🔴 Offline — actions below are queued locally until you export them.";
+    b.textContent = T_OFFLINE_BANNER;
   }}
 }}
 
@@ -7331,6 +7518,8 @@ setInterval(checkRealConnectivity, 20000); // re-check periodically — Wi-Fi th
 renderSyncedCaption();
 renderTasks();
 renderQueue();
+populatePrestartDropdowns();
+populateLogbookDropdowns();
 </script>
 </body>
 </html>
@@ -7445,6 +7634,32 @@ def apply_offline_action(action, reviewed_by):
             _log_offline_sync_decision(action, "approved", reviewed_by, detail=incident_type)
             return (True, f"Incident #{new_incident['id']} reported.") if new_incident else \
                    (False, "Failed to file the incident report.")
+
+        elif action_type == "prestart_checklist":
+            template_id = payload.get("template_id")
+            asset_id = payload.get("asset_id")
+            results = payload.get("results") or []
+            if not template_id or not asset_id or not results:
+                return False, "Missing template, asset, or results in queued action."
+            completion = submit_prestart_checklist(template_id, asset_id, queued_by_name,
+                                                    results, payload.get("notes"))
+            _log_offline_sync_decision(action, "approved", reviewed_by,
+                                       detail=f"template={template_id} asset={asset_id}")
+            if not completion:
+                return False, "Failed to save the pre-start checklist."
+            if not completion.get("overall_pass"):
+                return True, ("Pre-start checklist saved — one or more items FAILED. "
+                              "Supervisors and Superintendents have been notified.")
+            return True, "Pre-start checklist saved — all items passed."
+
+        elif action_type == "logbook_entry":
+            entry_text = (payload.get("entry_text") or "").strip()
+            if not entry_text:
+                return False, "Empty logbook entry in queued action."
+            entry = create_logbook_entry(entry_text, payload.get("location"),
+                                         payload.get("category") or "Observation", queued_by_name)
+            _log_offline_sync_decision(action, "approved", reviewed_by, detail=entry_text[:100])
+            return (True, "Logbook entry saved.") if entry else (False, "Failed to save the logbook entry.")
 
         else:
             return False, f"Unknown action type: {action_type}"
@@ -8791,24 +9006,81 @@ def rank_assignment_candidates(task_like, exclude_names=None):
     return ranked
 
 
+def try_acquire_automation_lock(lock_name, cooldown_minutes):
+    """Atomically checks whether cooldown_minutes have passed since
+    lock_name last ran, and if so, claims the lock for THIS caller by
+    updating last_run — in one compare-and-swap operation, not a
+    separate read-then-write, which would still let two nearly-
+    simultaneous callers both pass the check before either one
+    writes.
+
+    Fixes a real, confirmed bug: handle_recurring_tasks() previously
+    tracked its 15-minute throttle in st.session_state, which is
+    per-browser-session — every new login started a fresh timer, so
+    across a day with several different people signing in, recurring
+    tasks were being rolled forward into duplicates far more often
+    than the intended once-per-15-minutes. This is a real, global,
+    database-backed lock instead.
+
+    Returns True if the caller won the lock and should proceed, False
+    if someone else already ran it recently (or won the race for this
+    exact moment) and the caller should skip. Fails OPEN on any
+    database error (returns True) — a lock this app can't currently
+    reach must not permanently block genuinely due work from ever
+    running again.
+    """
+    if not SUPABASE_AVAILABLE:
+        return True
+    try:
+        current = supabase.table("automation_locks").select("last_run").eq("lock_name", lock_name).execute()
+        if not current.data:
+            # Lock row doesn't exist yet (e.g. schema migration not run
+            # on an older deployment) — create it and proceed, rather
+            # than silently never running this check at all.
+            supabase.table("automation_locks").insert({"lock_name": lock_name, "last_run": None}).execute()
+            old_last_run = None
+        else:
+            old_last_run = current.data[0].get("last_run")
+
+        if old_last_run:
+            last_dt = _parse_dt(old_last_run)
+            if last_dt and (datetime.now() - last_dt) < timedelta(minutes=cooldown_minutes):
+                return False
+
+        # Compare-and-swap: only succeeds if last_run STILL matches
+        # what we just read — if another session already won the race
+        # and updated it in between, this UPDATE matches zero rows,
+        # and .data comes back empty, telling us we lost.
+        _q = supabase.table("automation_locks").update({"last_run": datetime.now().isoformat()})
+        if old_last_run is None:
+            _q = _q.is_("last_run", "null")
+        else:
+            _q = _q.eq("last_run", old_last_run)
+        result = _q.eq("lock_name", lock_name).execute()
+        return bool(result.data)
+    except Exception as e:
+        log_error(str(e), details={"lock_name": lock_name}, endpoint="try_acquire_automation_lock")
+        return True
+
+
 def handle_recurring_tasks():
     """Roll forward due preventive-maintenance tasks.
 
-    THROTTLED. This used to run on every Streamlit rerun — i.e. on every
-    click, checkbox, and dropdown change. Each run both INSERTS a new
-    task and updates the original's due date, so rapid reruns could
-    spawn duplicate work orders and it hammered the database on every
-    interaction. It now runs at most once every RECURRING_CHECK_MINUTES
-    per session.
+    THROTTLED with a real, global, database-backed lock
+    (try_acquire_automation_lock) — this used to run on every
+    Streamlit rerun, spawning duplicate work orders and hammering the
+    database, and a since-fixed intermediate version throttled via
+    st.session_state, which only limited reruns WITHIN one browser
+    session; across multiple different logins in a day, tasks were
+    still duplicating. It now runs at most once every
+    RECURRING_CHECK_MINUTES, genuinely, across the whole app.
     """
     if not SUPABASE_AVAILABLE:
         return
 
     RECURRING_CHECK_MINUTES = 15
-    last = st.session_state.get("_last_recurring_check")
-    if last and (datetime.now() - last) < timedelta(minutes=RECURRING_CHECK_MINUTES):
+    if not try_acquire_automation_lock("recurring_tasks_check", RECURRING_CHECK_MINUTES):
         return
-    st.session_state._last_recurring_check = datetime.now()
 
     try:
         res = supabase.table("tasks").select("*").eq("is_recurring", True).execute()
@@ -17155,6 +17427,48 @@ def get_predictive_failure_alerts(tasks, assets, threshold_pct=0.8):
     return alerts
 
 
+def find_duplicate_recurring_tasks(tasks):
+    """Finds clusters of recurring tasks that are almost certainly
+    duplicates created by the session-state throttle bug in
+    handle_recurring_tasks (see PHASE 75 in schema_additions.sql for
+    the full root-cause explanation) — before that fix, the same due
+    task could be rolled forward into a new copy every time a
+    different person logged in, rather than genuinely once per 15
+    minutes.
+
+    A cluster is: same title + same location, among is_recurring=True
+    tasks, with 2 or more created on the SAME calendar day. Grouped by
+    day (not just by title+location alone) deliberately — a weekly PM
+    task genuinely recurring correctly WILL have the same title and
+    location week after week; that's expected and not a duplicate.
+    What's abnormal is several of them landing on the exact same day.
+
+    Returns a list of clusters, each {"title", "location", "date",
+    "tasks": [...]} sorted newest-first, for a human to review before
+    anything is deleted — this finds candidates, it does not delete
+    anything itself.
+    """
+    groups = {}
+    for t2 in tasks:
+        if not t2.get("is_recurring"):
+            continue
+        created = _parse_dt(t2.get("created_at"))
+        if not created:
+            continue
+        key = (t2.get("title"), t2.get("location"), created.date())
+        groups.setdefault(key, []).append(t2)
+
+    clusters = []
+    for (title, location, date_key), group_tasks in groups.items():
+        if len(group_tasks) > 1:
+            clusters.append({
+                "title": title, "location": location, "date": date_key,
+                "tasks": sorted(group_tasks, key=lambda t3: t3.get("created_at") or "", reverse=True),
+            })
+    clusters.sort(key=lambda c: c["date"], reverse=True)
+    return clusters
+
+
 def send_predictive_downtime_alerts(tasks, assets, triggered_by):
     """Notifies leadership about assets approaching their predicted
     failure window — the predictions themselves (get_predictive_
@@ -17846,20 +18160,54 @@ def send_sms(phone_e164, message):
         return False, str(e)
 
 
+# Twilio's WhatsApp messaging is the SAME Messaging API send_sms above
+# already uses (client.messages.create), not the Verify service the
+# existing WhatsApp LOGIN uses — those are two genuinely different
+# Twilio products under one account. WhatsApp messaging additionally
+# requires the sending number to be WhatsApp-enabled (Twilio's WhatsApp
+# Sandbox for testing, or an approved WhatsApp Business sender for
+# production), which is why this needs its own separate secret rather
+# than reusing TWILIO_SMS_FROM_NUMBER — a plain SMS-only number can't
+# send WhatsApp messages at all.
+#   TWILIO_WHATSAPP_FROM_NUMBER = "+1XXXXXXXXXX"   (WhatsApp-enabled Twilio number)
+TWILIO_WHATSAPP_FROM_NUMBER = _secret_get("TWILIO_WHATSAPP_FROM_NUMBER", "")
+WHATSAPP_MESSAGING_CONFIGURED = bool(
+    TWILIO_AVAILABLE and TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_WHATSAPP_FROM_NUMBER)
+
+
+def send_whatsapp_message(phone_e164, message):
+    """Best-effort WhatsApp message via Twilio's Messaging API — same
+    pattern and same never-raises reasoning as send_sms just above,
+    the only difference being the whatsapp: prefix Twilio requires on
+    both to and from for this channel specifically. Returns
+    (ok, error_message)."""
+    if not WHATSAPP_MESSAGING_CONFIGURED or not phone_e164:
+        return False, "WhatsApp messaging not configured or no phone number on file."
+    try:
+        client = _TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        client.messages.create(to=f"whatsapp:{phone_e164}",
+                               from_=f"whatsapp:{TWILIO_WHATSAPP_FROM_NUMBER}", body=message)
+        return True, None
+    except Exception as e:
+        log_error(str(e), details={"phone": phone_e164}, endpoint="send_whatsapp_message")
+        return False, str(e)
+
+
 def notify_user_everywhere(user_record, title, body, sms_body=None, category=None):
     """Fans a notification out across every channel this app supports
     for a single user: in-app notification list + real device push
-    (send_notification already does both), plus SMS if the user has a
-    phone_number on file and SMS is configured. sms_body defaults to
-    the same text as the push/in-app body, but callers can pass a
-    shorter or differently-worded version — SMS is charged per
-    message/segment, so keeping it terse matters in a way it doesn't
-    for a push notification.
+    (send_notification already does both), plus SMS and WhatsApp if
+    the user has a phone_number on file and each is configured.
+    sms_body defaults to the same text as the push/in-app body, but
+    callers can pass a shorter or differently-worded version — SMS is
+    charged per message/segment, so keeping it terse matters in a way
+    it doesn't for a push notification; the same text is reused for
+    WhatsApp, which doesn't have SMS's per-segment cost structure.
 
     category, if given, is checked against the recipient's
     notification_preferences to decide whether the DEVICE PUSH fires
-    (see send_notification) — it never affects the in-app record or
-    SMS, which stay as before.
+    (see send_notification) — it never affects the in-app record, SMS,
+    or WhatsApp, which stay as before.
 
     Deliberately does NOT include email here — the existing password
     reset and digest flows already call send_email_notification
@@ -17871,6 +18219,7 @@ def notify_user_everywhere(user_record, title, body, sms_body=None, category=Non
     phone = user_record.get("phone_number")
     if phone:
         send_sms(phone, sms_body or f"{title}: {body}")
+        send_whatsapp_message(phone, sms_body or f"{title}: {body}")
 
 
 def _normalize_whatsapp_number(raw):
@@ -18983,15 +19332,50 @@ handle_recurring_tasks()
 # moment the app tries to read a field that isn't there. Reset to a
 # clean logged-out state instead, so the person sees a normal
 # "please log in again" experience rather than a hard error page.
+# Only a genuine inconsistency — the app THINKS someone is logged in
+# (authenticated=True) but the payload backing that claim is missing
+# or broken — triggers the warning-and-reset below. Checking
+# user_payload alone, without also requiring authenticated, was a
+# real bug: it fired for the completely ORDINARY case of someone who
+# simply hasn't logged in yet (user_payload is correctly empty for
+# them, that's not broken, that's expected) — and since st.rerun()
+# restarts the whole script with nothing having changed to fix it,
+# every new visitor's first-ever page load could get caught in a
+# genuine infinite rerun loop: warning flashes, page reloads,
+# user_payload is still empty, warning flashes again, forever. That
+# infinite loop is what was actually being seen as "blinking" on the
+# very first interface — not a CSS/animation issue at all.
+# Only a genuine inconsistency — the app THINKS someone is logged in
+# (authenticated=True) but the payload backing that claim is missing
+# or broken — gets the warning-and-reset treatment below. Checking
+# user_payload alone, without also requiring authenticated, was a
+# real, severe bug: it fired for the completely ORDINARY case of
+# someone who simply hasn't logged in yet (user_payload is correctly
+# empty for them — that's expected, not broken) — and since
+# st.rerun() restarts the whole script with nothing having changed to
+# fix it, every new visitor's very first page load could get caught
+# in a genuine infinite rerun loop: warning flashes, page reloads,
+# user_payload is still empty, warning flashes again, forever. That
+# infinite loop is what was actually being seen as "blinking" on the
+# very first interface — not a CSS/animation issue at all.
 if not st.session_state.user_payload or "name" not in st.session_state.user_payload:
-    _broken_session_token = st.query_params.get("session")
-    if _broken_session_token:
-        invalidate_session_token(_broken_session_token)
-        del st.query_params["session"]
-    st.session_state.authenticated = False
-    st.session_state.user_payload = None
-    st.warning("Your session couldn't be verified — please log in again.")
-    st.rerun()
+    if st.session_state.get("authenticated"):
+        _broken_session_token = st.query_params.get("session")
+        if _broken_session_token:
+            invalidate_session_token(_broken_session_token)
+            del st.query_params["session"]
+        st.session_state.authenticated = False
+        st.session_state.user_payload = None
+        st.warning("Your session couldn't be verified — please log in again.")
+        st.rerun()
+    # Ordinary "not logged in yet" — the welcome landing page and login
+    # form rendered above have already shown whatever this visitor
+    # should see. st.stop() (not st.rerun()) ends this render cleanly
+    # right here: no warning for a state that isn't an error, and no
+    # forced reload that would only recreate the exact same state and
+    # loop forever, since nothing between here and a real login
+    # attempt would ever change user_payload.
+    st.stop()
 
 user = st.session_state.user_payload
 full_name = user['name']
@@ -19156,22 +19540,6 @@ with st.sidebar:
 
     _active_category = SECTION_TO_CATEGORY.get(st.session_state["_current_nav_section"])
 
-    _my_favorites = [f for f in fetch_favorite_pages(username) if f in nav_options]
-    if _my_favorites:
-        with st.expander("⭐ **My Favorites**", expanded=True):
-            for _section in _my_favorites:
-                _is_current = _section == st.session_state["_current_nav_section"]
-                _fav_cols = st.columns([5, 1])
-                if _fav_cols[0].button(t(f"nav.{_section}"), key=f"favbtn_{_section}",
-                                       type="primary" if _is_current else "secondary",
-                                       use_container_width=True, disabled=_is_current):
-                    st.session_state["_current_nav_section"] = _section
-                    st.session_state["_nav_collapsed"] = True
-                    st.rerun()
-                if _fav_cols[1].button("★", key=f"unfav_{_section}", help="Remove from favorites"):
-                    toggle_favorite_page(username, _section)
-                    st.rerun()
-
     for _cat_name, _cat_sections in NAV_CATEGORIES.items():
         # Filtered to items actually present in this user's final,
         # already role/flag-filtered nav_options — a category with
@@ -19183,17 +19551,11 @@ with st.sidebar:
         with st.expander(f"**{_cat_name}**", expanded=(_cat_name == _active_category)):
             for _section in _visible_items:
                 _is_current = _section == st.session_state["_current_nav_section"]
-                _is_favorited = _section in _my_favorites
-                _nav_cols = st.columns([5, 1])
-                if _nav_cols[0].button(t(f"nav.{_section}"), key=f"navbtn_{_section}",
+                if st.button(t(f"nav.{_section}"), key=f"navbtn_{_section}",
                             type="primary" if _is_current else "secondary",
                             use_container_width=True, disabled=_is_current):
                     st.session_state["_current_nav_section"] = _section
                     st.session_state["_nav_collapsed"] = True
-                    st.rerun()
-                if _nav_cols[1].button("★" if _is_favorited else "☆", key=f"favtoggle_{_section}",
-                                       help="Remove from favorites" if _is_favorited else "Add to favorites"):
-                    toggle_favorite_page(username, _section)
                     st.rerun()
 
     selected_section = st.session_state["_current_nav_section"]
@@ -21773,14 +22135,28 @@ def send_task_completion_email(task, completed_by):
     person has no email on file, or if reportlab isn't installed —
     in the last case the email still sends, just without the PDF,
     rather than losing the notification entirely over a missing
-    optional library."""
+    optional library.
+
+    Also sends a WhatsApp message alongside the email (not just email
+    despite the function's name, kept as-is rather than renamed since
+    this is its only call site) — the email carries the full PDF
+    detail, WhatsApp is the "notice it happened right now" channel,
+    same division of labor as email vs SMS/push elsewhere in this
+    file."""
     assigned_by = task.get("assigned_by")
     if not assigned_by:
         return False
     user_record = next((u for u in fetch_all_users_from_db()
                         if u.get("username") == assigned_by
                         or u.get("full_name") == assigned_by), None)
-    if not user_record or not user_record.get("email"):
+    if not user_record:
+        return False
+
+    if user_record.get("phone_number"):
+        send_whatsapp_message(user_record["phone_number"],
+            f"✅ MWDTS: Job #{task.get('id')} \"{task.get('title', '')}\" completed by {completed_by}.")
+
+    if not user_record.get("email"):
         return False
     email = user_record["email"]
     if str(email).endswith("@mwdts.internal"):
@@ -23012,6 +23388,59 @@ def page_owner_console():
             else:
                 st.info("Checked. Nothing due — either no assets crossing their failure "
                        "threshold, or all within the 24h per-asset cooldown.")
+
+        st.markdown("---")
+        st.markdown("### 🧹 Duplicate Recurring Tasks")
+        st.caption(
+            "Recurring tasks used to be able to duplicate — every different person "
+            "logging in during the day could independently re-trigger the same due task, "
+            "because the old 15-minute throttle was tracked per browser session instead "
+            "of globally. That's fixed now (a real, database-backed lock), but it doesn't "
+            "undo any duplicates already created before the fix. This finds clusters of "
+            "recurring tasks with the same title and location, created on the same "
+            "calendar day — genuinely recurring tasks that happen to share a title (a "
+            "weekly inspection, say) are NOT flagged unless several landed on the exact "
+            "same day, which is the actual signature of the bug."
+        )
+        if st.button("🔍 Scan for duplicates"):
+            st.session_state["_dup_clusters"] = find_duplicate_recurring_tasks(st.session_state.tasks)
+            st.rerun()
+        _dup_clusters = st.session_state.get("_dup_clusters")
+        if _dup_clusters is not None:
+            if not _dup_clusters:
+                st.success("No duplicate clusters found.")
+            else:
+                _total_extra = sum(len(c["tasks"]) - 1 for c in _dup_clusters)
+                st.warning(f"{len(_dup_clusters)} cluster(s) found, {_total_extra} likely-duplicate "
+                          "task(s) total (one per cluster is kept automatically — the most "
+                          "recently created — the rest are what would be removed).")
+                for _ci, c in enumerate(_dup_clusters):
+                    with st.expander(f"{c['title']} — {c['location']} — {c['date']} "
+                                    f"({len(c['tasks'])} copies)"):
+                        _keep = c["tasks"][0]
+                        st.caption(f"Would KEEP #{_keep['id']} (most recently created, "
+                                  f"{_fmt_log_time(_keep.get('created_at'))}) and delete the rest below.")
+                        for t2 in c["tasks"][1:]:
+                            st.write(f"#{t2['id']} — created {_fmt_log_time(t2.get('created_at'))} — "
+                                    f"status: {t2.get('status')}")
+                        if any(t2.get("status") not in ("Unassigned", "Complete") for t2 in c["tasks"][1:]):
+                            st.info("At least one of the tasks that would be deleted here isn't "
+                                   "in its default Unassigned state — worth a manual look before "
+                                   "deleting this specific cluster, in case real work already "
+                                   "happened on it.")
+                        if st.button(f"🗑️ Delete {len(c['tasks']) - 1} duplicate(s) from this cluster",
+                                    key=f"dup_delete_{_ci}"):
+                            _deleted = 0
+                            for t2 in c["tasks"][1:]:
+                                if delete_task(t2["id"], full_name):
+                                    _deleted += 1
+                            log_audit(full_name, "duplicate_tasks_cleanup",
+                                      {"title": c["title"], "location": c["location"],
+                                       "date": str(c["date"]), "deleted": _deleted})
+                            st.success(f"Deleted {_deleted} duplicate(s).")
+                            st.session_state.pop("_dup_clusters", None)
+                            fetch_all_tasks.clear()
+                            st.rerun()
 
         st.markdown("---")
         st.markdown("### ⚡ Electrical Department Digest")
@@ -27640,7 +28069,9 @@ elif selected_section == "Offline Mode":
         if not _offline_my_tasks:
             st.caption("No open tasks assigned to you — the Incident Report tab below still works.")
         st.components.v1.html(
-            render_offline_capture_component(_offline_my_tasks, username, full_name, app_url=APP_URL),
+            render_offline_capture_component(_offline_my_tasks, username, full_name, app_url=APP_URL,
+                                             assets=st.session_state.assets,
+                                             prestart_templates=fetch_prestart_templates()),
             height=900, scrolling=True,
         )
         st.caption(
@@ -27697,6 +28128,10 @@ elif selected_section == "Sync Review":
                 with st.container(border=True):
                     if _atype == "incident":
                         st.markdown(f"**🚨 Incident report** ({esc(_action.get('payload', {}).get('incident_type', '?'))})")
+                    elif _atype == "prestart_checklist":
+                        st.markdown(f"**✅ Pre-Start Checklist** — {esc(_action.get('task_title', ''))}")
+                    elif _atype == "logbook_entry":
+                        st.markdown(f"**📔 Logbook Entry** ({esc(_action.get('payload', {}).get('category', '?'))})")
                     else:
                         st.markdown(
                             f"**Task #{_action.get('task_id')}: {esc(_action.get('task_title', ''))}** — "
@@ -27720,6 +28155,24 @@ elif selected_section == "Sync Review":
                         st.write(f"Severity: **{esc(_payload.get('severity', '?'))}**")
                         st.write(f"Location: {esc(_payload.get('location', '—'))}")
                         st.write(f"Description: {esc(_payload.get('description', ''))}")
+                    elif _atype == "prestart_checklist":
+                        _sync_results = _payload.get("results", [])
+                        _sync_failed = [r for r in _sync_results if not r.get("passed")]
+                        if _sync_failed:
+                            st.error(f"⚠️ {len(_sync_failed)} of {len(_sync_results)} item(s) FAILED")
+                        else:
+                            st.success(f"All {len(_sync_results)} item(s) passed")
+                        for r in _sync_results:
+                            _r_icon = "✅" if r.get("passed") else "❌"
+                            _r_crit = " (CRITICAL)" if r.get("is_critical") else ""
+                            st.write(f"{_r_icon} {esc(r.get('item', ''))}{_r_crit}")
+                        if _payload.get("notes"):
+                            st.caption(f"Notes: {esc(_payload['notes'])}")
+                    elif _atype == "logbook_entry":
+                        st.write(f"Category: **{esc(_payload.get('category', '?'))}**")
+                        if _payload.get("location"):
+                            st.write(f"Location: {esc(_payload['location'])}")
+                        st.write(f"Entry: {esc(_payload.get('entry_text', ''))}")
 
                     _rcol1, _rcol2 = st.columns(2)
                     if _rcol1.button("✅ Approve & apply", key=f"sync_approve_{_client_id}"):
