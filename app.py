@@ -12,6 +12,7 @@ import time
 import html as html_lib
 import zipfile
 import random
+import math
 
 # Five standalone feature modules, each a separate file alongside
 # app.py. Wrapped defensively — a missing or broken module file must
@@ -2770,12 +2771,16 @@ def _render_qr_image(payload):
     return img
 
 
-def generate_asset_qr(asset_id):
-    """Generates a QR code encoding a structured, unambiguous asset
-    identifier — 'MWDTS-ASSET:<id>' rather than the bare id or the
-    asset_tag, so a scan can never be confused with some unrelated QR
-    code someone happens to photograph, and doesn't depend on
-    asset_tag being unique (only the database id is guaranteed to be).
+def generate_entity_qr(entity_type, entity_id):
+    """Generates a QR code encoding a structured, unambiguous
+    identifier — 'MWDTS-<TYPE>:<id>' — for any of the entity types
+    this app can scan (ASSET, TASK, PERMIT), generalized from what was
+    originally asset-only. entity_type must be exactly 'ASSET',
+    'TASK', or 'PERMIT' — the prefix scheme already printed on
+    physical asset labels is preserved EXACTLY as it was (generate_
+    asset_qr below is now a thin wrapper over this), so no QR code
+    already printed and in physical use anywhere on site is affected.
+
     Uses the exact same proven method as the app's own install QR
     codes: reportlab's real encoder for the module grid, rendered with
     PIL using NEAREST-neighbor scaling specifically — smoothing/
@@ -2786,7 +2791,7 @@ def generate_asset_qr(asset_id):
     """
     if not QR_GENERATION_AVAILABLE:
         return None
-    payload = f"MWDTS-ASSET:{asset_id}"
+    payload = f"MWDTS-{entity_type}:{entity_id}"
     widget = _qr_encoder.QrCodeWidget(payload)
     widget.qr.make()
     inner = widget.qr
@@ -2807,29 +2812,51 @@ def generate_asset_qr(asset_id):
     return img
 
 
-def decode_asset_qr(image_bytes):
-    """Decodes a photographed QR label back into an asset id. Returns
-    the asset id (int) on a genuine MWDTS asset QR, None on anything
-    else — an unrelated QR code, a blurry photo, or no QR code at all
-    all return None rather than raising, since a failed scan is an
-    expected, ordinary outcome here, not an error condition."""
+def generate_asset_qr(asset_id):
+    """Thin wrapper over generate_entity_qr, kept so the two existing
+    call sites (and anything else built against this exact name)
+    don't need to change — see generate_entity_qr for the full
+    reasoning, including why the ASSET prefix specifically must never
+    change."""
+    return generate_entity_qr("ASSET", asset_id)
+
+
+def decode_entity_qr(image_bytes):
+    """Decodes a photographed QR label back into (entity_type,
+    entity_id) — generalized from the original asset-only decoder.
+    Returns (None, None) on anything that isn't a genuine MWDTS QR
+    code of a recognized type: an unrelated QR code, a blurry photo,
+    or no QR code at all — a failed scan is an expected, ordinary
+    outcome here, not an error condition."""
     if not QR_SCANNING_AVAILABLE:
-        return None
+        return None, None
     try:
         arr = np.frombuffer(image_bytes, dtype=np.uint8)
         img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if img is None:
-            return None
+            return None, None
         detector = cv2.QRCodeDetector()
         data, points, _ = detector.detectAndDecode(img)
-        if data and data.startswith("MWDTS-ASSET:"):
-            try:
-                return int(data.split(":", 1)[1])
-            except ValueError:
-                return None
-        return None
+        if data and data.startswith("MWDTS-") and ":" in data:
+            _entity_type, _id_str = data[len("MWDTS-"):].split(":", 1)
+            if _entity_type in ("ASSET", "TASK", "PERMIT"):
+                try:
+                    return _entity_type, int(_id_str)
+                except ValueError:
+                    return None, None
+        return None, None
     except Exception:
-        return None
+        return None, None
+
+
+def decode_asset_qr(image_bytes):
+    """Thin wrapper over decode_entity_qr, kept for the one existing
+    call site — returns just the asset id (int) on a genuine MWDTS
+    ASSET QR, None on anything else, including a valid TASK or PERMIT
+    QR (this function is specifically asset-only, by design, for
+    backward compatibility with its original behavior)."""
+    _etype, _eid = decode_entity_qr(image_bytes)
+    return _eid if _etype == "ASSET" else None
 
 
 def render_empty_state(icon, title, subtitle=None):
@@ -5839,7 +5866,8 @@ def create_task(title, location, priority, loto, jsa, created_by, due_date=None,
     return None
 
 
-def create_task_template(name, description, work_type, default_priority, requires_loto, procedure_steps, created_by):
+def create_task_template(name, description, work_type, default_priority, requires_loto, procedure_steps,
+                          created_by, required_certification=None):
     if not SUPABASE_AVAILABLE:
         return None
     try:
@@ -5847,6 +5875,7 @@ def create_task_template(name, description, work_type, default_priority, require
             "name": name, "description": description, "work_type": work_type,
             "default_priority": default_priority, "requires_loto": requires_loto,
             "procedure_steps": procedure_steps, "created_by": created_by,
+            "required_certification": required_certification,
         }).execute()
         if res.data:
             log_audit(created_by, "task_template_create", {"name": name, "steps": len(procedure_steps)})
@@ -5906,6 +5935,7 @@ def create_task_from_template(template_id, location, created_by, assigned_to=Non
         "current_step_index": 0,
         "step_log": [],
         "assigned_to": assigned_to,
+        "required_certification": template.get("required_certification"),
     }, created_by)
     return task
 
@@ -6509,6 +6539,118 @@ def toggle_favorite_page(username, page_name):
         fetch_favorite_pages.clear()
     except Exception as e:
         log_error(str(e), details={"page": page_name}, endpoint="toggle_favorite_page")
+
+
+def haversine_meters(lat1, lng1, lat2, lng2):
+    """Great-circle distance between two lat/long points, in meters.
+    Standard haversine formula — accurate enough for zone-radius
+    checks at mine-site scale (a few kilometers at most); the small
+    error versus a full ellipsoidal calculation is irrelevant next to
+    typical GPS/manual-entry precision itself."""
+    R = 6371000  # Earth's mean radius, meters
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.asin(min(1, math.sqrt(a)))
+
+
+def create_geofence_zone(name, zone_type, center_lat, center_lng, radius_meters, alert_message, created_by):
+    if not SUPABASE_AVAILABLE:
+        return None
+    try:
+        res = supabase.table("geofence_zones").insert({
+            "name": name, "zone_type": zone_type, "center_lat": center_lat, "center_lng": center_lng,
+            "radius_meters": radius_meters, "alert_message": alert_message, "created_by": created_by,
+        }).execute()
+        if res.data:
+            log_audit(created_by, "geofence_zone_create", {"name": name, "type": zone_type})
+            fetch_geofence_zones.clear()
+            return res.data[0]
+    except Exception as e:
+        log_error(str(e), details={"name": name}, endpoint="create_geofence_zone")
+    return None
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_geofence_zones(active_only=True):
+    if not SUPABASE_AVAILABLE:
+        return []
+    try:
+        q = supabase.table("geofence_zones").select("*")
+        if active_only:
+            q = q.eq("is_active", True)
+        res = q.order("name").execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_geofence_zones")
+        return []
+
+
+def check_asset_geofence_violations(assets, zones=None):
+    """Checks each asset's LAST RECORDED position (not live location —
+    see PHASE 71 in schema_additions.sql) against every active zone.
+    Returns a list of {"asset": ..., "zone": ..., "distance_m": ...}
+    for every asset found inside a zone's radius.
+
+    Deliberately checks ALL zone types the same way rather than only
+    "Restricted" — a site may define zones for other reasons (e.g. a
+    zone that specific equipment SHOULD stay within), and this
+    function's job is to report matches; deciding what a match means
+    for a given zone type is the caller's job, same separation as
+    compute_asset_health reporting signals without deciding what to
+    do about them.
+    """
+    zones = zones if zones is not None else fetch_geofence_zones()
+    if not zones:
+        return []
+    violations = []
+    for a in assets:
+        lat, lng = a.get("latitude"), a.get("longitude")
+        if lat is None or lng is None:
+            continue
+        for z in zones:
+            dist = haversine_meters(lat, lng, z["center_lat"], z["center_lng"])
+            if dist <= z["radius_meters"]:
+                violations.append({"asset": a, "zone": z, "distance_m": dist})
+    return violations
+
+
+def create_logbook_entry(entry_text, location, category, created_by, photo_url=None):
+    if not SUPABASE_AVAILABLE:
+        return None
+    try:
+        res = supabase.table("logbook_entries").insert({
+            "entry_text": entry_text, "location": location, "category": category,
+            "created_by": created_by, "photo_url": photo_url,
+        }).execute()
+        if res.data:
+            log_audit(created_by, "logbook_entry", {"category": category, "location": location})
+            fetch_logbook_entries.clear()
+            return res.data[0]
+    except Exception as e:
+        log_error(str(e), details={"category": category}, endpoint="create_logbook_entry")
+    return None
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_logbook_entries(location=None, category=None, limit=100):
+    """30s TTL — a logbook is meant to feel close to real-time (that's
+    the whole point versus waiting for end-of-shift handover), but
+    doesn't need to be uncached-on-every-rerun the way chat does."""
+    if not SUPABASE_AVAILABLE:
+        return []
+    try:
+        q = supabase.table("logbook_entries").select("*")
+        if location:
+            q = q.eq("location", location)
+        if category:
+            q = q.eq("category", category)
+        res = q.order("created_at", desc=True).limit(limit).execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_logbook_entries")
+        return []
 
 
 def send_grouped_notification(user_name, event_title, items, item_label_fn, category=None, max_listed=5):
@@ -8558,6 +8700,97 @@ def _notify_auto_assigned(task_row, assignee_name):
         log_error(str(e), details={"assignee": assignee_name}, endpoint="_notify_auto_assigned")
 
 
+def rank_assignment_candidates(task_like, exclude_names=None):
+    """Ranks eligible workers for a task by fitness, not just picking
+    whoever has the fewest open tasks (which is all
+    suggest_rostered_assignee does). Combines three signals that
+    already exist separately in this app but have never been
+    combined for a human making an assignment decision:
+
+      - On shift right now (from the roster)
+      - Certification match, if task_like carries a
+        required_certification (from a task_template — see PHASE 70)
+      - Current open-task workload (fewer is better, same
+        load-balancing reasoning as suggest_rostered_assignee)
+
+    A MISSING or EXPIRED required certification EXCLUDES a candidate
+    entirely — it is not a scoring penalty, for the same reason the
+    LOTO-permit gate on moving a task to In Progress is a hard block,
+    not a warning: assigning someone to a job they are not actually
+    certified for is a genuine safety question, not a preference to
+    be outweighed by them otherwise being convenient to assign.
+
+    Not currently being on shift is a heavy penalty but NOT an
+    exclusion — rosters can be stale or unset at a site still
+    building the habit of keeping them current, and refusing to
+    suggest anyone at all in that case would make this feature
+    actively unhelpful exactly when the data is imperfect, which is
+    worse than ranking imperfectly.
+
+    Returns a list of (full_name, score, reasons) sorted best-first.
+    Purely a RECOMMENDATION — nothing here assigns anything on its
+    own; a person still makes the actual call, same principle as
+    pre-start checklist failures not auto-changing asset status.
+    """
+    exclude_names = exclude_names or set()
+    users = fetch_all_users_from_db()
+    workers = [u for u in users if u.get("role", "").strip().lower() == "worker"
+              and u.get("is_approved") and not u.get("is_suspended")
+              and u.get("full_name") not in exclude_names]
+    if not workers:
+        return []
+
+    try:
+        on_shift_names = {row.get("username") for row in get_workers_on_shift()}
+        on_shift_names = {u.get("full_name") for u in users if u.get("username") in on_shift_names}
+    except Exception as e:
+        log_error(str(e), endpoint="rank_assignment_candidates:roster")
+        on_shift_names = set()
+
+    open_counts = {}
+    for t2 in st.session_state.get("tasks", []):
+        a = t2.get("assigned_to")
+        if a and t2.get("status") not in ("Complete", "Closed", "Cancelled"):
+            open_counts[a] = open_counts.get(a, 0) + 1
+
+    required_cert = (task_like or {}).get("required_certification")
+    all_certs = fetch_technician_certifications() if required_cert else []
+
+    ranked = []
+    for u in workers:
+        name = u.get("full_name")
+        if not name:
+            continue
+        score = 0
+        reasons = []
+
+        if required_cert:
+            has_valid = any(
+                c.get("technician_name") == name and c.get("certification_type") == required_cert
+                and technician_certification_status(c)[1] != "overdue"
+                for c in all_certs)
+            if not has_valid:
+                continue  # hard exclusion — see docstring
+            reasons.append(f"Certified: {required_cert}")
+            score += 30
+
+        if name in on_shift_names:
+            score += 50
+            reasons.append("On shift")
+        else:
+            score -= 40
+            reasons.append("Not currently rostered on")
+
+        open_n = open_counts.get(name, 0)
+        score -= open_n * 5
+        reasons.append(f"{open_n} open task(s)")
+
+        ranked.append((name, score, reasons))
+
+    ranked.sort(key=lambda x: -x[1])
+    return ranked
+
+
 def handle_recurring_tasks():
     """Roll forward due preventive-maintenance tasks.
 
@@ -8747,7 +8980,7 @@ def fetch_all_assets():
 
 def create_asset(name, asset_tag, category, location, manufacturer, model_number, serial_number,
                   install_date, status, criticality, current_meter, meter_unit, created_by,
-                  latitude=None, longitude=None, downtime_cost_per_hour=None):
+                  latitude=None, longitude=None, downtime_cost_per_hour=None, elevation_m=None):
     fetch_all_assets.clear()
     payload = {
         "name": name,
@@ -8770,6 +9003,8 @@ def create_asset(name, asset_tag, category, location, manufacturer, model_number
         payload["longitude"] = longitude
     if downtime_cost_per_hour is not None:
         payload["downtime_cost_per_hour"] = downtime_cost_per_hour
+    if elevation_m is not None:
+        payload["elevation_m"] = elevation_m
     if not SUPABASE_AVAILABLE:
         assets = st.session_state.get("assets_memory", [])
         new_id = max([a["id"] for a in assets], default=0) + 1
@@ -8785,13 +9020,13 @@ def create_asset(name, asset_tag, category, location, manufacturer, model_number
             log_audit(created_by, "asset_create", {"asset_id": asset["id"], "name": name})
             return asset
     except Exception as e:
-        # latitude/longitude/downtime_cost_per_hour are newer, optional
-        # migrations — a deployment that hasn't run those ALTER TABLEs
-        # yet would otherwise fail EVERY asset creation with PGRST204,
-        # not just lose those individual features. Retry once without
-        # them rather than let a cosmetic/optional field block core
-        # functionality.
-        _optional_fields = ("latitude", "longitude", "downtime_cost_per_hour")
+        # latitude/longitude/downtime_cost_per_hour/elevation_m are
+        # newer, optional migrations — a deployment that hasn't run
+        # those ALTER TABLEs yet would otherwise fail EVERY asset
+        # creation with PGRST204, not just lose those individual
+        # features. Retry once without them rather than let a
+        # cosmetic/optional field block core functionality.
+        _optional_fields = ("latitude", "longitude", "downtime_cost_per_hour", "elevation_m")
         if any(f in payload for f in _optional_fields):
             try:
                 _payload_no_optional = {k: v for k, v in payload.items() if k not in _optional_fields}
@@ -10613,6 +10848,52 @@ def production_totals_by_date(records):
             totals[date_key] = {}
         totals[date_key][mat_key] = totals[date_key].get(mat_key, 0) + (r.get("quantity") or 0)
     return totals
+
+
+def compute_shift_benchmarks(records):
+    """Compares shift TYPES against each other (Day vs Night vs Swing
+    vs Weekend), not individual shift instances against each other —
+    the production summary already shows totals over time, but
+    nothing today answers "does Night shift actually produce less
+    than Day, or does it just feel that way".
+
+    Grouped by (shift, material_type, unit) the same way
+    production_totals_by_date groups by (date, material, unit), for
+    the same reason: tonnes of ore and tonnes of waste rock are not
+    interchangeable, and averaging them together would produce a
+    number that means nothing real.
+
+    Returns {(shift, material, unit): {"avg": float, "best_date": str,
+    "best_qty": float, "worst_date": str, "worst_qty": float,
+    "shift_count": int}} — best/worst are individual LOGGED INSTANCES
+    of that shift, not further averages, so a supervisor can trace a
+    standout number back to an actual date and ask what happened.
+    """
+    grouped = {}
+    for r in records:
+        shift = r.get("shift")
+        if not shift:
+            continue
+        key = (shift, r.get("material_type"), r.get("unit"))
+        grouped.setdefault(key, []).append(r)
+
+    result = {}
+    for key, rows in grouped.items():
+        by_date = {}
+        for r in rows:
+            d = r.get("production_date")
+            by_date[d] = by_date.get(d, 0) + (r.get("quantity") or 0)
+        if not by_date:
+            continue
+        best_date = max(by_date, key=by_date.get)
+        worst_date = min(by_date, key=by_date.get)
+        result[key] = {
+            "avg": sum(by_date.values()) / len(by_date),
+            "best_date": best_date, "best_qty": by_date[best_date],
+            "worst_date": worst_date, "worst_qty": by_date[worst_date],
+            "shift_count": len(by_date),
+        }
+    return result
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -12849,6 +13130,66 @@ def technician_certification_status(cert, warn_days=30):
         status = "ok"
     return days_until, status
 
+
+def worker_has_valid_certification(worker_name, certification_type, all_certs=None):
+    """True if worker_name holds a current (non-expired) certification
+    of certification_type. "no_expiry" counts as valid (a one-time
+    completion record that genuinely doesn't expire, e.g. a First Aid
+    course) — only "overdue" fails, same status values
+    technician_certification_status already returns everywhere else
+    in the app, reused here rather than a second definition of what
+    "valid" means that could quietly drift from the first."""
+    if not certification_type:
+        return True
+    all_certs = all_certs if all_certs is not None else fetch_technician_certifications()
+    return any(c.get("technician_name") == worker_name and c.get("certification_type") == certification_type
+              and technician_certification_status(c)[1] != "overdue"
+              for c in all_certs)
+
+
+def task_status_change_gate(task, new_status, all_certs=None, permits=None):
+    """Single shared check for whether a task can move to a given
+    status right now — used identically by the main Task Dashboard
+    status control AND the Kanban board's "Move to" control, which
+    used to each implement their own copy of the LOTO-permit check.
+    Adding the certification check in only one of the two places
+    would have left the other silently bypassable, exactly the kind
+    of drift centralizing this here is meant to prevent.
+
+    permits, like all_certs, is an optional pre-fetched list — pass
+    it when calling inside a loop over many tasks (the Kanban board
+    does), same reasoning task_has_active_permit's own docstring
+    gives: without it, this issues one query per task rendered.
+
+    Returns (blocked: bool, reason_code: str or None, detail: str or
+    None). reason_code is "loto" or "certification" rather than a
+    fixed message, so a caller can show the LOTO case through the
+    existing translated t("task.err_cannot_move_progress") key (used
+    across all 8 languages already) while the certification case,
+    which necessarily includes a dynamic worker name and
+    certification type, is composed from `detail`.
+
+    Only checks the "In Progress" transition — completing, blocking,
+    or any other status change is unaffected, same scope the original
+    LOTO-only check had.
+    """
+    if new_status != "In Progress":
+        return False, None, None
+
+    if task.get("loto") and not task_has_active_permit(task["id"], permits):
+        return True, "loto", None
+
+    _required_cert = task.get("required_certification")
+    if _required_cert:
+        _assignee = task.get("assigned_to")
+        if not _assignee or _assignee == "Unassigned":
+            return True, "certification", f"Requires a {_required_cert} certification — assign a worker first."
+        if not worker_has_valid_certification(_assignee, _required_cert, all_certs):
+            return True, "certification", (f"{_assignee} does not have a current {_required_cert} "
+                                           f"certification required for this task.")
+
+    return False, None, None
+
 # -------------------------------
 # 20T. DEPARTMENTAL WORKER REPORTS
 # -------------------------------
@@ -12998,6 +13339,95 @@ def generate_handover_draft(shift_hours=12):
         "counts": {"completed": len(_completed), "outstanding": len(_outstanding),
                    "overdue": len(_overdue), "incidents": len(_incidents)},
     }
+
+
+def generate_daily_report(report_date):
+    """Site-wide rollup for ONE calendar date — distinct from
+    generate_handover_draft (one shift, editable free text a
+    supervisor corrects) and generate_worker_report_draft (one
+    person's day). This is read-only: a computed digest of everything
+    that happened site-wide on a given date, for whoever wants the
+    full picture without checking Task Dashboard, Production,
+    Incidents, and Permits separately.
+
+    Deliberately NOT wired into the hourly automated cron — same
+    reasoning as send_predictive_downtime_alerts: computing this
+    needs the app's own data already loaded in Streamlit session
+    state, which the lightweight standalone automation script doesn't
+    carry. Available on demand here, with an "email this report"
+    action, rather than claiming a daily-6pm automatic send this
+    doesn't actually do yet.
+    """
+    day_start = datetime.combine(report_date, datetime.min.time())
+    day_end = day_start + timedelta(days=1)
+
+    tasks = st.session_state.get("tasks", [])
+    _completed = [t2 for t2 in tasks if t2.get("status") == "Complete"
+                  and day_start <= (_parse_dt(t2.get("completed_at")) or datetime.min) < day_end]
+    _created = [t2 for t2 in tasks
+                if day_start <= (_parse_dt(t2.get("created_at")) or datetime.min) < day_end]
+    _still_overdue = [t2 for t2 in tasks
+                      if t2.get("status") not in ("Complete", "Closed", "Cancelled")
+                      and t2.get("due_date") and (_parse_dt(t2["due_date"]) or datetime.max) < datetime.now()]
+
+    _incidents = [i for i in st.session_state.get("incidents", [])
+                  if day_start <= (_parse_dt(i.get("created_at")) or datetime.min) < day_end]
+
+    _prod_records = [r for r in fetch_production_records(limit=500)
+                     if str(r.get("production_date", ""))[:10] == report_date.isoformat()]
+    _prod_totals = production_totals_by_date(_prod_records).get(report_date.isoformat(), {})
+
+    _permits_issued = [p for p in fetch_permits()
+                       if day_start <= (_parse_dt(p.get("created_at")) or datetime.min) < day_end]
+
+    _assets = st.session_state.get("assets", [])
+    _down_assets = [a for a in _assets if (a.get("status") or "").strip() in ("Down", "Maintenance")]
+
+    try:
+        _logbook = fetch_logbook_entries(limit=200)
+        _logbook_today = [e for e in _logbook
+                          if day_start <= (_parse_dt(e.get("created_at")) or datetime.min) < day_end]
+    except Exception:
+        _logbook_today = []
+
+    return {
+        "date": report_date,
+        "tasks_completed": _completed, "tasks_created": _created, "tasks_overdue": _still_overdue,
+        "incidents": _incidents,
+        "production_totals": _prod_totals,
+        "permits_issued": _permits_issued,
+        "down_assets": _down_assets,
+        "logbook_entries": _logbook_today,
+    }
+
+
+def daily_report_html(report):
+    """Shared HTML builder for the daily report — used identically by
+    the on-screen view and the emailed version, so the two can never
+    disagree about what a given day's summary actually says."""
+    r = report
+    _prod_rows = "".join(f"<li>{mat}: {qty:,.1f} {unit}</li>" for (mat, unit), qty in r["production_totals"].items())
+    _task_rows = "".join(f"<li>#{t2['id']} {esc(t2.get('title', ''))}</li>" for t2 in r["tasks_completed"][:20])
+    _overdue_rows = "".join(f"<li>#{t2['id']} {esc(t2.get('title', ''))} — "
+                            f"{esc(t2.get('assigned_to') or 'unassigned')}</li>" for t2 in r["tasks_overdue"][:20])
+    _incident_rows = "".join(f"<li>#{i['id']} {esc(i.get('incident_type', ''))} at "
+                             f"{esc(i.get('location') or 'no location')}</li>" for i in r["incidents"])
+    _down_rows = "".join(f"<li>{esc(a.get('name'))} ({esc(a.get('status'))})</li>" for a in r["down_assets"])
+    _logbook_rows = "".join(f"<li>{esc(e.get('created_by'))}: {esc(e.get('entry_text'))}</li>"
+                            for e in r["logbook_entries"][:10])
+    return (
+        f"<h2>Daily Report — {r['date'].strftime('%B %d, %Y')}</h2>"
+        f"<h3>Production</h3><ul>{_prod_rows or '<li>No production logged.</li>'}</ul>"
+        f"<h3>Tasks</h3>"
+        f"<p>{len(r['tasks_completed'])} completed, {len(r['tasks_created'])} created, "
+        f"{len(r['tasks_overdue'])} currently overdue (site-wide, not just today's).</p>"
+        f"<p><strong>Completed today:</strong></p><ul>{_task_rows or '<li>None.</li>'}</ul>"
+        f"<p><strong>Currently overdue:</strong></p><ul>{_overdue_rows or '<li>None.</li>'}</ul>"
+        f"<h3>Incidents ({len(r['incidents'])})</h3><ul>{_incident_rows or '<li>None reported.</li>'}</ul>"
+        f"<h3>Equipment Down ({len(r['down_assets'])})</h3><ul>{_down_rows or '<li>Everything in service.</li>'}</ul>"
+        f"<h3>Permits Issued ({len(r['permits_issued'])})</h3>"
+        f"<h3>Logbook Highlights</h3><ul>{_logbook_rows or '<li>No entries.</li>'}</ul>"
+    )
 
 
 def create_worker_report(worker_name, username, department, report_date, draft, shift=None, notes=None):
@@ -13528,6 +13958,9 @@ TOGGLEABLE_MODULES = {
     "Kanban Board": "Column-based view of open tasks by status, for a real-time shift picture.",
     "Task Templates": "Reusable TCard-style job templates with embedded step-by-step procedures.",
     "Pre-Start Checklists": "Digital pre-start safety checks, with immediate alerts on any critical failure.",
+    "Logbook": "Quick shift observations, visible immediately — not tied to a task or incident.",
+    "Scan Hub": "One scanner for any MWDTS QR label — asset, task, or permit — routes to the right record.",
+    "Daily Report": "Site-wide rollup for one date — production, tasks, incidents, equipment, logbook.",
     "Equipment Health": "Traffic-light health dashboard combining existing signals (status, "
                         "overdue tasks, meter anomalies, ML predictions) into one view.",
     "Permits": "Permit to Work / LOTO isolation records.",
@@ -13766,7 +14199,7 @@ HOW_IT_WORKS_GUIDE = {
 # filtered nav_options, so a category with nothing visible for this
 # user simply doesn't show, rather than displaying an empty dropdown.
 NAV_CATEGORIES = {
-    "Core Maintenance": ["Task Dashboard", "Kanban Board", "Task Templates", "Pre-Start Checklists", "Offline Mode", "Sync Review", "Assets", "Equipment Health",
+    "Core Maintenance": ["Task Dashboard", "Kanban Board", "Task Templates", "Pre-Start Checklists", "Logbook", "Scan Hub", "Offline Mode", "Sync Review", "Assets", "Equipment Health",
                          "Permits", "Inventory", "Job Plans",
                          "Production", "Haulage", "Crew Clock", "Locations"],
     "Safety & Compliance": ["Incidents", "JSA Library", "Contractors", "Technician Certifications"],
@@ -13774,7 +14207,7 @@ NAV_CATEGORIES = {
     "Electrical Department": ["Electrical Overview", "Motor Rewinds", "Instrument Calibration",
                               "Outage Commander", "Transformer Health", "Fault Recorder",
                               "HV Switching Schedule", "Relay Settings", "Arc Flash Studies"],
-    "Communication & Admin": ["Handover", "Worker Reports", "Chat", "Feedback", "Profile", "Admin",
+    "Communication & Admin": ["Handover", "Daily Report", "Worker Reports", "Chat", "Feedback", "Profile", "Admin",
                               "Owner Console", "About", "Help"],
 }
 # A quick-lookup the other direction — which category a given section
@@ -13811,6 +14244,9 @@ SUPPORTED_LANGUAGES = {
 
 TRANSLATIONS = {
     "en": {
+        "nav.Scan Hub": "Scan Hub",
+        "nav.Daily Report": "Daily Report",
+        "nav.Logbook": "Logbook",
         "nav.Task Dashboard": "Task Dashboard", "nav.Kanban Board": "Kanban Board",
         "nav.Task Templates": "Task Templates", "nav.Pre-Start Checklists": "Pre-Start Checklists",
         "nav.Help": "Help", "nav.Assets": "Assets",
@@ -14024,6 +14460,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly or pandas not installed. Please run: pip install plotly pandas",
     },
     "fr": {
+        "nav.Scan Hub": "Centre de scan",
+        "nav.Daily Report": "Rapport quotidien",
+        "nav.Logbook": "Journal de bord",
         "nav.Task Dashboard": "Tableau des tâches", "nav.Kanban Board": "Tableau Kanban",
         "nav.Task Templates": "Modèles de tâches", "nav.Pre-Start Checklists": "Listes de contrôle avant démarrage",
         "nav.Help": "Aide", "nav.Assets": "Actifs",
@@ -14237,6 +14676,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly ou pandas non installés. Veuillez exécuter : pip install plotly pandas",
     },
     "es": {
+        "nav.Scan Hub": "Centro de escaneo",
+        "nav.Daily Report": "Informe diario",
+        "nav.Logbook": "Bitácora",
         "nav.Task Dashboard": "Panel de tareas", "nav.Kanban Board": "Tablero Kanban",
         "nav.Task Templates": "Plantillas de tareas", "nav.Pre-Start Checklists": "Listas de verificación previas",
         "nav.Help": "Ayuda", "nav.Assets": "Activos",
@@ -14450,6 +14892,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly o pandas no están instalados. Ejecute: pip install plotly pandas",
     },
     "pt": {
+        "nav.Scan Hub": "Central de leitura",
+        "nav.Daily Report": "Relatório diário",
+        "nav.Logbook": "Diário de bordo",
         "nav.Task Dashboard": "Painel de tarefas", "nav.Kanban Board": "Quadro Kanban",
         "nav.Task Templates": "Modelos de tarefas", "nav.Pre-Start Checklists": "Listas de verificação pré-início",
         "nav.Help": "Ajuda", "nav.Assets": "Ativos",
@@ -14663,6 +15108,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly ou pandas não instalados. Execute: pip install plotly pandas",
     },
     "zh": {
+        "nav.Scan Hub": "扫描中心",
+        "nav.Daily Report": "每日报告",
+        "nav.Logbook": "日志",
         "nav.Task Dashboard": "任务看板", "nav.Kanban Board": "看板视图",
         "nav.Task Templates": "任务模板", "nav.Pre-Start Checklists": "启动前检查表",
         "nav.Help": "帮助", "nav.Assets": "资产",
@@ -14876,6 +15324,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "未安装 Plotly 或 pandas。请运行：pip install plotly pandas",
     },
     "hi": {
+        "nav.Scan Hub": "स्कैन हब",
+        "nav.Daily Report": "दैनिक रिपोर्ट",
+        "nav.Logbook": "लॉगबुक",
         "nav.Task Dashboard": "कार्य डैशबोर्ड", "nav.Kanban Board": "कानबन बोर्ड",
         "nav.Task Templates": "कार्य टेम्पलेट", "nav.Pre-Start Checklists": "प्री-स्टार्ट चेकलिस्ट",
         "nav.Help": "सहायता", "nav.Assets": "संपत्ति",
@@ -15089,6 +15540,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly या pandas इंस्टॉल नहीं है। कृपया चलाएँ: pip install plotly pandas",
     },
     "tw": {
+        "nav.Scan Hub": "QR Nhwɛso (Scan Hub)",
+        "nav.Daily Report": "Da Biara Amanneɛbɔ (Daily Report)",
+        "nav.Logbook": "Adwuma Krataa (Logbook)",
         "nav.Task Dashboard": "Adwuma Bɔɔd",
         "nav.Kanban Board": "Adwuma Kwan (Kanban Board)",
         "nav.Task Templates": "Adwuma Nhwɛso (Task Templates)",
@@ -15334,6 +15788,9 @@ TRANSLATIONS = {
         "task.warn_plotly": "Plotly anaa pandas nni hɔ. Yɛsrɛ wo yɛ: pip install plotly pandas",
     },
     "fat": {
+        "nav.Scan Hub": "QR Nhwɛso (Scan Hub)",
+        "nav.Daily Report": "Da Biara Amanneɛbɔ (Daily Report)",
+        "nav.Logbook": "Adwuma Krataa (Logbook)",
         "nav.Task Dashboard": "Edwuma Bɔɔd",
         "nav.Kanban Board": "Edwuma Kwan (Kanban Board)",
         "nav.Task Templates": "Edwuma Nhwɛso (Task Templates)",
@@ -16696,6 +17153,87 @@ def get_predictive_failure_alerts(tasks, assets, threshold_pct=0.8):
 
     alerts.sort(key=lambda a: a["pct_of_window"], reverse=True)
     return alerts
+
+
+def send_predictive_downtime_alerts(tasks, assets, triggered_by):
+    """Notifies leadership about assets approaching their predicted
+    failure window — the predictions themselves (get_predictive_
+    failure_alerts, MTBF-based) already existed and are reused
+    unchanged here; this only adds the notification layer that was
+    missing. Both mechanisms were previously shown only passively, on
+    a page someone had to visit.
+
+    Per-asset cooldown (24h — predictions don't shift meaningfully
+    hour to hour, unlike an overdue task or expiring permit), not a
+    single global one, so a newly-at-risk asset isn't silenced just
+    because a different asset alerted recently.
+
+    Ranked by downtime cost where an asset has one set
+    (compute_asset_downtime_cost, already built), so the most
+    expensive risk leads — a $10,000/hr crusher approaching failure
+    matters more than a $50/hr hand tool doing the same, and without
+    this a recipient would have to work that out themselves from an
+    unordered list.
+    """
+    if not SUPABASE_AVAILABLE:
+        return {"alerted": 0}
+
+    alerts = get_predictive_failure_alerts(tasks, assets)
+    if not alerts:
+        return {"alerted": 0}
+
+    now = datetime.now()
+    due_alerts = []
+    for a in alerts:
+        try:
+            recent = (supabase.table("predictive_alert_log").select("sent_at")
+                     .eq("asset_id", a["asset_id"]).order("sent_at", desc=True).limit(1).execute())
+            last_sent = _parse_dt(recent.data[0]["sent_at"]) if recent.data else None
+        except Exception as e:
+            log_error(str(e), details={"asset_id": a["asset_id"]}, endpoint="send_predictive_downtime_alerts:cooldown")
+            last_sent = None
+        if not last_sent or (now - last_sent) >= timedelta(hours=24):
+            due_alerts.append(a)
+    if not due_alerts:
+        return {"alerted": 0, "reason": "All within 24h cooldown."}
+
+    asset_lookup = {a["id"]: a for a in assets}
+    for a in due_alerts:
+        _asset_row = asset_lookup.get(a["asset_id"], {})
+        _cost = _asset_row.get("downtime_cost_per_hour")
+        a["downtime_cost_per_hour"] = _cost or 0
+    due_alerts.sort(key=lambda a: a["downtime_cost_per_hour"], reverse=True)
+
+    recipients = site_leadership_recipients()
+    for u in recipients:
+        try:
+            send_notification(u["full_name"], "🔧 Predictive Downtime Alert",
+                              f"{len(due_alerts)} asset(s) approaching predicted failure window.",
+                              category="predictive_downtime")
+        except Exception as e:
+            log_error(str(e), details={"recipient": u.get("full_name")}, endpoint="send_predictive_downtime_alerts:notify")
+        if u.get("email") and not str(u["email"]).endswith("@mwdts.internal"):
+            try:
+                _rows = "".join(
+                    f"<li><strong>{esc(a['asset_name'])}</strong> — {a['pct_of_window']*100:.0f}% of its "
+                    f"typical {a['mtbf_hours']:.0f}h failure window elapsed ({a['num_failures']} prior "
+                    f"failures)" + (f", ${a['downtime_cost_per_hour']:,.2f}/hr if down" if a['downtime_cost_per_hour'] else "")
+                    + "</li>" for a in due_alerts)
+                send_email_notification(u["email"], f"🔧 {len(due_alerts)} Asset(s) Approaching Predicted Failure",
+                    f"<p>Based on historical failure patterns (MTBF):</p><ul>{_rows}</ul>"
+                    f"<p>Open MWDTS → Equipment Health for full detail. This does not automatically "
+                    f"schedule anything — review and act as appropriate.</p>")
+            except Exception as e:
+                log_error(str(e), details={"recipient": u.get("full_name")}, endpoint="send_predictive_downtime_alerts:email")
+
+    for a in due_alerts:
+        try:
+            supabase.table("predictive_alert_log").insert({"asset_id": a["asset_id"]}).execute()
+        except Exception as e:
+            log_error(str(e), details={"asset_id": a["asset_id"]}, endpoint="send_predictive_downtime_alerts:log")
+
+    log_audit(triggered_by, "predictive_downtime_alert", {"assets": [a["asset_id"] for a in due_alerts]})
+    return {"alerted": len(due_alerts), "assets": [a["asset_name"] for a in due_alerts]}
 
 
 # -------------------------------
@@ -18540,14 +19078,14 @@ except ImportError:
     st.error("streamlit-option-menu not installed. Please run: pip install streamlit-option-menu")
     st.stop()
 
-nav_options = ["Task Dashboard", "Kanban Board", "Task Templates", "Pre-Start Checklists", "Offline Mode", "Sync Review", "Help", "Production", "Haulage", "Assets", "Equipment Health", "Permits", "Inventory", "Incidents",
-               "Handover", "Worker Reports", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile",
+nav_options = ["Task Dashboard", "Kanban Board", "Task Templates", "Pre-Start Checklists", "Logbook", "Scan Hub", "Offline Mode", "Sync Review", "Help", "Production", "Haulage", "Assets", "Equipment Health", "Permits", "Inventory", "Incidents",
+               "Handover", "Daily Report", "Worker Reports", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile",
                "Timeline", "About", "Wallboard", "Crew Clock", "JSA Library", "Job Plans", "Locations",
                "Electrical Overview", "Motor Rewinds", "Instrument Calibration", "Outage Commander",
                "Transformer Health", "Fault Recorder", "HV Switching Schedule", "Relay Settings",
                "Arc Flash Studies", "Technician Certifications"]
-nav_icons = ["list-task", "columns-gap", "card-checklist", "check2-square", "wifi-off", "arrow-repeat", "question-circle-fill", "bar-chart-fill", "truck", "hdd-stack-fill", "heart-pulse-fill", "shield-lock-fill", "box-seam-fill",
-             "exclamation-triangle-fill", "arrow-left-right", "journal-text", "people-fill",
+nav_icons = ["list-task", "columns-gap", "card-checklist", "check2-square", "book-fill", "qr-code-scan", "wifi-off", "arrow-repeat", "question-circle-fill", "bar-chart-fill", "truck", "hdd-stack-fill", "heart-pulse-fill", "shield-lock-fill", "box-seam-fill",
+             "exclamation-triangle-fill", "newspaper", "arrow-left-right", "journal-text", "people-fill",
              "graph-up-arrow", "chat-dots-fill", "lightbulb-fill", "gear-fill", "person-circle",
              "clock-history", "info-circle-fill", "tv-fill", "clock-fill", "file-earmark-text-fill",
              "diagram-3-fill", "geo-alt-fill", "bolt-fill", "kanban-fill", "speedometer2", "cone-striped", "lightning-charge-fill",
@@ -20136,12 +20674,12 @@ def page_production():
     st.caption("Shift-by-shift output — logged by supervisors, visible to everyone.")
     can_log_production = can(role, "handover.create")
 
-    _prod_tabs = ["Recent Shifts", "Summary"]
+    _prod_tabs = ["Recent Shifts", "Summary", "Shift Benchmarking"]
     if can_log_production:
         _prod_tabs.append("Log Production")
     prod_sub = option_menu(
         menu_title=None, options=_prod_tabs,
-        icons=["clock-history", "bar-chart-fill", "plus-circle"][:len(_prod_tabs)],
+        icons=["clock-history", "bar-chart-fill", "trophy-fill", "plus-circle"][:len(_prod_tabs)],
         orientation="horizontal", default_index=0, styles=menu_styles(),
     )
 
@@ -20199,6 +20737,42 @@ def page_production():
                                           title="Daily production by material",
                                           color_discrete_sequence=GMC_CHART_COLORS),
                                     use_container_width=True)
+
+    elif prod_sub == "Shift Benchmarking":
+        _bench_records = fetch_production_records(limit=500)
+        if not _bench_records:
+            st.info("No production data yet to benchmark.")
+        else:
+            _benchmarks = compute_shift_benchmarks(_bench_records)
+            if not _benchmarks:
+                st.info("No shift data recorded yet.")
+            else:
+                # Grouped by material so tonnes of ore and tonnes of
+                # waste rock never get compared against each other —
+                # same non-interchangeable-units reasoning as the
+                # Summary tab above.
+                _by_material = {}
+                for (shift, mat, unit), stats in _benchmarks.items():
+                    _by_material.setdefault((mat, unit), {})[shift] = stats
+                for (mat, unit), shifts in _by_material.items():
+                    render_subheading(f"{mat} ({unit})", level=4)
+                    _scols = st.columns(min(len(shifts), 4) or 1)
+                    _best_shift = max(shifts, key=lambda s: shifts[s]["avg"])
+                    for _i, (shift, stats) in enumerate(sorted(shifts.items(),
+                                                                key=lambda x: -x[1]["avg"])):
+                        with _scols[_i % len(_scols)]:
+                            _label = f"🏆 {shift}" if shift == _best_shift else shift
+                            st.metric(_label, f"{stats['avg']:,.1f} avg",
+                                     help=f"Best: {stats['best_qty']:,.1f} on {stats['best_date']} · "
+                                          f"Worst: {stats['worst_qty']:,.1f} on {stats['worst_date']} · "
+                                          f"{stats['shift_count']} shift(s) logged")
+                    if PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
+                        _bdf = pd.DataFrame([{"Shift": s, "Average": v["avg"]} for s, v in shifts.items()])
+                        st.plotly_chart(px.bar(_bdf, x="Shift", y="Average",
+                                              title=f"Average {mat} per shift type",
+                                              color_discrete_sequence=GMC_CHART_COLORS),
+                                        use_container_width=True)
+                    st.markdown("---")
 
     elif prod_sub == "Log Production":
         st.markdown("### Log Shift Production")
@@ -22412,18 +22986,32 @@ def page_owner_console():
         st.caption(
             "Checks for overdue tasks and permits expiring within the hour, and notifies "
             "every Superintendent (for overdue tasks) or the issuing supervisor (for expiring "
-            "permits). **This is not a scheduled background job** — Streamlit has no true "
-            "scheduler, so this only runs when triggered here, or automatically once per "
-            "session when a Superintendent or Owner opens Task Dashboard. Something expiring "
-            "at 3am with nobody using the app won't be caught until someone next opens it. "
-            "Genuine round-the-clock automation would need something outside this app "
-            "entirely — a scheduled GitHub Action or Supabase Edge Function hitting a "
-            "dedicated trigger, not something a Streamlit page can promise on its own."
+            "permits). Runs automatically once per session when a Superintendent or Owner "
+            "opens Task Dashboard, AND on an hourly schedule via GitHub Actions "
+            "(automation/mwdts_automation.py in the repo) — the button below is for an "
+            "on-demand check between those, not the only way this runs."
         )
         if st.button("▶️ Run escalation check now"):
             _esc_result = run_escalations(st.session_state.tasks, fetch_permits(), full_name)
             st.success(f"Checked. {_esc_result['overdue_notified']} overdue task(s) and "
                       f"{_esc_result['permits_notified']} soon-expiring permit(s) triggered a notification.")
+        st.caption(
+            "Checks assets approaching their predicted failure window (MTBF-based — Equipment "
+            "Health has the full detail) and notifies site leadership, with a 24h cooldown per "
+            "asset. Unlike the escalation check above, this does **not** yet run on the hourly "
+            "GitHub Actions schedule — the prediction itself needs the app's own Python "
+            "environment (pandas/scikit-learn), which the lightweight standalone automation "
+            "script deliberately doesn't carry. For now this runs once per session (same as "
+            "escalations used to, before that got automated) or on demand here."
+        )
+        if st.button("🔧 Run predictive downtime check now"):
+            _pred_result = send_predictive_downtime_alerts(st.session_state.tasks, st.session_state.assets, full_name)
+            if _pred_result.get("alerted"):
+                st.success(f"Checked. {_pred_result['alerted']} asset(s) alerted: "
+                          f"{', '.join(_pred_result['assets'])}.")
+            else:
+                st.info("Checked. Nothing due — either no assets crossing their failure "
+                       "threshold, or all within the 24h per-asset cooldown.")
 
         st.markdown("---")
         st.markdown("### ⚡ Electrical Department Digest")
@@ -23823,6 +24411,16 @@ def page_permits():
                         else:
                             st.error("Couldn't send the request.")
 
+            if status in ("Issued", "Active") and QR_GENERATION_AVAILABLE:
+                with st.expander("📱 QR Code"):
+                    st.caption("Print this on the permit-to-work slip — scanning it at the "
+                              "isolation point via Scan Hub pulls up this exact record instantly, "
+                              "including whether it's still active, without anyone needing to "
+                              "search for it by number.")
+                    _permit_qr_img = generate_entity_qr("PERMIT", p["id"])
+                    if _permit_qr_img:
+                        st.image(_permit_qr_img, width=180)
+
     if permit_sub == "Active Permits":
         live = [p for p in all_permits if p.get('status') in ("Issued", "Active")]
         if not live:
@@ -24730,21 +25328,102 @@ def page_kanban_board():
                 _other_cols = [c for c in columns if c != status]
                 _move_to = st.selectbox("Move to", ["—"] + _other_cols, key=f"kanban_move_{tk['id']}", label_visibility="collapsed")
                 if _move_to != "—":
-                    # Same permit-isolation safety gate the Manage
-                    # Tasks screen enforces — a task requiring a LOTO
-                    # permit can't move to In Progress without one
-                    # active. This board reuses the exact same check
-                    # rather than skipping it, since a quicker way to
-                    # move a task must never also mean a quieter way
-                    # around this specific safety requirement.
-                    _requires_permit = tk.get('loto', False)
-                    _has_permit = task_has_active_permit(tk['id'], _kanban_all_permits) if _requires_permit else True
-                    if _requires_permit and not _has_permit and _move_to == "In Progress":
-                        st.error("Needs an active LOTO permit before moving to In Progress.")
+                    # Shared with the main Task Dashboard status
+                    # control (task_status_change_gate) rather than
+                    # each screen keeping its own copy of the LOTO
+                    # check — this board used to have its own inline
+                    # version, which meant the certification gate
+                    # added alongside it would have needed a SECOND,
+                    # separately-maintained copy here too, exactly
+                    # the kind of drift risk centralizing this avoids.
+                    _gate_blocked, _gate_code, _gate_detail = task_status_change_gate(
+                        tk, _move_to, permits=_kanban_all_permits)
+                    if _gate_blocked and _gate_code == "loto":
+                        st.error(t("task.err_cannot_move_progress"))
+                    elif _gate_blocked and _gate_code == "certification":
+                        st.error(_gate_detail)
                     else:
                         update_task(tk["id"], {"status": _move_to}, full_name)
                         log_audit(full_name, "kanban_move", {"task_id": tk["id"], "from": status, "to": _move_to})
                         st.rerun()
+
+
+def page_scan_hub():
+    render_section_header("📷 Scan Hub")
+    st.caption("Scan any MWDTS QR label — asset, task work order, or permit-to-work slip — and "
+              "jump straight to that record. One scanner instead of hunting down which page has "
+              "a scan tab for the specific thing you're holding.")
+
+    if not QR_SCANNING_AVAILABLE:
+        st.warning("QR scanning isn't available in this deployment — the optional opencv/numpy "
+                  "dependencies aren't installed.")
+        return
+
+    _scan_photo = st.camera_input("Scan a QR label", label_visibility="collapsed")
+    if _scan_photo is None:
+        return
+
+    _entity_type, _entity_id = decode_entity_qr(_scan_photo.getvalue())
+    if _entity_type is None:
+        st.error("No MWDTS QR label found in that photo — try holding the camera steadier "
+                "and closer to the label, with good lighting.")
+        return
+
+    if _entity_type == "ASSET":
+        _matched = next((a for a in st.session_state.assets if a.get("id") == _entity_id), None)
+        if _matched is None:
+            st.error(f"Scanned a valid asset label (#{_entity_id}), but no asset with that ID "
+                    "exists anymore — it may have been deleted.")
+        else:
+            st.success(f"📦 Asset: {_matched.get('name')}")
+            st.markdown(render_meta_chips([
+                ("fa-tag", f"Tag: {_matched['asset_tag']}" if _matched.get('asset_tag') else None, "neutral"),
+                ("fa-map-marker-alt", _matched.get('location'), "neutral"),
+                ("fa-flag", f"Status: {_matched.get('status', 'Operational')}", "info"),
+            ]), unsafe_allow_html=True)
+            if st.button("→ Go to Asset Register"):
+                navigate_to("Assets")
+                st.rerun()
+
+    elif _entity_type == "TASK":
+        _matched = next((t2 for t2 in st.session_state.tasks if t2.get("id") == _entity_id), None)
+        if _matched is None:
+            st.error(f"Scanned a valid task label (#{_entity_id}), but no task with that ID "
+                    "exists anymore.")
+        else:
+            st.success(f"📋 Task #{_matched['id']}: {_matched.get('title')}")
+            st.markdown(render_meta_chips([
+                ("fa-map-marker-alt", _matched.get('location'), "neutral"),
+                ("fa-user", _matched.get('assigned_to') or "Unassigned", "neutral"),
+                ("fa-flag", f"Status: {_matched.get('status')}", "info"),
+            ]), unsafe_allow_html=True)
+            if st.button("→ Go to Task Dashboard"):
+                navigate_to("Task Dashboard")
+                st.rerun()
+
+    elif _entity_type == "PERMIT":
+        _matched = next((p for p in fetch_permits() if p.get("id") == _entity_id), None)
+        if _matched is None:
+            st.error(f"Scanned a valid permit label (#{_entity_id}), but no permit with that ID "
+                    "exists anymore.")
+        else:
+            _status = _matched.get("status", "Issued")
+            _expired = False
+            if _matched.get("valid_until"):
+                _vu = _parse_dt(_matched["valid_until"])
+                _expired = bool(_vu and _vu < datetime.now() and _status in ("Issued", "Active"))
+            if _expired:
+                st.error(f"🔒 Permit #{_matched['id']} — {_matched.get('permit_type')} — **EXPIRED**")
+            else:
+                st.success(f"🔒 Permit #{_matched['id']}: {_matched.get('permit_type')}")
+            st.markdown(render_meta_chips([
+                ("fa-flag", f"Status: {_status}", "danger" if _expired else "info"),
+                ("fa-hourglass-end", f"Valid until: {_fmt_log_time(_matched['valid_until'])}"
+                 if _matched.get('valid_until') else None, "danger" if _expired else "neutral"),
+            ]), unsafe_allow_html=True)
+            if st.button("→ Go to Permits"):
+                navigate_to("Permits")
+                st.rerun()
 
 
 def page_task_templates():
@@ -24778,6 +25457,47 @@ def page_task_templates():
                     st.write(f"{i}. {step}")
             if _sel.get("requires_loto"):
                 st.warning("⚠️ This template requires LOTO isolation.")
+            if _sel.get("required_certification"):
+                st.info(f"🎓 Requires certification: **{_sel['required_certification']}** — "
+                       "only currently-certified workers will be suggested below.")
+
+            # Outside the form deliberately — a button inside st.form
+            # can't trigger a rerun until the whole form submits, so
+            # the ranked suggestion has to be computed and stored
+            # before the form renders, same pattern as the handover
+            # auto-draft button.
+            #
+            # Keyed by template ID, not stored as a bare value —
+            # switching to a different template (with a different or
+            # no required_certification) must not keep showing a
+            # suggestion computed against the PREVIOUS template's
+            # requirements. This is a genuine safety-relevant
+            # correctness issue, not cosmetic staleness: a stale
+            # suggestion here could point at someone certified for a
+            # different job than the one actually being assigned.
+            if st.button("🤖 Suggest best assignee"):
+                st.session_state["_tpl_assign_suggestions"] = {
+                    "template_id": _sel["id"],
+                    "ranked": rank_assignment_candidates(_sel),
+                }
+                st.rerun()
+            _suggestion_state = st.session_state.get("_tpl_assign_suggestions")
+            _suggestions = (_suggestion_state["ranked"]
+                           if _suggestion_state and _suggestion_state.get("template_id") == _sel["id"]
+                           else None)
+            _suggested_default = None
+            if _suggestions is not None:
+                if not _suggestions:
+                    st.warning("No eligible worker found" +
+                              (f" with a current {_sel['required_certification']} certification."
+                               if _sel.get("required_certification") else "."))
+                else:
+                    _suggested_default = _suggestions[0][0]
+                    st.success(f"Top suggestion: **{_suggested_default}** — {', '.join(_suggestions[0][2])}")
+                    if len(_suggestions) > 1:
+                        with st.expander(f"See all {len(_suggestions)} ranked candidates"):
+                            for name, score, reasons in _suggestions:
+                                st.write(f"**{name}** — {', '.join(reasons)}")
 
             with st.form("create_from_template_form", clear_on_submit=True):
                 _location = st.text_input("Location *")
@@ -24787,7 +25507,9 @@ def page_task_templates():
                 _all_users_tpl = fetch_all_users_from_db()
                 _worker_names_tpl = ["Unassigned"] + [u["full_name"] for u in _all_users_tpl
                                                        if u["role"].strip().lower() == "worker" and u.get("is_approved")]
-                _assign_sel = st.selectbox("Assign to", _worker_names_tpl)
+                _default_idx = (_worker_names_tpl.index(_suggested_default)
+                                if _suggested_default in _worker_names_tpl else 0)
+                _assign_sel = st.selectbox("Assign to", _worker_names_tpl, index=_default_idx)
                 _due = st.date_input("Due date", value=None)
                 _submit_tpl = st.form_submit_button("➕ Create Task")
                 if _submit_tpl:
@@ -24805,6 +25527,7 @@ def page_task_templates():
                         if _new_task:
                             st.success(f"✅ Task #{_new_task['id']} created from template.")
                             fetch_all_tasks.clear()
+                            st.session_state.pop("_tpl_assign_suggestions", None)
                             st.rerun()
                         else:
                             st.error("Couldn't create the task — check the error log in Owner Console.")
@@ -24815,7 +25538,9 @@ def page_task_templates():
             with st.expander(f"{tpl['name']} ({len(tpl.get('procedure_steps', []))} steps)"):
                 st.write(tpl.get("description") or "—")
                 st.write(f"Work type: {tpl.get('work_type')} · Default priority: {tpl.get('default_priority')} "
-                        f"· Requires LOTO: {'Yes' if tpl.get('requires_loto') else 'No'}")
+                        f"· Requires LOTO: {'Yes' if tpl.get('requires_loto') else 'No'}"
+                        + (f" · Requires certification: {tpl['required_certification']}"
+                           if tpl.get('required_certification') else ""))
                 for i, step in enumerate(tpl.get("procedure_steps", []), 1):
                     st.write(f"{i}. {step}")
 
@@ -24826,6 +25551,24 @@ def page_task_templates():
             _wtype = st.selectbox("Work Type", ["Preventive", "Reactive", "Predictive", "Inspection"])
             _prio = st.selectbox("Default Priority", ["Low", "Medium", "High", "Critical"])
             _loto = st.checkbox("Requires LOTO isolation")
+            _existing_cert_types = sorted({c["certification_type"]
+                                           for c in fetch_technician_certifications()
+                                           if c.get("certification_type")})
+            # Deliberately a dropdown of EXISTING certification types,
+            # not free text — a typo'd certification name here would
+            # never match any real technician's record, silently
+            # making rank_assignment_candidates return zero eligible
+            # workers for every task created from this template, with
+            # no obvious reason why. Restricting the choice to types
+            # that already exist in Technician Certifications makes
+            # that failure mode structurally impossible instead of
+            # something to remember to type carefully.
+            if not _existing_cert_types:
+                st.caption("No certification types recorded yet under Technician Certifications — "
+                          "add one there first if this template should require one.")
+            _req_cert = st.selectbox("Requires certification (optional)", ["None"] + _existing_cert_types,
+                                     help="Only workers with a current, non-expired certification of this "
+                                          "type will be suggested when assigning tasks from this template.")
             _steps_raw = st.text_area("Procedure Steps (one per line, in order) *",
                                       placeholder="Isolate and lock out power\nRemove guard panel\n...")
             _submit_new_tpl = st.form_submit_button("💾 Save Template")
@@ -24834,7 +25577,8 @@ def page_task_templates():
                 if not _name or not _steps:
                     st.error("Template name and at least one procedure step are required.")
                 else:
-                    _created = create_task_template(_name, _desc, _wtype, _prio, _loto, _steps, full_name)
+                    _created = create_task_template(_name, _desc, _wtype, _prio, _loto, _steps, full_name,
+                                                    required_certification=None if _req_cert == "None" else _req_cert)
                     if _created:
                         st.success(f"✅ Template \"{_name}\" saved with {len(_steps)} step(s).")
                         st.rerun()
@@ -24964,6 +25708,125 @@ def page_prestart_checklists():
                     st.caption(f"Notes: {c['notes']}")
 
 
+def page_logbook():
+    render_section_header("📔 Digital Logbook")
+    st.caption("Quick observations that don't need a formal task or incident report — the gap "
+              "between task activity (tied to specific work), incidents (something went wrong), "
+              "and shift handover (end-of-shift only). Visible to everyone immediately, not held "
+              "until handover.")
+
+    _lb_locations = sorted({a.get("location") for a in st.session_state.assets if a.get("location")})
+    _categories = ["Observation", "Equipment", "Safety", "General"]
+
+    with st.form("logbook_new_entry", clear_on_submit=True):
+        _lb_text = st.text_area("Entry *", placeholder="e.g. Conveyor #3 running rough, keeping an eye on it",
+                                height=80)
+        _lb_cols = st.columns(2)
+        _lb_location = _lb_cols[0].selectbox("Location (optional)", ["—"] + _lb_locations)
+        _lb_category = _lb_cols[1].selectbox("Category", _categories)
+        _lb_submit = st.form_submit_button("📝 Add Entry")
+        if _lb_submit:
+            if not _lb_text.strip():
+                st.error("Entry text is required.")
+            else:
+                _entry = create_logbook_entry(
+                    _lb_text.strip(), None if _lb_location == "—" else _lb_location,
+                    _lb_category, full_name)
+                if _entry:
+                    st.success("Logged.")
+                    st.rerun()
+                else:
+                    st.error("Couldn't save the entry — check the error log in Owner Console.")
+
+    st.markdown("---")
+    _filter_cols = st.columns(2)
+    _filter_location = _filter_cols[0].selectbox("Filter by location", ["All"] + _lb_locations, key="lb_filter_loc")
+    _filter_category = _filter_cols[1].selectbox("Filter by category", ["All"] + _categories, key="lb_filter_cat")
+    _entries = fetch_logbook_entries(
+        location=None if _filter_location == "All" else _filter_location,
+        category=None if _filter_category == "All" else _filter_category)
+
+    if not _entries:
+        render_empty_state("fa-book", "No entries yet", "Be the first to log an observation above.")
+    _category_icons = {"Observation": "👁️", "Equipment": "🔧", "Safety": "⚠️", "General": "📝"}
+    for e in _entries:
+        _icon = _category_icons.get(e.get("category"), "📝")
+        st.markdown(
+            f"{_icon} **{esc(e.get('created_by'))}** "
+            f"{'· ' + esc(e['location']) + ' ' if e.get('location') else ''}"
+            f"· {_fmt_log_time(e.get('created_at'))}  \n{esc(e.get('entry_text'))}")
+        st.markdown("---")
+
+
+def page_daily_report():
+    render_section_header("🗞️ Daily Report")
+    st.caption("Everything that happened site-wide on a given date — production, tasks, "
+              "incidents, equipment status, logbook — in one place instead of checking each "
+              "page separately. Read-only: this doesn't edit anything, it just summarizes.")
+
+    _dr_date = st.date_input("Date", value=datetime.now().date(), max_value=datetime.now().date())
+    _report = generate_daily_report(_dr_date)
+
+    _dr_cols = st.columns(4)
+    _dr_cols[0].metric("Tasks completed", len(_report["tasks_completed"]))
+    _dr_cols[1].metric("Currently overdue", len(_report["tasks_overdue"]))
+    _dr_cols[2].metric("Incidents", len(_report["incidents"]))
+    _dr_cols[3].metric("Equipment down", len(_report["down_assets"]))
+
+    if _report["production_totals"]:
+        render_subheading("Production", level=4)
+        for (mat, unit), qty in _report["production_totals"].items():
+            st.write(f"- {mat}: {qty:,.1f} {unit}")
+    else:
+        st.caption("No production logged for this date.")
+
+    with st.expander(f"✅ Tasks completed ({len(_report['tasks_completed'])})"):
+        for t2 in _report["tasks_completed"]:
+            st.write(f"#{t2['id']} {t2.get('title', '')} — {t2.get('assigned_to') or 'unassigned'}")
+        if not _report["tasks_completed"]:
+            st.caption("None.")
+
+    with st.expander(f"⚠️ Currently overdue ({len(_report['tasks_overdue'])})"):
+        st.caption("Site-wide overdue tasks as of now — not scoped to this date specifically.")
+        for t2 in _report["tasks_overdue"]:
+            st.write(f"#{t2['id']} {t2.get('title', '')} — {t2.get('assigned_to') or 'unassigned'}")
+        if not _report["tasks_overdue"]:
+            st.caption("None.")
+
+    if _report["incidents"]:
+        with st.expander(f"🚨 Incidents ({len(_report['incidents'])})", expanded=True):
+            for i in _report["incidents"]:
+                st.write(f"#{i['id']} {i.get('incident_type', '')} at {i.get('location') or 'no location'} "
+                        f"— severity: {i.get('severity') or 'n/a'}")
+
+    if _report["down_assets"]:
+        with st.expander(f"🔴 Equipment down ({len(_report['down_assets'])})", expanded=True):
+            for a in _report["down_assets"]:
+                st.write(f"{a.get('name')} — {a.get('status')}")
+
+    if _report["logbook_entries"]:
+        with st.expander(f"📔 Logbook entries ({len(_report['logbook_entries'])})"):
+            for e in _report["logbook_entries"]:
+                st.write(f"{e.get('created_by')}: {e.get('entry_text')}")
+
+    st.markdown("---")
+    if can(role, "handover.create"):
+        _dr_recipient_email = st.text_input("Email this report to",
+                                            placeholder="name@company.com — or leave blank to email yourself")
+        if st.button("📧 Email this report"):
+            _target = _dr_recipient_email.strip() or user_email
+            if not _target:
+                st.error("No email address available — enter one above.")
+            else:
+                _sent, _err = send_email_notification(
+                    _target, f"Daily Report — {_dr_date.strftime('%B %d, %Y')}",
+                    daily_report_html(_report), _return_error=True)
+                if _sent:
+                    st.success(f"Sent to {_target}.")
+                else:
+                    st.error(f"Couldn't send: {_err}")
+
+
 def page_assets():
     render_section_header("🏭 Asset Register")
     can_manage_assets = can(role, "asset.edit")
@@ -24978,6 +25841,8 @@ def page_assets():
     if PLOTLY_AVAILABLE:
         _asset_sub_options.append("🗺️ Map View")
         _asset_sub_icons.append("geo-alt-fill")
+        _asset_sub_options.append("🧊 3D Mine View")
+        _asset_sub_icons.append("box")
     if can_manage_assets:
         _asset_sub_options.append("Add Asset")
         _asset_sub_icons.append("plus-circle")
@@ -25146,8 +26011,31 @@ def page_assets():
                             "Downtime $/hr", min_value=0.0,
                             value=float(a.get('downtime_cost_per_hour') or 0), format="%.2f",
                             key=f"asset_downcost_{a['id']}", help="0 = not set")
+                        # Genuinely missing before this fix — Map View's own
+                        # caption claimed you could "edit an existing asset
+                        # to add coordinates," but this panel never actually
+                        # had latitude/longitude fields at all, only Add
+                        # Asset did. Elevation added alongside for the same
+                        # reason (3D Mine View needs it) rather than as a
+                        # separate later edit.
+                        if PLOTLY_AVAILABLE:
+                            _geo_cols = st.columns(3)
+                            new_lat = _geo_cols[0].number_input(
+                                "Latitude", value=a.get('latitude'), format="%.6f",
+                                key=f"asset_lat_{a['id']}")
+                            new_lng = _geo_cols[1].number_input(
+                                "Longitude", value=a.get('longitude'), format="%.6f",
+                                key=f"asset_lng_{a['id']}")
+                            new_elev = _geo_cols[2].number_input(
+                                "Elevation (m)", value=a.get('elevation_m'), format="%.1f",
+                                key=f"asset_elev_{a['id']}",
+                                help="Bench or level height — what makes 3D Mine View "
+                                     "meaningfully different from the flat Map View.")
+                        else:
+                            new_lat, new_lng, new_elev = a.get('latitude'), a.get('longitude'), a.get('elevation_m')
                         if cols[3].button("💾 Save", key=f"asset_save_{a['id']}"):
-                            _updates = {"status": new_status, "current_meter": new_meter}
+                            _updates = {"status": new_status, "current_meter": new_meter,
+                                       "latitude": new_lat, "longitude": new_lng, "elevation_m": new_elev}
                             # Same "0 means unset, not a real $0 rate" convention
                             # as the Add Asset form — see create_asset for why.
                             _updates["downtime_cost_per_hour"] = new_downtime_cost if new_downtime_cost > 0 else None
@@ -25294,7 +26182,127 @@ def page_assets():
                 zoom=12, height=550,
             )
             _fig.update_layout(mapbox_style="open-street-map", margin=dict(l=0, r=0, t=0, b=0))
+
+            # Geofence zones drawn as circle outlines on the SAME map,
+            # not a separate view — a violation only means something
+            # in context of where the asset actually sits relative to
+            # everything else on site.
+            _zones = fetch_geofence_zones()
+            if _zones:
+                for z in _zones:
+                    _circle_lats, _circle_lngs = [], []
+                    for _deg in range(0, 361, 10):
+                        _rad = math.radians(_deg)
+                        # Rough but adequate at mine-site scale: treats
+                        # the radius as a fixed lat/lng offset rather
+                        # than a true geodesic circle — the same kind
+                        # of approximation haversine itself makes, and
+                        # for a zone outline on a map (not a safety
+                        # calculation) that's a reasonable trade.
+                        _dlat = (z["radius_meters"] / 111320) * math.cos(_rad)
+                        _dlng = (z["radius_meters"] / (111320 * math.cos(math.radians(z["center_lat"])))) * math.sin(_rad)
+                        _circle_lats.append(z["center_lat"] + _dlat)
+                        _circle_lngs.append(z["center_lng"] + _dlng)
+                    _fig.add_trace(go.Scattermapbox(
+                        lat=_circle_lats, lon=_circle_lngs, mode="lines",
+                        line=dict(width=2, color="#dc2626" if z["zone_type"] == "Restricted" else "#f0b429"),
+                        name=z["name"], hoverinfo="name"))
+
             st.plotly_chart(_fig, use_container_width=True)
+
+            if _zones:
+                _violations = check_asset_geofence_violations(_geo_assets, _zones)
+                st.caption("Checks each asset's LAST RECORDED position against defined zones — "
+                          "not live tracking (positions here are set manually, not fed by GPS).")
+                if _violations:
+                    st.error(f"⚠️ {len(_violations)} asset(s) inside a defined zone:")
+                    for v in _violations:
+                        st.write(f"**{esc(v['asset'].get('name'))}** is {v['distance_m']:.0f}m from "
+                                f"the center of **{esc(v['zone']['name'])}** "
+                                f"({v['zone']['zone_type']}, {v['zone']['radius_meters']:.0f}m radius)"
+                                + (f" — {esc(v['zone']['alert_message'])}" if v['zone'].get('alert_message') else ""))
+                else:
+                    st.success("No assets currently inside a defined zone.")
+
+            if can_manage_assets:
+                with st.expander("🚧 Manage Geofence Zones"):
+                    for z in _zones:
+                        st.write(f"**{z['name']}** ({z['zone_type']}) — radius {z['radius_meters']:.0f}m "
+                                f"at ({z['center_lat']:.5f}, {z['center_lng']:.5f})")
+                    st.markdown("##### New Zone")
+                    with st.form("new_geofence_zone_form", clear_on_submit=True):
+                        _gz_name = st.text_input("Zone name *", placeholder="e.g. Active Blast Zone")
+                        _gz_type = st.selectbox("Zone type", ["Restricted", "Hazard", "Authorized-Only"])
+                        _gzc1, _gzc2, _gzc3 = st.columns(3)
+                        _gz_lat = _gzc1.number_input("Center latitude", value=None, format="%.6f")
+                        _gz_lng = _gzc2.number_input("Center longitude", value=None, format="%.6f")
+                        _gz_radius = _gzc3.number_input("Radius (meters)", min_value=1.0, value=100.0)
+                        _gz_msg = st.text_input("Alert message (optional)",
+                                                placeholder="e.g. Active blasting in progress — no entry without authorization")
+                        _gz_submit = st.form_submit_button("💾 Save Zone")
+                        if _gz_submit:
+                            if not _gz_name or _gz_lat is None or _gz_lng is None:
+                                st.error("Zone name, latitude, and longitude are required.")
+                            else:
+                                _new_zone = create_geofence_zone(
+                                    _gz_name, _gz_type, _gz_lat, _gz_lng, _gz_radius, _gz_msg, full_name)
+                                if _new_zone:
+                                    st.success(f"✅ Zone \"{_gz_name}\" saved.")
+                                    st.rerun()
+                                else:
+                                    st.error("Couldn't save the zone — check the error log in Owner Console.")
+
+    elif asset_sub == "🧊 3D Mine View":
+        st.markdown("### 🧊 3D Asset Positions")
+        st.caption(
+            "**What this is:** a genuine, interactive 3D scatter of asset positions — "
+            "latitude, longitude, and elevation — so equipment on different benches or "
+            "levels shows up distinctly, which a flat map can't do. **What this is NOT:** "
+            "a CAD mine model — no pit walls, bench geometry, terrain surface, or "
+            "underground workings. Real 3D mine visualization needs dedicated mining "
+            "software (Vulcan, Surpac, Deswik); this is a lightweight, honest approximation "
+            "using only the position data already in this app."
+        )
+        _geo3d_assets = [a for a in st.session_state.assets
+                         if a.get("latitude") is not None and a.get("longitude") is not None
+                         and a.get("elevation_m") is not None]
+        _geo_no_elev = [a for a in st.session_state.assets
+                        if a.get("latitude") is not None and a.get("longitude") is not None
+                        and a.get("elevation_m") is None]
+        if not _geo3d_assets:
+            st.info("No assets have latitude, longitude, AND elevation all set yet — this view "
+                   "needs all three. Add elevation under Assets → Manage (or Add Asset) for "
+                   + (f"the {len(_geo_no_elev)} asset(s) that already have coordinates but no "
+                      "elevation yet." if _geo_no_elev else "an asset."))
+        else:
+            if _geo_no_elev:
+                st.caption(f"{len(_geo3d_assets)} asset(s) shown below; {len(_geo_no_elev)} more "
+                          "have coordinates but no elevation set, so aren't plotted here.")
+            _status_colors_3d = {"Operational": "#0f9d58", "Down": "#dc2626",
+                                 "Maintenance": "#f0b429", "Retired": "#94a3b8"}
+            _fig3d = go.Figure()
+            for _status_val, _color in _status_colors_3d.items():
+                _subset = [a for a in _geo3d_assets if a.get("status") == _status_val]
+                if not _subset:
+                    continue
+                _fig3d.add_trace(go.Scatter3d(
+                    x=[a["longitude"] for a in _subset],
+                    y=[a["latitude"] for a in _subset],
+                    z=[a["elevation_m"] for a in _subset],
+                    mode="markers",
+                    marker=dict(size=6, color=_color),
+                    name=_status_val,
+                    text=[a.get("name") for a in _subset],
+                    hovertemplate="<b>%{text}</b><br>Elevation: %{z}m<extra></extra>",
+                ))
+            _fig3d.update_layout(
+                height=600,
+                scene=dict(xaxis_title="Longitude", yaxis_title="Latitude", zaxis_title="Elevation (m)"),
+                margin=dict(l=0, r=0, t=0, b=0),
+                legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
+            )
+            st.plotly_chart(_fig3d, use_container_width=True)
+            st.caption("Drag to rotate, scroll to zoom, double-click to reset the view.")
 
     elif asset_sub == "Add Asset":
         st.markdown("### Register New Asset")
@@ -25324,14 +26332,17 @@ def page_assets():
                                                help="Leave at 0 and skip setting it if unknown — "
                                                     "0 is stored as \"not set\", not as a real $0 rate.")
             if PLOTLY_AVAILABLE:
-                st.caption("Optional — set coordinates to show this asset on the Map View tab.")
-                geo1, geo2 = st.columns(2)
+                st.caption("Optional — set coordinates to show this asset on Map View and 3D Mine View.")
+                geo1, geo2, geo3 = st.columns(3)
                 latitude_in = geo1.number_input("Latitude", value=None, format="%.6f",
                                                 placeholder="e.g. -25.746000")
                 longitude_in = geo2.number_input("Longitude", value=None, format="%.6f",
                                                  placeholder="e.g. 28.188000")
+                elevation_in = geo3.number_input("Elevation (m)", value=None, format="%.1f",
+                                                 placeholder="e.g. 1240.0",
+                                                 help="Bench or level height — only needed for 3D Mine View.")
             else:
-                latitude_in, longitude_in = None, None
+                latitude_in, longitude_in, elevation_in = None, None, None
             submitted = st.form_submit_button("➕ Register Asset")
             if submitted:
                 if name and asset_tag and location:
@@ -25344,7 +26355,8 @@ def page_assets():
                                               serial_number, install_date, status, criticality,
                                               current_meter, meter_unit, full_name,
                                               latitude=latitude_in, longitude=longitude_in,
-                                              downtime_cost_per_hour=_downtime_cost_val)
+                                              downtime_cost_per_hour=_downtime_cost_val,
+                                              elevation_m=elevation_in)
                     if new_asset:
                         st.success(f"Asset '{name}' registered!")
                         st.rerun()
@@ -25494,6 +26506,7 @@ if selected_section == "Task Dashboard":
         st.session_state["_escalations_checked"] = True
         if SUPABASE_AVAILABLE:
             run_escalations(st.session_state.tasks, fetch_permits(), full_name)
+            send_predictive_downtime_alerts(st.session_state.tasks, st.session_state.assets, full_name)
 
     # Active Outage banner — deliberately NOT role-gated like the
     # alerts below (weather, predictive failure, calibration, low
@@ -25811,6 +26824,27 @@ if selected_section == "Task Dashboard":
                         task_permit_was_closed_out(task['id'], _all_permits) if requires_permit else False
                     )
 
+                    if task.get("required_certification"):
+                        _cert_ok = worker_has_valid_certification(
+                            task.get("assigned_to"), task["required_certification"])
+                        if task.get("assigned_to") and task["assigned_to"] != "Unassigned" and _cert_ok:
+                            st.caption(f"🎓 Requires {task['required_certification']} — "
+                                      f"{task['assigned_to']} is currently certified.")
+                        else:
+                            st.warning(f"🎓 Requires **{task['required_certification']}** — "
+                                      + (f"{task['assigned_to']} is NOT currently certified for this."
+                                         if task.get("assigned_to") and task["assigned_to"] != "Unassigned"
+                                         else "not yet assigned to anyone certified.")
+                                      + " Cannot move to In Progress until resolved.")
+
+                    if QR_GENERATION_AVAILABLE:
+                        with st.expander("📱 QR Code"):
+                            st.caption("Print on a physical work order slip — scanning it via "
+                                      "Scan Hub jumps straight back to this task.")
+                            _task_qr_img = generate_entity_qr("TASK", task["id"])
+                            if _task_qr_img:
+                                st.image(_task_qr_img, width=180)
+
                     col1, col2 = st.columns([2, 3])
                     with col1:
                         loto = st.checkbox(t("task.chk_loto_isolated"), value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
@@ -25852,8 +26886,11 @@ if selected_section == "Task Dashboard":
                                               {"task_id": task['id'], "new_status": new_status})
                                     st.rerun()
                         else:
-                            if requires_permit and not has_permit and new_status == "In Progress":
+                            _gate_blocked, _gate_code, _gate_detail = task_status_change_gate(task, new_status)
+                            if _gate_blocked and _gate_code == "loto":
                                 st.error(t("task.err_cannot_move_progress"))
+                            elif _gate_blocked and _gate_code == "certification":
+                                st.error(_gate_detail)
                             else:
                                 update_task(task['id'], {"status": new_status}, full_name)
                                 log_audit(full_name, "task_status_change",
@@ -26476,6 +27513,12 @@ elif selected_section == "Task Templates":
 elif selected_section == "Pre-Start Checklists":
     with st.container(key="page_Prestart_Checklists"):
         page_prestart_checklists()
+elif selected_section == "Logbook":
+    with st.container(key="page_Logbook"):
+        page_logbook()
+elif selected_section == "Scan Hub":
+    with st.container(key="page_ScanHub"):
+        page_scan_hub()
 elif selected_section == "Production":
     with st.container(key="page_Production"):
         page_production()
@@ -26500,6 +27543,9 @@ elif selected_section == "Permits":
 elif selected_section == "Handover":
     with st.container(key="page_Handover"):
         page_handover()
+elif selected_section == "Daily Report":
+    with st.container(key="page_DailyReport"):
+        page_daily_report()
 elif selected_section == "Worker Reports":
     with st.container(key="page_WorkerReports"):
         page_worker_reports()
