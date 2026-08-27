@@ -57,17 +57,42 @@ import requests
 # ---------------------------------------------------------------
 # Config from environment (set as GitHub Actions repository secrets)
 # ---------------------------------------------------------------
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-SMTP_SERVER = os.environ.get("SMTP_SERVER", "")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", "") or SMTP_USER
-OWNER_USERNAME = os.environ.get("OWNER_USERNAME", "").strip().lower()
-MINE_LATITUDE = os.environ.get("MINE_LATITUDE", "")
-MINE_LONGITUDE = os.environ.get("MINE_LONGITUDE", "")
-APP_URL = os.environ.get("APP_URL", "")
+def _env(name, default=""):
+    """Read an env var, treating EMPTY as absent.
+
+    os.environ.get(name, default) only falls back when the key is
+    genuinely missing — but GitHub Actions maps every secret listed in
+    the workflow's env: block, so a secret you simply haven't created
+    arrives as an empty STRING, not a missing key. The default
+    therefore never fires, and int("") raised ValueError at import
+    time, before main() could report anything useful. Stripping and
+    treating blank as absent is what makes the defaults below actually
+    work the way they read.
+    """
+    value = os.environ.get(name)
+    if value is None or not str(value).strip():
+        return default
+    return str(value).strip()
+
+
+SUPABASE_URL = _env("SUPABASE_URL").rstrip("/")
+SUPABASE_KEY = _env("SUPABASE_KEY")
+SMTP_SERVER = _env("SMTP_SERVER")
+try:
+    SMTP_PORT = int(_env("SMTP_PORT", "587"))
+except ValueError:
+    # A non-numeric SMTP_PORT is a typo, not a reason to take the whole
+    # run down — 587 is the standard submission port and the same
+    # default app.py uses.
+    print("  ! SMTP_PORT is not a number; falling back to 587", file=sys.stderr)
+    SMTP_PORT = 587
+SMTP_USER = _env("SMTP_USER")
+SMTP_PASSWORD = _env("SMTP_PASSWORD")
+SMTP_FROM = _env("SMTP_FROM") or SMTP_USER
+OWNER_USERNAME = _env("OWNER_USERNAME").lower()
+MINE_LATITUDE = _env("MINE_LATITUDE")
+MINE_LONGITUDE = _env("MINE_LONGITUDE")
+APP_URL = _env("APP_URL")
 
 # --- Thresholds mirrored from app.py (see module docstring) ---
 # app.py: SEVERE_WEATHER_CODES / BAD_WEATHER_WIND_KMH / BAD_WEATHER_PRECIP_PROB_PCT
@@ -432,20 +457,9 @@ def run_backup():
 
 
 # ---------------------------------------------------------------
-def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in ("weather", "escalations", "backup"):
-        print("usage: mwdts_automation.py {weather|escalations|backup}", file=sys.stderr)
-        return 2
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        print(json.dumps({"ok": False, "error": "SUPABASE_URL / SUPABASE_KEY not set."}))
-        return 1
+def preflight(command):
+    """Names exactly which secrets are missing, up front.
 
-    result = {"weather": run_weather, "escalations": run_escalations, "backup": run_backup}[sys.argv[1]]()
-    print(json.dumps(result, indent=2))
-    # Non-zero exit on failure so the Actions tab shows red rather than
-    # a green run that quietly did nothing.
-    return 0 if result.get("ok", False) else 1
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+    Without this, a missing secret surfaces as a confusing downstream
+    symptom instead of a cause — no SUPABASE_KEY looks like "every
+    tab
