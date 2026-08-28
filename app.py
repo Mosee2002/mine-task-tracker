@@ -2397,8 +2397,8 @@ for _level, _msg in _startup_notices:
     getattr(st, _level)(_msg)
 
 if not SUPABASE_AVAILABLE:
-    with st.expander("🔎 Connection diagnostics — click to see why", expanded=False):
-        st.caption("Shows key NAMES and error types only. Never displays secret values.")
+    with st.expander(auto_t("🔎 Connection diagnostics — click to see why"), expanded=False):
+        st.caption(auto_t("Shows key NAMES and error types only. Never displays secret values."))
 
         import os as _os
         import sys as _sys
@@ -2407,89 +2407,89 @@ if not SUPABASE_AVAILABLE:
         _cwd = _Path.cwd()
         _expected = _cwd / ".streamlit" / "secrets.toml"
 
-        st.markdown("**Step 1 — Is Streamlit finding a secrets file?**")
+        st.markdown(auto_t("**Step 1 — Is Streamlit finding a secrets file?**"))
         st.code(f"Working directory : {_cwd}\n"
                 f"Expects file at   : {_expected}\n"
                 f"File exists there : {_expected.exists()}", language="text")
         if not _expected.exists():
             _alt = list(_cwd.rglob(".streamlit/secrets.toml"))[:5]
             if _alt:
-                st.error("A secrets.toml exists elsewhere. Streamlit only reads the "
-                         "path above — launch from that directory instead:")
+                st.error(auto_t("A secrets.toml exists elsewhere. Streamlit only reads the "
+                         "path above — launch from that directory instead:"))
                 for _p in _alt:
                     st.code(f"cd {_p.parent.parent} && streamlit run app.py", language="bash")
             else:
-                st.error("No .streamlit/secrets.toml found anywhere below this directory.")
-            st.info("On Streamlit Community Cloud a local file is IGNORED. "
-                    "Paste your TOML into: App → Settings → Secrets.")
+                st.error(auto_t("No .streamlit/secrets.toml found anywhere below this directory."))
+            st.info(auto_t("On Streamlit Community Cloud a local file is IGNORED. "
+                    "Paste your TOML into: App → Settings → Secrets."))
 
-        st.markdown("**Step 2 — Can st.secrets be read?**")
+        st.markdown(auto_t("**Step 2 — Can st.secrets be read?**"))
         if _diag.get("secrets_readable"):
             _keys = _diag.get("secret_keys_found", [])
-            st.success(f"Yes. {len(_keys)} key(s) loaded.")
+            st.success(auto_t("Yes. {0} key(s) loaded.").format(len(_keys)))
             if _keys:
                 st.code("\n".join(_keys), language="text")
             else:
-                st.warning("Readable, but EMPTY — the file parsed to zero keys. "
+                st.warning(auto_t("Readable, but EMPTY — the file parsed to zero keys. "
                            "Check for a stray [section] header above your keys, "
-                           "which would nest them.")
+                           "which would nest them."))
         else:
             st.error(f"No. {_diag.get('secrets_error')}")
 
-        st.markdown("**Step 3 — Are the two required keys present?**")
+        st.markdown(auto_t("**Step 3 — Are the two required keys present?**"))
         _c1, _c2 = st.columns(2)
         _c1.metric("SUPABASE_URL", "found" if _diag.get("has_url") else "MISSING")
         _c2.metric("SUPABASE_KEY", "found" if _diag.get("has_key") else "MISSING")
 
-        st.markdown("**Step 4 — Is the supabase library installed?**")
+        st.markdown(auto_t("**Step 4 — Is the supabase library installed?**"))
         if _diag.get("library_installed"):
-            st.success(f"Yes — version {_diag.get('library_version')}")
+            st.success(auto_t("Yes — version {0}").format(_diag.get('library_version')))
         else:
             st.error(f"No. {_diag.get('library_error')}")
             st.code(f"{_sys.executable} -m pip install supabase", language="bash")
-            st.caption("Use the exact interpreter above — installing into a different "
-                       "environment than the one running Streamlit is a common trap.")
+            st.caption(auto_t("Use the exact interpreter above — installing into a different "
+                       "environment than the one running Streamlit is a common trap."))
 
-        st.markdown("**Step 5 — Did the client build?**")
+        st.markdown(auto_t("**Step 5 — Did the client build?**"))
         if _diag.get("client_created"):
-            st.success("Yes.")
+            st.success(auto_t("Yes."))
         else:
             st.error(f"No. {_diag.get('client_error')}")
 
         st.markdown("---")
-        st.markdown("**Environment**")
+        st.markdown(auto_t("**Environment**"))
         st.code(f"Python     : {_sys.version.split()[0]}\n"
                 f"Executable : {_sys.executable}\n"
                 f"Streamlit  : {getattr(st, '__version__', 'unknown')}", language="text")
 
-        st.markdown("**Live connection test**")
-        if st.button("▶️ Test the Supabase connection now"):
+        st.markdown(auto_t("**Live connection test**"))
+        if st.button(auto_t("▶️ Test the Supabase connection now")):
             if not _diag.get("library_installed"):
-                st.error("Cannot test — the supabase library is not installed.")
+                st.error(auto_t("Cannot test — the supabase library is not installed."))
             elif not (SUPABASE_URL and SUPABASE_KEY):
-                st.error("Cannot test — credentials are missing.")
+                st.error(auto_t("Cannot test — credentials are missing."))
             else:
                 try:
                     _c = create_client(SUPABASE_URL, SUPABASE_KEY)
                     _c.table("tasks").select("id").limit(1).execute()
-                    st.success("Connected and queried the `tasks` table successfully. "
-                               "Restart the app and this banner should disappear.")
+                    st.success(auto_t("Connected and queried the `tasks` table successfully. "
+                               "Restart the app and this banner should disappear."))
                 except Exception as _te:
                     st.error(f"{type(_te).__name__}: {_te}")
                     _t = str(_te).lower()
                     if "does not exist" in _t or "relation" in _t:
-                        st.info("Connected, but the `tasks` table is missing. "
+                        st.info(auto_t("Connected, but the `tasks` table is missing. "
                                 "Run schema_additions.sql (and your original table setup) "
-                                "in the Supabase SQL editor.")
+                                "in the Supabase SQL editor."))
                     elif "invalid" in _t and "key" in _t:
-                        st.info("The key was rejected. Confirm you copied the "
-                                "`anon` `public` key, complete and unbroken.")
+                        st.info(auto_t("The key was rejected. Confirm you copied the "
+                                "`anon` `public` key, complete and unbroken."))
                     elif "row-level security" in _t or "rls" in _t or "policy" in _t:
-                        st.info("Connected, but RLS is blocking the query. Run the "
-                                "policy statements at the end of schema_additions.sql.")
+                        st.info(auto_t("Connected, but RLS is blocking the query. Run the "
+                                "policy statements at the end of schema_additions.sql."))
                     elif "name or service not known" in _t or "getaddrinfo" in _t:
-                        st.info("DNS lookup failed — check SUPABASE_URL for typos, "
-                                "and whether site network policy allows outbound HTTPS.")
+                        st.info(auto_t("DNS lookup failed — check SUPABASE_URL for typos, "
+                                "and whether site network policy allows outbound HTTPS."))
 
 # -------------------------------
 # 2. SHARED STYLES FOR OPTION MENU
@@ -2686,7 +2686,7 @@ def render_log_entries(entries, actor_key="user_name", action_key="action",
     is shown with underscores turned to spaces.
     """
     if not entries:
-        st.info("Nothing logged yet.")
+        st.info(auto_t("Nothing logged yet."))
         return
     html = ['<div class="log-list">']
     for e in entries:
@@ -3089,7 +3089,7 @@ def selectbox_with_other(label, options, key_prefix, other_option="Other", help_
         opts.append(other_option)
     choice = st.selectbox(label, opts, key=f"{key_prefix}_select", help=help_text)
     custom = st.text_input(
-        f'If "{other_option}", specify',
+        auto_t("If \"{0}\", specify").format(other_option),
         key=f"{key_prefix}_custom",
         placeholder=f'Only used when {label} above is set to "{other_option}"',
     )
@@ -4287,8 +4287,8 @@ def render_struggle_banner(current_page_name):
     _auto_triggered = st.session_state.get("_struggle_detected", False)
     if _auto_triggered:
         _last_err = st.session_state.get("_struggle_last_error", "")
-        st.warning(f"🤖 Looks like something's not going smoothly on **{current_page_name}** — "
-                  f"want help from the Assistant?")
+        st.warning(auto_t("🤖 Looks like something's not going smoothly on **{0}** — want help from the Assistant?").format(current_page_name)
+)
         _sb1, _sb2 = st.columns([1, 3])
         if _sb1.button("Ask the Assistant", key="struggle_banner_help"):
             st.session_state["_ai_prefill_question"] = (
@@ -4306,7 +4306,7 @@ def render_struggle_banner(current_page_name):
         # Always-available, quiet manual escape hatch — self-reported
         # struggle doesn't need three errors to have happened first;
         # someone can be stuck without hitting a single st.error().
-        if st.button("🆘 I'm stuck — ask the Assistant", key="manual_stuck_button"):
+        if st.button(auto_t("🆘 I'm stuck — ask the Assistant"), key="manual_stuck_button"):
             st.session_state["_ai_prefill_question"] = (
                 f"I'm having trouble figuring out how to do something on the {current_page_name} "
                 f"page. Can you help?")
@@ -4338,7 +4338,7 @@ def render_action_proposal_card(msg_id, action, current_user, full_name):
     spec = ASSISTANT_ACTIONS.get(action["action"])
     if not spec:
         return
-    st.markdown(f"**🤖 Proposed: {spec['label']}** — review before confirming:")
+    st.markdown(auto_t("**🤖 Proposed: {0}** — review before confirming:").format(spec['label']))
     edited_fields = {}
     for fname, flabel in spec["fields"].items():
         edited_fields[fname] = st.text_input(
@@ -4897,10 +4897,11 @@ def approve_access(username, granted_role, decided_by, reason=None):
         _approved_email = target.data[0].get("email")
         if _approved_email and not str(_approved_email).endswith("@mwdts.internal"):
             try:
-                send_email_notification(_approved_email, "✅ Your MWDTS access has been approved",
-                    f"<p>Your access request has been approved, with the role of "
+                _approved_user_record = target.data[0]
+                send_email_notification(_approved_email, auto_t_for("✅ Your MWDTS access has been approved", _approved_user_record),
+                    f"<p>{auto_t_for('Your access request has been approved, with the role of', _approved_user_record)} "
                     f"<strong>{esc(granted_role)}</strong>.</p>"
-                    f"<p>You can now log in at {esc(APP_URL)} using your username and password.</p>")
+                    f"<p>{auto_t_for('You can now log in at {0} using your username and password.', _approved_user_record).format(esc(APP_URL))}</p>")
             except Exception as e:
                 log_error(str(e), details={"username": username}, endpoint="approve_access:email")
         return True, ""
@@ -4976,10 +4977,10 @@ def set_user_role(username, new_role, decided_by, reason=None):
         _role_email = target.data[0].get("email")
         if _role_email and not str(_role_email).endswith("@mwdts.internal"):
             try:
-                send_email_notification(_role_email, "Your MWDTS role has changed",
-                    f"<p>Your role changed from <strong>{esc(old_role)}</strong> to "
-                    f"<strong>{esc(new_role)}</strong>.</p>"
-                    f"<p>Log in to see what this changes for you.</p>")
+                _role_user_record = target.data[0]
+                send_email_notification(_role_email, auto_t_for("Your MWDTS role has changed", _role_user_record),
+                    f"<p>{auto_t_for('Your role changed from {0} to {1}.', _role_user_record).format(f'<strong>{esc(old_role)}</strong>', f'<strong>{esc(new_role)}</strong>')}</p>"
+                    f"<p>{auto_t_for('Log in to see what this changes for you.', _role_user_record)}</p>")
             except Exception as e:
                 log_error(str(e), details={"username": username}, endpoint="set_user_role:email")
         return True, ""
@@ -5411,10 +5412,10 @@ def register_user_to_db(username, name, requested_role, password, email=None,
                                    if u["username"] == _admin_username), None)
                 _admin_email = (_admin_row or {}).get("email")
                 if _admin_email:
-                    send_email_notification(_admin_email, _notif_title,
-                        f"<p>{esc(name)} ({esc(username)}) requested access as "
+                    send_email_notification(_admin_email, auto_t_for(_notif_title, _admin_row),
+                        f"<p>{esc(name)} ({esc(username)}) {auto_t_for('requested access as', _admin_row)} "
                         f"<strong>{esc(requested_role)}</strong>.</p>"
-                        f"<p>Review it in Owner Console → Access Requests.</p>")
+                        f"<p>{auto_t_for('Review it in Owner Console → Access Requests.', _admin_row)}</p>")
             except Exception as e:
                 log_error(str(e), details={"admin": _admin_username}, endpoint="register_user:notify_email")
     except Exception:
@@ -5517,12 +5518,13 @@ def request_email_login_code(email):
             log_error(str(e), endpoint="request_email_login_code")
             return None, None
 
-    subject = "Your MWDTS login code" if purpose == "login" else "Your MWDTS verification code"
-    intro = ("Use this code to sign in:" if purpose == "login"
-            else "Use this code to verify your email and start an access request:")
+    subject = auto_t_for("Your MWDTS login code", matched_user) if purpose == "login" else auto_t_for("Your MWDTS verification code", matched_user)
+    intro = (auto_t_for("Use this code to sign in:", matched_user) if purpose == "login"
+            else auto_t_for("Use this code to verify your email and start an access request:", matched_user))
+    _expiry_note = auto_t_for("This code expires in 10 minutes. If you didn't request this, you can ignore this email.", matched_user)
     send_email_notification(email, subject,
         f"<p>{intro}</p><p style='font-size:28px;font-weight:bold;letter-spacing:4px;'>{code}</p>"
-        f"<p>This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>")
+        f"<p>{_expiry_note}</p>")
     return purpose, matched_user
 
 
@@ -5642,16 +5644,16 @@ def generate_reset_token(username, email):
                      endpoint="generate_reset_token")
             return False
         reset_link = f"{APP_URL}/?reset_token={token}"
+        _reset_user_record = res.data[0]
+        _reset_no_link_note = auto_t_for("If the link above doesn't work, copy this URL into your browser:", _reset_user_record)
         sent = send_email_notification(
-            email, "Password Reset Request",
-            f"<p>A password reset was requested for your account on the "
-            f"Mine & Workshop Tracker.</p>"
-            f"<p><a href='{reset_link}'>Click here to reset your password</a> "
-            f"(expires in 1 hour).</p>"
-            f"<p>If the link above doesn't work, copy this URL into your browser:<br>"
+            email, auto_t_for("Password Reset Request", _reset_user_record),
+            f"<p>{auto_t_for('A password reset was requested for your account on the Mine & Workshop Tracker.', _reset_user_record)}</p>"
+            f"<p><a href='{reset_link}'>{auto_t_for('Click here to reset your password', _reset_user_record)}</a> "
+            f"({auto_t_for('expires in 1 hour', _reset_user_record)}).</p>"
+            f"<p>{_reset_no_link_note}<br>"
             f"{reset_link}</p>"
-            f"<p>If you did not request this, you can ignore this email — "
-            f"your password will not change unless the link above is used.</p>")
+            f"<p>{auto_t_for('If you did not request this, you can ignore this email — your password will not change unless the link above is used.', _reset_user_record)}</p>")
         if not sent:
             log_error("Password reset email did not send (SMTP not configured or failed)",
                       details={"username": username}, endpoint="generate_reset_token")
@@ -6052,13 +6054,16 @@ def submit_prestart_checklist(template_id, asset_id, completed_by, results, note
                 if u.get("email") and not str(u["email"]).endswith("@mwdts.internal"):
                     try:
                         _rows = "".join(f"<li>{esc(item)}</li>" for item in _failed_items)
-                        send_email_notification(u["email"], f"⚠️ Pre-Start Check Failed — {esc(_asset_name)}",
-                            f"<p><strong>{esc(completed_by)}</strong> failed a pre-start check on "
-                            f"<strong>{esc(_asset_name)}</strong>.</p>"
-                            f"<p>Failed item(s):</p><ul>{_rows}</ul>"
+                        _ps_subject = auto_t_for("⚠️ Pre-Start Check Failed — {0}", u).format(esc(_asset_name))
+                        _ps_who_failed = auto_t_for("{0} failed a pre-start check on {1}.", u).format(
+                            f"<strong>{esc(completed_by)}</strong>", f"<strong>{esc(_asset_name)}</strong>")
+                        _ps_failed_items_label = auto_t_for("Failed item(s):", u)
+                        _ps_no_autochange_note = auto_t_for("This does NOT automatically change the asset's status — a real person needs to decide whether it stays in service.", u)
+                        send_email_notification(u["email"], _ps_subject,
+                            f"<p>{_ps_who_failed}</p>"
+                            f"<p>{_ps_failed_items_label}</p><ul>{_rows}</ul>"
                             f"<p>{esc(notes) if notes else ''}</p>"
-                            f"<p>This does NOT automatically change the asset's status — a real "
-                            f"person needs to decide whether it stays in service.</p>")
+                            f"<p>{_ps_no_autochange_note}</p>")
                     except Exception as e:
                         log_error(str(e), details={"recipient": u.get("full_name")}, endpoint="submit_prestart_checklist:email")
         except Exception as e:
@@ -6159,7 +6164,7 @@ def update_task(task_id, updates, updated_by):
                     log_error(str(e), endpoint="update_task:completion_email", details={"task_id": task_id})
             return True
         else:
-            st.error("This task was updated by another user. Please refresh and try again.")
+            st.error(auto_t("This task was updated by another user. Please refresh and try again."))
             return False
     except Exception as e:
         log_error(str(e), details={"task_id": task_id, "updates": updates}, user_name=updated_by, endpoint="update_task")
@@ -6473,7 +6478,8 @@ def send_broadcast_to_db(sender_name, sender_role, message):
             # not two that have to be kept in sync by hand.
             if u.get("email") and not str(u["email"]).endswith("@mwdts.internal"):
                 try:
-                    send_email_notification(u["email"], f"📢 Broadcast from {sender_name}",
+                    _broadcast_subject = auto_t_for("📢 Broadcast from {0}", u).format(sender_name)
+                    send_email_notification(u["email"], _broadcast_subject,
                                             message.replace("\n", "<br>"))
                 except Exception as e:
                     log_error(str(e), details={"recipient": u.get("full_name")},
@@ -6614,6 +6620,92 @@ def check_asset_geofence_violations(assets, zones=None):
             if dist <= z["radius_meters"]:
                 violations.append({"asset": a, "zone": z, "distance_m": dist})
     return violations
+
+
+def send_geofence_violation_alerts(assets, zones, triggered_by):
+    """Notifies leadership about assets found inside a defined zone —
+    the violation check (check_asset_geofence_violations) already
+    existed and is reused unchanged here; this only adds the
+    notification layer that was missing. Previously this was shown
+    only passively, on Map View, to whoever happened to open it —
+    same gap PHASE 72 (predictive downtime) had before that was
+    fixed, now fixed here the same way.
+
+    Cooldown is per (asset, zone) PAIR, not per-asset and not global
+    — an asset simultaneously inside two different zones is two
+    separate things worth knowing about, and cooling down on one pair
+    must not silence the other. 24h, same as predictive downtime —
+    an asset's LAST RECORDED position doesn't change on its own
+    between manual updates, so re-alerting hourly on an unchanged
+    position would just be noise.
+    """
+    if not SUPABASE_AVAILABLE:
+        return {"alerted": 0}
+
+    violations = check_asset_geofence_violations(assets, zones)
+    if not violations:
+        return {"alerted": 0}
+
+    now = datetime.now()
+    due_violations = []
+    for v in violations:
+        try:
+            recent = (supabase.table("geofence_alert_log").select("sent_at")
+                     .eq("asset_id", v["asset"]["id"]).eq("zone_id", v["zone"]["id"])
+                     .order("sent_at", desc=True).limit(1).execute())
+            last_sent = _parse_dt(recent.data[0]["sent_at"]) if recent.data else None
+        except Exception as e:
+            log_error(str(e), details={"asset_id": v["asset"]["id"], "zone_id": v["zone"]["id"]},
+                     endpoint="send_geofence_violation_alerts:cooldown")
+            last_sent = None
+        if not last_sent or (now - last_sent) >= timedelta(hours=24):
+            due_violations.append(v)
+    if not due_violations:
+        return {"alerted": 0, "reason": "All within 24h cooldown."}
+
+    recipients = site_leadership_recipients()
+    for u in recipients:
+        try:
+            send_notification(u["full_name"], "🚧 Geofence Violation",
+                              f"{len(due_violations)} asset(s) found inside a defined zone.",
+                              category="geofence_violation")
+        except Exception as e:
+            log_error(str(e), details={"recipient": u.get("full_name")}, endpoint="send_geofence_violation_alerts:notify")
+        if u.get("email") and not str(u["email"]).endswith("@mwdts.internal"):
+            try:
+                _gf_row_items = []
+                for v in due_violations:
+                    _gf_zone_type_label = auto_t_for(v["zone"]["zone_type"], u)
+                    _gf_msg_suffix = f" — {esc(v['zone']['alert_message'])}" if v["zone"].get("alert_message") else ""
+                    _gf_distance_note = auto_t_for("{0}m from the center of {1} ({2}, {3}m radius)", u).format(
+                        f"{v['distance_m']:.0f}", esc(v["zone"]["name"]), _gf_zone_type_label,
+                        f"{v['zone']['radius_meters']:.0f}")
+                    _gf_row_items.append(
+                        f"<li><strong>{esc(v['asset'].get('name'))}</strong> {auto_t_for('is', u)} "
+                        f"{_gf_distance_note}{_gf_msg_suffix}</li>")
+                _rows = "".join(_gf_row_items)
+                _gf_subject = auto_t_for("🚧 {0} Asset(s) Inside a Defined Zone", u).format(len(due_violations))
+                _gf_note = auto_t_for("Checks each asset's last recorded position — not live tracking.", u)
+                _gf_cta = auto_t_for("Open MWDTS → Assets → Map View for full detail.", u)
+                send_email_notification(u["email"], _gf_subject,
+                    f"<ul>{_rows}</ul>"
+                    f"<p>{_gf_note}</p>"
+                    f"<p>{_gf_cta}</p>")
+            except Exception as e:
+                log_error(str(e), details={"recipient": u.get("full_name")}, endpoint="send_geofence_violation_alerts:email")
+
+    for v in due_violations:
+        try:
+            supabase.table("geofence_alert_log").insert(
+                {"asset_id": v["asset"]["id"], "zone_id": v["zone"]["id"]}).execute()
+        except Exception as e:
+            log_error(str(e), details={"asset_id": v["asset"]["id"], "zone_id": v["zone"]["id"]},
+                     endpoint="send_geofence_violation_alerts:log")
+
+    log_audit(triggered_by, "geofence_violation_alert",
+             {"violations": [(v["asset"]["id"], v["zone"]["id"]) for v in due_violations]})
+    return {"alerted": len(due_violations),
+            "assets": [v["asset"].get("name") for v in due_violations]}
 
 
 def create_logbook_entry(entry_text, location, category, created_by, photo_url=None):
@@ -6832,7 +6924,7 @@ def upload_attachment(task_id, file_bytes, filename, uploaded_by):
         else:
             return False
     except Exception as e:
-        st.error(f"Upload failed: {e}")
+        st.error(auto_t("Upload failed: {0}").format(e))
         log_error(str(e), details={"task_id": task_id, "filename": filename}, endpoint="attachment_upload")
         return False
 
@@ -6942,14 +7034,14 @@ def render_comments_section(task, full_name, key_prefix):
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ **{esc(r['posted_by'])}** "
                        f"({_fmt_log_time(r['posted_at'])}): {esc(r['comment'])}", unsafe_allow_html=True)
         _reply_key = f"_reply_open_{key_prefix}_{c['id']}"
-        if st.button("↩️ Reply", key=f"reply_btn_{key_prefix}_{c['id']}"):
+        if st.button(auto_t("↩️ Reply"), key=f"reply_btn_{key_prefix}_{c['id']}"):
             st.session_state[_reply_key] = not st.session_state.get(_reply_key, False)
         if st.session_state.get(_reply_key):
             _reply_val_key = f"_reply_val_{key_prefix}_{c['id']}"
-            reply_text = st.text_input("Reply (use @username to mention someone)",
+            reply_text = st.text_input(auto_t("Reply (use @username to mention someone)"),
                                        key=f"reply_input_{key_prefix}_{c['id']}",
                                        value=st.session_state.get(_reply_val_key, ""))
-            if st.button("Post reply", key=f"post_reply_{key_prefix}_{c['id']}"):
+            if st.button(auto_t("Post reply"), key=f"post_reply_{key_prefix}_{c['id']}"):
                 if reply_text.strip():
                     if add_comment(task['id'], reply_text, full_name, parent_comment_id=c['id']):
                         st.session_state[_reply_key] = False
@@ -7018,7 +7110,7 @@ def render_presence_indicator(view_context, username, full_name):
     record_presence(username, full_name, view_context)
     others = get_active_viewers(view_context, exclude_username=username)
     if others:
-        st.caption(f"👀 Also viewing: {', '.join(esc(o) for o in others)}")
+        st.caption(auto_t("👀 Also viewing: {0}").format(', '.join(esc(o) for o in others)))
 
 
 # -------------------------------
@@ -7041,7 +7133,7 @@ def render_presence_indicator(view_context, username, full_name):
 # normal use once approved there — nothing bypasses server-side
 # checks (permit gates, version conflicts, etc.), and nothing is
 # ever applied without a human reviewing it first.
-def render_offline_capture_component(my_tasks, username, full_name, app_url="", assets=None, prestart_templates=None):
+def render_offline_capture_component(my_tasks, username, full_name, app_url="", assets=None, prestart_templates=None, permits=None):
     """Returns the HTML/JS for the offline capture page. my_tasks is
     the list of task dicts to cache client-side for offline viewing
     and action-queueing — pass whatever the current user should be
@@ -7056,6 +7148,16 @@ def render_offline_capture_component(my_tasks, username, full_name, app_url="", 
     equipment itself, which can easily be exactly where signal is
     weakest, and a check that can't be submitted offline risks simply
     being skipped rather than done and synced later.
+
+    permits, if given, additionally enables the Permits tab — Accept
+    and Sign Back specifically, not new permit creation. Those two
+    are the actions a worker takes AT the equipment (verifying an
+    isolation before starting work, removing it when finished), the
+    same low-signal-area reasoning as pre-start checklists. Creating
+    a new permit stays online-only on purpose: issuing one involves
+    more judgment (hazards, isolation points) than confirming one
+    already written up, and isn't something that happens standing at
+    the equipment the way accept/sign-back do.
     """
     tasks_json = json.dumps([
         {"id": t["id"], "title": t.get("title", ""), "location": t.get("location", ""),
@@ -7075,6 +7177,11 @@ def render_offline_capture_component(my_tasks, username, full_name, app_url="", 
         {"id": t["id"], "name": t.get("name", ""), "asset_category": t.get("asset_category"),
         "items": t.get("items", [])}
         for t in (prestart_templates or [])
+    ])
+    permits_json = json.dumps([
+        {"id": p["id"], "task_id": p.get("task_id"), "permit_type": p.get("permit_type", ""),
+        "status": p.get("status", ""), "lock_tag_numbers": p.get("lock_tag_numbers", "")}
+        for p in (permits or [])
     ])
     return f"""
 <!DOCTYPE html>
@@ -7120,6 +7227,22 @@ def render_offline_capture_component(my_tasks, username, full_name, app_url="", 
     <button class="tab-btn" id="tabIncidentBtn" onclick="showTab('incident')">🚨 {esc(auto_t("Report Incident"))}</button>
     <button class="tab-btn" id="tabPrestartBtn" onclick="showTab('prestart')">✅ {esc(auto_t("Pre-Start"))}</button>
     <button class="tab-btn" id="tabLogbookBtn" onclick="showTab('logbook')">📔 {esc(auto_t("Logbook"))}</button>
+    <button class="tab-btn" id="tabPermitsBtn" onclick="showTab('permits')">🔒 {esc(auto_t("Permits"))}</button>
+  </div>
+
+  <div id="permitsTab" class="hidden">
+    <div class="task">
+      <h4>{esc(auto_t("Accept a Permit"))}</h4>
+      <p style="font-size:0.85em;">{esc(auto_t("Confirms you've verified the isolation at the equipment before starting work."))}</p>
+      <select id="perm_accept_select"></select>
+      <button onclick="queuePermitAccept()">{esc(auto_t("Queue accept"))}</button>
+    </div>
+    <div class="task">
+      <h4>{esc(auto_t("Sign Back a Permit"))}</h4>
+      <p style="font-size:0.85em;">{esc(auto_t("Confirms the isolation has been physically removed and the equipment is ready to return to service."))}</p>
+      <select id="perm_signback_select"></select>
+      <button onclick="queuePermitSignBack()">{esc(auto_t("Queue sign back"))}</button>
+    </div>
   </div>
 
   <div id="logbookTab" class="hidden">
@@ -7196,6 +7319,7 @@ def render_offline_capture_component(my_tasks, username, full_name, app_url="", 
 const MY_TASKS = {tasks_json};
 const MY_ASSETS = {assets_json};
 const PRESTART_TEMPLATES = {prestart_templates_json};
+const PERMITS = {permits_json};
 const USERNAME = {json.dumps(username)};
 const FULL_NAME = {json.dumps(full_name)};
 // Translated once, server-side, at render time (this whole page is
@@ -7238,6 +7362,7 @@ const T_FAIL = {json.dumps(auto_t("Fail"))};
 const T_CRITICAL_SUFFIX = {json.dumps(auto_t("(CRITICAL)"))};
 const T_INCIDENT_LABEL = {json.dumps(auto_t("(incident)"))};
 const T_NOTHING_QUEUED = {json.dumps(auto_t("Nothing queued yet."))};
+const T_NO_PERMITS_PENDING = {json.dumps(auto_t("No permits pending."))};
 const T_CONFIRM_CLEAR_QUEUE = {json.dumps(auto_t("Clear the offline queue? Only do this AFTER you've successfully pasted/reviewed it in Sync Review."))};
 const APP_URL = {json.dumps(app_url)};
 const QUEUE_KEY = "mwdts_offline_queue_" + USERNAME;
@@ -7255,10 +7380,12 @@ function showTab(name) {{
   document.getElementById("incidentTab").classList.toggle("hidden", name !== "incident");
   document.getElementById("prestartTab").classList.toggle("hidden", name !== "prestart");
   document.getElementById("logbookTab").classList.toggle("hidden", name !== "logbook");
+  document.getElementById("permitsTab").classList.toggle("hidden", name !== "permits");
   document.getElementById("tabTasksBtn").classList.toggle("active", name === "tasks");
   document.getElementById("tabIncidentBtn").classList.toggle("active", name === "incident");
   document.getElementById("tabPrestartBtn").classList.toggle("active", name === "prestart");
   document.getElementById("tabLogbookBtn").classList.toggle("active", name === "logbook");
+  document.getElementById("tabPermitsBtn").classList.toggle("active", name === "permits");
 }}
 
 function loadQueue() {{
@@ -7405,6 +7532,42 @@ function queueLogbookEntry() {{
   alert(T_LOGBOOK_QUEUED);
 }}
 
+// Two dropdowns, filtered by status — a permit either needs
+// accepting (Issued, not yet started) or signing back (Active,
+// isolation being removed); the same permit is never in both lists
+// at once, so there's no ambiguity about which action applies.
+function populatePermitsDropdowns() {{
+  const acceptSel = document.getElementById("perm_accept_select");
+  const signbackSel = document.getElementById("perm_signback_select");
+  const toAccept = PERMITS.filter(function(p) {{ return p.status === "Issued"; }});
+  const toSignBack = PERMITS.filter(function(p) {{ return p.status === "Active"; }});
+  function permitLabel(p) {{
+    return "#" + p.id + " " + p.permit_type + (p.lock_tag_numbers ? " (" + p.lock_tag_numbers + ")" : "");
+  }}
+  acceptSel.innerHTML = toAccept.length
+    ? toAccept.map(function(p) {{ return '<option value="' + p.id + '">' + permitLabel(p) + '</option>'; }}).join("")
+    : '<option value="">' + T_NO_PERMITS_PENDING + '</option>';
+  signbackSel.innerHTML = toSignBack.length
+    ? toSignBack.map(function(p) {{ return '<option value="' + p.id + '">' + permitLabel(p) + '</option>'; }}).join("")
+    : '<option value="">' + T_NO_PERMITS_PENDING + '</option>';
+}}
+
+function queuePermitAccept() {{
+  const sel = document.getElementById("perm_accept_select");
+  if (!sel.value) {{ return; }}
+  const p = PERMITS.filter(function(x) {{ return String(x.id) === String(sel.value); }})[0];
+  queueAction(null, "#" + p.id + " " + p.permit_type, "permit_accept", {{permit_id: p.id}});
+  alert(T_LOGBOOK_QUEUED);
+}}
+
+function queuePermitSignBack() {{
+  const sel = document.getElementById("perm_signback_select");
+  if (!sel.value) {{ return; }}
+  const p = PERMITS.filter(function(x) {{ return String(x.id) === String(sel.value); }})[0];
+  queueAction(null, "#" + p.id + " " + p.permit_type, "permit_sign_back", {{permit_id: p.id}});
+  alert(T_LOGBOOK_QUEUED);
+}}
+
 // Compresses an image client-side (resize to MAX_PHOTO_DIMENSION on
 // the longer side, re-encode as JPEG at 0.7 quality) before it's
 // measured against MAX_PHOTO_BYTES — a raw phone camera photo is
@@ -7520,6 +7683,7 @@ renderTasks();
 renderQueue();
 populatePrestartDropdowns();
 populateLogbookDropdowns();
+populatePermitsDropdowns();
 </script>
 </body>
 </html>
@@ -7660,6 +7824,42 @@ def apply_offline_action(action, reviewed_by):
                                          payload.get("category") or "Observation", queued_by_name)
             _log_offline_sync_decision(action, "approved", reviewed_by, detail=entry_text[:100])
             return (True, "Logbook entry saved.") if entry else (False, "Failed to save the logbook entry.")
+
+        elif action_type == "permit_accept":
+            permit_id = payload.get("permit_id")
+            if not permit_id:
+                return False, "Missing permit ID in queued action."
+            _permit_row = next((p for p in fetch_permits() if p["id"] == permit_id), None)
+            if not _permit_row or _permit_row.get("status") != "Issued":
+                return False, "This permit is no longer awaiting acceptance — it may have already been accepted, signed back, or cancelled since this was queued offline."
+            # Same restriction as the online Permits page — a queued
+            # action reviewed later must be held to the exact same
+            # rule a live click would have been, not a looser one just
+            # because it went through the offline queue.
+            _permit_task = next((t2 for t2 in st.session_state.tasks if t2["id"] == _permit_row.get("task_id")), None)
+            _queued_by_user = next((u for u in fetch_all_users_from_db() if u.get("full_name") == queued_by_name), None)
+            _queued_by_role = (_queued_by_user or {}).get("role", "")
+            if _permit_task and not user_is_assigned_to_task(_permit_task, queued_by_name, _queued_by_role):
+                return False, f"{queued_by_name} is not assigned to the task this permit is linked to — cannot accept it on their behalf."
+            ok = accept_permit(permit_id, queued_by_name)
+            _log_offline_sync_decision(action, "approved", reviewed_by, detail=f"permit={permit_id}")
+            return (True, f"Permit #{permit_id} accepted.") if ok else (False, "Failed to accept the permit.")
+
+        elif action_type == "permit_sign_back":
+            permit_id = payload.get("permit_id")
+            if not permit_id:
+                return False, "Missing permit ID in queued action."
+            _permit_row = next((p for p in fetch_permits() if p["id"] == permit_id), None)
+            if not _permit_row or _permit_row.get("status") != "Active":
+                return False, "This permit is no longer active — it may have already been signed back or cancelled since this was queued offline."
+            _permit_task = next((t2 for t2 in st.session_state.tasks if t2["id"] == _permit_row.get("task_id")), None)
+            _queued_by_user = next((u for u in fetch_all_users_from_db() if u.get("full_name") == queued_by_name), None)
+            _queued_by_role = (_queued_by_user or {}).get("role", "")
+            if _permit_task and not user_is_assigned_to_task(_permit_task, queued_by_name, _queued_by_role):
+                return False, f"{queued_by_name} is not assigned to the task this permit is linked to — cannot sign it back on their behalf."
+            ok = sign_back_permit(permit_id, queued_by_name)
+            _log_offline_sync_decision(action, "approved", reviewed_by, detail=f"permit={permit_id}")
+            return (True, f"Permit #{permit_id} signed back.") if ok else (False, "Failed to sign back the permit.")
 
         else:
             return False, f"Unknown action type: {action_type}"
@@ -8312,14 +8512,17 @@ def run_automated_backup():
     total_rows = sum(table_counts.values())
     size_mb = len(zip_bytes) / (1024 * 1024)
     date_str = datetime.now().strftime("%Y-%m-%d")
+    _backup_subject = auto_t_for("💾 MWDTS Automated Backup — {0}", owner_record).format(date_str)
+    _backup_intro = auto_t_for("Automated weekly backup completed.", owner_record)
+    _backup_counts = auto_t_for("{0} tables, {1} total row(s), {2} MB.", owner_record).format(
+        len(table_counts), f"{total_rows:,}", f"{size_mb:.1f}")
+    _backup_restore_note = auto_t_for("This is a point-in-time snapshot for disaster recovery — see the attached ZIP. Restoring from it is a manual process (re-inserting the JSON via the Supabase SQL editor or API), not a one-click restore.", owner_record)
     sent, err = send_email_notification(
         owner_email,
-        f"💾 MWDTS Automated Backup — {date_str}",
-        f"<p>Automated weekly backup completed.</p>"
-        f"<p>{len(table_counts)} tables, {total_rows:,} total row(s), {size_mb:.1f} MB.</p>"
-        f"<p>This is a point-in-time snapshot for disaster recovery — see the attached ZIP. "
-        f"Restoring from it is a manual process (re-inserting the JSON via the Supabase SQL "
-        f"editor or API), not a one-click restore.</p>",
+        _backup_subject,
+        f"<p>{_backup_intro}</p>"
+        f"<p>{_backup_counts}</p>"
+        f"<p>{_backup_restore_note}</p>",
         _return_error=True,
         attachment_bytes=zip_bytes,
         attachment_filename=f"mwdts_backup_{date_str}.zip")
@@ -8362,8 +8565,8 @@ def generate_pdf_report(tasks, assets, incidents):
                               textColor=GRAY, spaceAfter=10))
 
     story = []
-    story.append(Paragraph("MWDTS Safety &amp; Operations Report", styles["RptTitle"]))
-    story.append(Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}", styles["RptSub"]))
+    story.append(Paragraph(auto_t("MWDTS Safety &amp; Operations Report"), styles["RptTitle"]))
+    story.append(Paragraph(auto_t("Generated {0}").format(datetime.now().strftime('%B %d, %Y at %H:%M')), styles["RptSub"]))
 
     def metric_table(rows):
         t = Table(rows, colWidths=[2.6*inch, 3.6*inch])
@@ -8379,54 +8582,54 @@ def generate_pdf_report(tasks, assets, incidents):
         return t
 
     # --- Reliability ---
-    story.append(Paragraph("Reliability", styles["RptH2"]))
+    story.append(Paragraph(auto_t("Reliability"), styles["RptH2"]))
     mttr, mttr_n = compute_mttr_hours_v2(tasks)
     mtbf, mtbf_n = compute_mtbf_hours(tasks)
     story.append(metric_table([
-        ["MTTR (Mean Time To Repair)", f"{mttr:.1f} hours ({mttr_n} completed task(s))" if mttr is not None else "No data yet"],
-        ["MTBF (Mean Time Between Failures)", f"{mtbf:.1f} hours ({mtbf_n} interval(s))" if mtbf is not None else "No data yet"],
+        [auto_t("MTTR (Mean Time To Repair)"), f"{mttr:.1f} hours ({mttr_n} completed task(s))" if mttr is not None else auto_t("No data yet")],
+        [auto_t("MTBF (Mean Time Between Failures)"), f"{mtbf:.1f} hours ({mtbf_n} interval(s))" if mtbf is not None else auto_t("No data yet")],
     ]))
     if (mttr_n and mttr_n < 10) or (mtbf_n and mtbf_n < 10):
         story.append(Paragraph(
-            "Small sample — these figures are based on very few data points and will "
-            "shift significantly as more work is completed. Treat as indicative only.",
+            auto_t("Small sample — these figures are based on very few data points and will "
+            "shift significantly as more work is completed. Treat as indicative only."),
             styles["RptCaption"]))
 
     # --- Compliance ---
-    story.append(Paragraph("Backlog &amp; Compliance", styles["RptH2"]))
+    story.append(Paragraph(auto_t("Backlog &amp; Compliance"), styles["RptH2"]))
     pm_pct, pm_n = compute_pm_compliance_v2(tasks)
     planned_pct, reactive_pct, wt_total = planned_vs_reactive(tasks)
     story.append(metric_table([
-        ["PM Compliance", f"{pm_pct}% ({pm_n} PM task(s) due)" if pm_pct is not None else "No data yet"],
-        ["Planned Work", f"{planned_pct}%" if planned_pct is not None else "No data yet"],
-        ["Reactive Work", f"{reactive_pct}%" if reactive_pct is not None else "No data yet"],
+        [auto_t("PM Compliance"), f"{pm_pct}% ({pm_n} PM task(s) due)" if pm_pct is not None else auto_t("No data yet")],
+        [auto_t("Planned Work"), f"{planned_pct}%" if planned_pct is not None else auto_t("No data yet")],
+        [auto_t("Reactive Work"), f"{reactive_pct}%" if reactive_pct is not None else auto_t("No data yet")],
     ]))
 
     # --- Safety ---
-    story.append(Paragraph("Safety Leading Indicators", styles["RptH2"]))
+    story.append(Paragraph(auto_t("Safety Leading Indicators"), styles["RptH2"]))
     si = safety_leading_indicators(incidents, tasks)
     story.append(metric_table([
-        ["Total Incidents", str(si["total_incidents"])],
-        ["Proactive Reports (near-miss + hazard)", str(si["proactive_reports"])],
-        ["Injuries", str(si["injuries"])],
-        ["Incidents in Last 30 Days", str(si["last_30_days"])],
-        ["Near-miss Share", f"{si['near_miss_ratio']}%" if si["near_miss_ratio"] is not None else "No data"],
-        ["Open, No Corrective Action", str(si["open_without_action"])],
+        [auto_t("Total Incidents"), str(si["total_incidents"])],
+        [auto_t("Proactive Reports (near-miss + hazard)"), str(si["proactive_reports"])],
+        [auto_t("Injuries"), str(si["injuries"])],
+        [auto_t("Incidents in Last 30 Days"), str(si["last_30_days"])],
+        [auto_t("Near-miss Share"), f"{si['near_miss_ratio']}%" if si["near_miss_ratio"] is not None else auto_t("No data")],
+        [auto_t("Open, No Corrective Action"), str(si["open_without_action"])],
     ]))
     if si["open_without_action"] > 0:
         story.append(Paragraph(
-            f"⚠ {si['open_without_action']} open incident(s) have no corrective action recorded.",
+            auto_t("⚠ {0} open incident(s) have no corrective action recorded.").format(si['open_without_action']),
             styles["RptBody"]))
     story.append(Paragraph(
-        "Reading note: a rising near-miss/hazard count usually reflects improving reporting "
+        auto_t("Reading note: a rising near-miss/hazard count usually reflects improving reporting "
         "culture, not a more dangerous site. The pattern worth watching is proactive reports "
-        "falling while injuries hold steady — that combination suggests under-reporting.",
+        "falling while injuries hold steady — that combination suggests under-reporting."),
         styles["RptCaption"]))
 
     # --- Recent incidents table ---
     if incidents:
         story.append(PageBreak())
-        story.append(Paragraph("Recent Incidents", styles["RptH2"]))
+        story.append(Paragraph(auto_t("Recent Incidents"), styles["RptH2"]))
         rows = [["#", "Type", "Severity", "Status", "Date"]]
         for inc in incidents[:25]:
             rows.append([
@@ -8479,18 +8682,18 @@ def generate_decision_history_pdf(decisions):
                               textColor=GRAY, spaceAfter=12))
 
     story = []
-    story.append(Paragraph("MWDTS Access Decision Audit Trail", styles["DecTitle"]))
+    story.append(Paragraph(auto_t("MWDTS Access Decision Audit Trail"), styles["DecTitle"]))
     story.append(Paragraph(
-        f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')} — "
-        f"{len(decisions)} decision(s), append-only record.",
+        auto_t("Generated {0} — {1} decision(s), append-only record.").format(datetime.now().strftime('%B %d, %Y at %H:%M'), len(decisions))
+,
         styles["DecSub"]))
     story.append(Paragraph(
-        "This record survives user deletion — it remains the source of truth for "
+        auto_t("This record survives user deletion — it remains the source of truth for "
         "who granted, denied, or changed access for whom, even after an account "
-        "is later removed.",
+        "is later removed."),
         styles["DecCaption"]))
 
-    header = ["When", "Target", "Action", "Decided By", "Reason"]
+    header = [auto_t("When"), auto_t("Target"), auto_t("Action"), auto_t("Decided By"), auto_t("Reason")]
     rows = [header]
     for d in decisions:
         detail = ""
@@ -8555,7 +8758,7 @@ def generate_task_completion_pdf(task):
                               textColor=GRAY, spaceAfter=6))
 
     story = []
-    story.append(Paragraph(f"Job Completion Report — #{task.get('id')}", styles["TcTitle"]))
+    story.append(Paragraph(auto_t("Job Completion Report — #{0}").format(task.get('id')), styles["TcTitle"]))
     story.append(Paragraph(esc(task.get("title", "")), styles["TcSub"]))
 
     def field_table(rows):
@@ -8571,23 +8774,23 @@ def generate_task_completion_pdf(task):
         ]))
         return t
 
-    story.append(Paragraph("Job Details", styles["TcH2"]))
+    story.append(Paragraph(auto_t("Job Details"), styles["TcH2"]))
     _labour_hours = task.get("labour_hours") or 0
     _labour_rate = task.get("labour_rate") or 0
     _labour_cost = _labour_hours * _labour_rate if (_labour_hours and _labour_rate) else None
     story.append(field_table([
-        ["Location", task.get("location") or "—"],
-        ["Priority", task.get("priority") or "—"],
-        ["Work Type", task.get("work_type") or "—"],
-        ["Assigned To", task.get("assigned_to") or "—"],
-        ["Created", _fmt_log_time(task.get("created_at")) if task.get("created_at") else "—"],
-        ["Due", _fmt_log_time(task.get("due_date")) if task.get("due_date") else "—"],
-        ["Completed", _fmt_log_time(task.get("completed_at")) if task.get("completed_at") else "—"],
-        ["Labour", f"{_labour_hours} hr" + (f" — ${_labour_cost:,.2f}" if _labour_cost else "")],
+        [auto_t("Location"), task.get("location") or "—"],
+        [auto_t("Priority"), task.get("priority") or "—"],
+        [auto_t("Work Type"), task.get("work_type") or "—"],
+        [auto_t("Assigned To"), task.get("assigned_to") or "—"],
+        [auto_t("Created"), _fmt_log_time(task.get("created_at")) if task.get("created_at") else "—"],
+        [auto_t("Due"), _fmt_log_time(task.get("due_date")) if task.get("due_date") else "—"],
+        [auto_t("Completed"), _fmt_log_time(task.get("completed_at")) if task.get("completed_at") else "—"],
+        [auto_t("Labour"), f"{_labour_hours} hr" + (f" — ${_labour_cost:,.2f}" if _labour_cost else "")],
     ]))
 
     if task.get("description"):
-        story.append(Paragraph("Description", styles["TcH2"]))
+        story.append(Paragraph(auto_t("Description"), styles["TcH2"]))
         story.append(Paragraph(esc(task["description"]), styles["TcBody"]))
 
     # Activity log — what actually happened during the job, not just
@@ -8598,7 +8801,7 @@ def generate_task_completion_pdf(task):
     except Exception:
         _activity = []
     if _activity:
-        story.append(Paragraph("Activity Log", styles["TcH2"]))
+        story.append(Paragraph(auto_t("Activity Log"), styles["TcH2"]))
         _act_rows = [["When", "By", "Action"]]
         for a in _activity[-15:]:  # most recent slice — this is a summary, not the full raw log
             _act_rows.append([
@@ -8617,7 +8820,7 @@ def generate_task_completion_pdf(task):
         story.append(_act_table)
 
     story.append(Spacer(1, 16))
-    story.append(Paragraph(f"Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}", styles["TcCaption"]))
+    story.append(Paragraph(auto_t("Generated {0}").format(datetime.now().strftime('%B %d, %Y at %H:%M')), styles["TcCaption"]))
 
     buf = BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=letter,
@@ -8682,39 +8885,39 @@ def generate_executive_monthly_report(tasks, assets, incidents, parts_lookup, mo
         return t
 
     story = []
-    story.append(Paragraph("MWDTS Executive Monthly Report", styles["ExecTitle"]))
+    story.append(Paragraph(auto_t("MWDTS Executive Monthly Report"), styles["ExecTitle"]))
     story.append(Paragraph(
-        f"{month_start.strftime('%B %Y')} — Generated {datetime.now().strftime('%B %d, %Y at %H:%M')}",
+        auto_t("{0} — Generated {1}").format(month_start.strftime('%B %Y'), datetime.now().strftime('%B %d, %Y at %H:%M')),
         styles["ExecSub"]))
 
     # --- Safety: TRIFR ---
-    story.append(Paragraph("Safety", styles["ExecH2"]))
+    story.append(Paragraph(auto_t("Safety"), styles["ExecH2"]))
     hours_worked = compute_hours_worked(month_start, datetime.now())
     trifr = compute_trifr(incidents, hours_worked)
     story.append(metric_table([
-        ["TRIFR (Total Recordable Injury Frequency Rate)",
-        f"{trifr}" if trifr is not None else "No data — hours worked not yet logged via Crew Clock"],
-        ["Hours Worked This Month", f"{hours_worked:,.0f}" if hours_worked else "0"],
+        [auto_t("TRIFR (Total Recordable Injury Frequency Rate)"),
+        f"{trifr}" if trifr is not None else auto_t("No data — hours worked not yet logged via Crew Clock")],
+        [auto_t("Hours Worked This Month"), f"{hours_worked:,.0f}" if hours_worked else "0"],
     ]))
     story.append(Paragraph(
-        "TRIFR = (recordable injuries × 1,000,000) ÷ hours worked. Requires Crew Clock punch "
-        "data to compute — a site not yet using Crew Clock will show no data here, not a false zero.",
+        auto_t("TRIFR = (recordable injuries × 1,000,000) ÷ hours worked. Requires Crew Clock punch "
+        "data to compute — a site not yet using Crew Clock will show no data here, not a false zero."),
         styles["ExecCaption"]))
 
     # --- Production vs Target ---
-    story.append(Paragraph("Production vs Target", styles["ExecH2"]))
+    story.append(Paragraph(auto_t("Production vs Target"), styles["ExecH2"]))
     ore_actual, ore_target, ore_pct = compute_monthly_production_vs_target(month_start)
     story.append(metric_table([
-        ["Ore Production This Month", f"{ore_actual:,.0f} tonnes" if ore_actual else "No data yet"],
-        ["Monthly Target", f"{ore_target:,.0f} tonnes"],
-        ["% of Target", f"{ore_pct:.0f}%" if ore_pct is not None else "N/A"],
+        [auto_t("Ore Production This Month"), f"{ore_actual:,.0f} tonnes" if ore_actual else auto_t("No data yet")],
+        [auto_t("Monthly Target"), f"{ore_target:,.0f} tonnes"],
+        [auto_t("% of Target"), f"{ore_pct:.0f}%" if ore_pct is not None else "N/A"],
     ]))
 
     # --- Top 5 Cost Drivers ---
-    story.append(Paragraph("Top 5 Cost Drivers", styles["ExecH2"]))
+    story.append(Paragraph(auto_t("Top 5 Cost Drivers"), styles["ExecH2"]))
     top5 = top_cost_drivers(assets, tasks, parts_lookup, top_n=5)
     if not top5:
-        story.append(Paragraph("No cost data recorded yet.", styles["ExecBody"]))
+        story.append(Paragraph(auto_t("No cost data recorded yet."), styles["ExecBody"]))
     else:
         rows = [["Asset", "Total Spend (Parts + Labour)"]]
         for c in top5:
@@ -8777,30 +8980,30 @@ def generate_motor_test_certificate(rewind):
         return t
 
     story = []
-    story.append(Paragraph("Motor Rewind Test Certificate", styles["CertTitle"]))
+    story.append(Paragraph(auto_t("Motor Rewind Test Certificate"), styles["CertTitle"]))
     story.append(Paragraph(
-        f"Certificate generated {datetime.now().strftime('%B %d, %Y at %H:%M')}",
+        auto_t("Certificate generated {0}").format(datetime.now().strftime('%B %d, %Y at %H:%M')),
         styles["CertSub"]))
 
-    story.append(Paragraph("Motor Details", styles["CertH2"]))
+    story.append(Paragraph(auto_t("Motor Details"), styles["CertH2"]))
     story.append(cert_table([
-        ["Motor Tag / ID", rewind.get("motor_tag", "")],
-        ["Description", rewind.get("description") or "—"],
-        ["Rewind Started", _fmt_log_time(rewind.get("created_at")) if rewind.get("created_at") else "—"],
-        ["Completed", _fmt_log_time(rewind.get("completed_at")) if rewind.get("completed_at") else "—"],
-        ["Tested By", rewind.get("tested_by") or "—"],
+        [auto_t("Motor Tag / ID"), rewind.get("motor_tag", "")],
+        [auto_t("Description"), rewind.get("description") or "—"],
+        [auto_t("Rewind Started"), _fmt_log_time(rewind.get("created_at")) if rewind.get("created_at") else "—"],
+        [auto_t("Completed"), _fmt_log_time(rewind.get("completed_at")) if rewind.get("completed_at") else "—"],
+        [auto_t("Tested By"), rewind.get("tested_by") or "—"],
     ]))
 
-    story.append(Paragraph("Test Results", styles["CertH2"]))
+    story.append(Paragraph(auto_t("Test Results"), styles["CertH2"]))
     story.append(cert_table([
-        ["No-load Current", rewind.get("test_no_load_current") or "Not recorded"],
-        ["Resistance", rewind.get("test_resistance") or "Not recorded"],
-        ["Insulation Megger", rewind.get("test_insulation_megger") or "Not recorded"],
-        ["Hi-Pot Result", rewind.get("test_hipot_result") or "Not recorded"],
+        [auto_t("No-load Current"), rewind.get("test_no_load_current") or auto_t("Not recorded")],
+        [auto_t("Resistance"), rewind.get("test_resistance") or auto_t("Not recorded")],
+        [auto_t("Insulation Megger"), rewind.get("test_insulation_megger") or auto_t("Not recorded")],
+        [auto_t("Hi-Pot Result"), rewind.get("test_hipot_result") or auto_t("Not recorded")],
     ]))
     story.append(Paragraph(
-        "This certificate reflects test values as recorded by the technician at QC sign-off. "
-        "Not recorded fields indicate no value was entered — this is not the same as a passing result.",
+        auto_t("This certificate reflects test values as recorded by the technician at QC sign-off. "
+        "Not recorded fields indicate no value was entered — this is not the same as a passing result."),
         styles["CertCaption"]))
 
     buf = BytesIO()
@@ -8907,10 +9110,12 @@ def _notify_auto_assigned(task_row, assignee_name):
                 category="task_assigned")
             _email = _record.get("email")
             if _email and not str(_email).endswith("@mwdts.internal"):
-                send_email_notification(_email, f"🔧 Scheduled Task Assigned — #{_tid}: {_title}",
-                    f"<p>Scheduled maintenance task <strong>#{_tid}: {esc(_title)}</strong> "
-                    f"has been assigned to you because you're currently rostered on shift.</p>"
-                    f"<p>Location: {esc(task_row.get('location') or '—')}</p>")
+                _auto_assign_subject = auto_t_for("🔧 Scheduled Task Assigned — #{0}: {1}", _record).format(_tid, _title)
+                _auto_assign_intro = auto_t_for("Scheduled maintenance task {0} has been assigned to you because you're currently rostered on shift.", _record).format(f"<strong>#{_tid}: {esc(_title)}</strong>")
+                _auto_assign_location_label = auto_t_for("Location:", _record)
+                send_email_notification(_email, _auto_assign_subject,
+                    f"<p>{_auto_assign_intro}</p>"
+                    f"<p>{_auto_assign_location_label} {esc(task_row.get('location') or '—')}</p>")
     except Exception as e:
         log_error(str(e), details={"assignee": assignee_name}, endpoint="_notify_auto_assigned")
 
@@ -10133,12 +10338,19 @@ def _log_weather_alert_sent(alert_type, recipient_count, sent_count):
         log_error(str(e), endpoint="_log_weather_alert_sent")
 
 
-def _weather_email_body(forecast, bad_days, is_bad_weather_alert):
+def _weather_email_body(forecast, bad_days, is_bad_weather_alert, lang=None):
     """Shared HTML builder for both weather email types — the routine
     12h email and the bad-weather alert use the same layout, just a
     different headline and urgency color, so the two never visually
-    diverge into inconsistent formats."""
+    diverge into inconsistent formats.
+
+    lang, if given, translates this specific recipient's copy — this
+    function is called once per recipient in run_weather_email_check
+    (not once for the whole batch), since different leadership members
+    can have different saved language preferences."""
     today = forecast[0] if forecast else {}
+    _status_hazardous = auto_t("⚠️ Hazardous", lang=lang)
+    _status_ok = auto_t("OK", lang=lang)
     rows = "".join(f"""
         <tr>
             <td style="padding:6px 10px;">{d['date']}</td>
@@ -10146,39 +10358,49 @@ def _weather_email_body(forecast, bad_days, is_bad_weather_alert):
             <td style="padding:6px 10px;">{d.get('precip_probability_pct', '?')}% rain</td>
             <td style="padding:6px 10px;">{d.get('wind_speed_max_kmh', '?')} km/h wind</td>
             <td style="padding:6px 10px; color:{'#dc2626' if is_bad_weather_day(d) else '#16a34a'};">
-                {'⚠️ Hazardous' if is_bad_weather_day(d) else 'OK'}
+                {_status_hazardous if is_bad_weather_day(d) else _status_ok}
             </td>
         </tr>""" for d in forecast[:5])
 
     if is_bad_weather_alert:
-        headline = "⚠️ Hazardous Weather Forecast"
+        headline = auto_t("⚠️ Hazardous Weather Forecast", lang=lang)
         headline_color = "#dc2626"
-        intro = (f"<p>Hazardous conditions are forecast for the site within the next 2 days "
-                f"({', '.join(d['date'] for d in bad_days)}). Review weather-sensitive tasks "
-                f"before dispatching crews.</p>")
+        intro = "<p>" + auto_t(
+            "Hazardous conditions are forecast for the site within the next 2 days ({0}). "
+            "Review weather-sensitive tasks before dispatching crews.", lang=lang
+        ).format(', '.join(d['date'] for d in bad_days)) + "</p>"
     else:
-        headline = "🌤️ Site Weather Status"
+        headline = auto_t("🌤️ Site Weather Status", lang=lang)
         headline_color = "#0f3460"
-        intro = (f"<p>Current forecast: {today.get('temp_min_c', '?')}–{today.get('temp_max_c', '?')}°C, "
-                f"{today.get('precip_probability_pct', '?')}% chance of rain, "
-                f"{today.get('wind_speed_max_kmh', '?')} km/h max wind.</p>")
+        intro = "<p>" + auto_t(
+            "Current forecast: {0}–{1}°C, {2}% chance of rain, {3} km/h max wind.", lang=lang
+        ).format(today.get('temp_min_c', '?'), today.get('temp_max_c', '?'),
+                 today.get('precip_probability_pct', '?'), today.get('wind_speed_max_kmh', '?')) + "</p>"
+
+    _th_date = auto_t("Date", lang=lang)
+    _th_temp = auto_t("Temp", lang=lang)
+    _th_rain = auto_t("Rain", lang=lang)
+    _th_wind = auto_t("Wind", lang=lang)
+    _th_status = auto_t("Status", lang=lang)
+    _footer_note = auto_t(
+        "Sent because you're a supervisor, superintendent, or owner in MWDTS. "
+        "Weather-sensitive tasks are cross-checked automatically on Task Dashboard.", lang=lang)
 
     return f"""
     <h2 style="color:{headline_color};">{headline}</h2>
     {intro}
     <table style="border-collapse:collapse; width:100%;">
         <tr style="background:#001530; color:white;">
-            <th style="padding:6px 10px; text-align:left;">Date</th>
-            <th style="padding:6px 10px; text-align:left;">Temp</th>
-            <th style="padding:6px 10px; text-align:left;">Rain</th>
-            <th style="padding:6px 10px; text-align:left;">Wind</th>
-            <th style="padding:6px 10px; text-align:left;">Status</th>
+            <th style="padding:6px 10px; text-align:left;">{_th_date}</th>
+            <th style="padding:6px 10px; text-align:left;">{_th_temp}</th>
+            <th style="padding:6px 10px; text-align:left;">{_th_rain}</th>
+            <th style="padding:6px 10px; text-align:left;">{_th_wind}</th>
+            <th style="padding:6px 10px; text-align:left;">{_th_status}</th>
         </tr>
         {rows}
     </table>
     <p style="color:#94a3b8; font-size:0.85em;">
-        Sent because you're a supervisor, superintendent, or owner in MWDTS.
-        Weather-sensitive tasks are cross-checked automatically on Task Dashboard.
+        {_footer_note}
     </p>
     """
 
@@ -10222,9 +10444,13 @@ def run_weather_email_check(triggered_by=None, force=False):
         last_bad = _weather_alert_last_sent("bad_weather")
         due = force or not last_bad or (datetime.now() - last_bad) >= timedelta(hours=WEATHER_BAD_ALERT_COOLDOWN_HOURS)
         if due:
-            subject = f"⚠️ Hazardous Weather Forecast — {datetime.now().strftime('%B %d, %Y')}"
-            body = _weather_email_body(forecast, bad_days, is_bad_weather_alert=True)
-            sent = sum(1 for r in recipients if send_email_notification(r["email"], subject, body))
+            sent = 0
+            for r in recipients:
+                _r_lang = r.get("preferred_language")
+                _subject = auto_t("⚠️ Hazardous Weather Forecast — {0}", lang=_r_lang).format(datetime.now().strftime('%B %d, %Y'))
+                _body = _weather_email_body(forecast, bad_days, is_bad_weather_alert=True, lang=_r_lang)
+                if send_email_notification(r["email"], _subject, _body):
+                    sent += 1
             _log_weather_alert_sent("bad_weather", len(recipients), sent)
             log_audit(triggered_by or "system", "weather_bad_alert_sent",
                      {"recipient_count": len(recipients), "sent_count": sent})
@@ -10234,9 +10460,13 @@ def run_weather_email_check(triggered_by=None, force=False):
     last_routine = _weather_alert_last_sent("routine_12h")
     routine_due = force or not last_routine or (datetime.now() - last_routine) >= timedelta(hours=WEATHER_ROUTINE_COOLDOWN_HOURS)
     if routine_due:
-        subject = f"🌤️ Site Weather Status — {datetime.now().strftime('%B %d, %Y %H:%M')}"
-        body = _weather_email_body(forecast, bad_days, is_bad_weather_alert=False)
-        sent = sum(1 for r in recipients if send_email_notification(r["email"], subject, body))
+        sent = 0
+        for r in recipients:
+            _r_lang = r.get("preferred_language")
+            _subject = auto_t("🌤️ Site Weather Status — {0}", lang=_r_lang).format(datetime.now().strftime('%B %d, %Y %H:%M'))
+            _body = _weather_email_body(forecast, bad_days, is_bad_weather_alert=False, lang=_r_lang)
+            if send_email_notification(r["email"], _subject, _body):
+                sent += 1
         _log_weather_alert_sent("routine_12h", len(recipients), sent)
         log_audit(triggered_by or "system", "weather_routine_email_sent",
                  {"recipient_count": len(recipients), "sent_count": sent})
@@ -10573,6 +10803,7 @@ def run_escalations(tasks, permits, triggered_by):
                        if u.get("role", "").strip().lower() == "superintendent"
                        and u.get("is_approved") and u.get("full_name")]
     _email_by_name = {u["full_name"]: u.get("email") for u in _all_users_esc if u.get("full_name")}
+    _user_record_by_name = {u["full_name"]: u for u in _all_users_esc if u.get("full_name")}
 
     # Collected per-recipient rather than sent as we go, so a
     # superintendent with 5 overdue tasks gets ONE push ("5 tasks
@@ -10597,11 +10828,15 @@ def run_escalations(tasks, permits, triggered_by):
         _s_email = _email_by_name.get(s_name)
         if overdue_tasks and _s_email and not str(_s_email).endswith("@mwdts.internal"):
             try:
+                _s_record = _user_record_by_name.get(s_name)
                 _rows = "".join(f"<li>#{t['id']} {esc(t.get('title', ''))} — "
                                f"{esc(t.get('location') or 'no location')}</li>" for t in overdue_tasks)
-                send_email_notification(_s_email, f"⚠️ {len(overdue_tasks)} Overdue Task(s)",
-                    f"<p>{len(overdue_tasks)} task(s) are now overdue:</p><ul>{_rows}</ul>"
-                    f"<p>Open MWDTS → Task Dashboard to review.</p>")
+                _overdue_subject = auto_t_for("⚠️ {0} Overdue Task(s)", _s_record).format(len(overdue_tasks))
+                _overdue_intro = auto_t_for("{0} task(s) are now overdue:", _s_record).format(len(overdue_tasks))
+                _overdue_cta = auto_t_for("Open MWDTS → Task Dashboard to review.", _s_record)
+                send_email_notification(_s_email, _overdue_subject,
+                    f"<p>{_overdue_intro}</p><ul>{_rows}</ul>"
+                    f"<p>{_overdue_cta}</p>")
             except Exception as e:
                 log_error(str(e), details={"recipient": s_name}, endpoint="run_escalations:overdue_email")
 
@@ -10625,13 +10860,17 @@ def run_escalations(tasks, permits, triggered_by):
         _issuer_email = _email_by_name.get(_issuer)
         if expiring_permits and _issuer_email and not str(_issuer_email).endswith("@mwdts.internal"):
             try:
+                _issuer_record = _user_record_by_name.get(_issuer)
                 _rows = "".join(f"<li>#{p['id']} — {esc(p.get('permit_type') or 'permit')}, "
                                f"lock/tag {esc(p.get('lock_tag_numbers') or '—')}</li>" for p in expiring_permits)
+                _permit_subject = auto_t_for("🔒 {0} Permit(s) Expiring Within the Hour", _issuer_record).format(len(expiring_permits))
+                _permit_intro = auto_t_for("{0} permit(s) you issued expire within the hour:", _issuer_record).format(len(expiring_permits))
+                _permit_cta = auto_t_for("Open MWDTS → Permits to renew or formally sign back the isolation.", _issuer_record)
                 send_email_notification(_issuer_email,
-                    f"🔒 {len(expiring_permits)} Permit(s) Expiring Within the Hour",
-                    f"<p>{len(expiring_permits)} permit(s) you issued expire within the hour:</p>"
+                    _permit_subject,
+                    f"<p>{_permit_intro}</p>"
                     f"<ul>{_rows}</ul>"
-                    f"<p>Open MWDTS → Permits to renew or formally sign back the isolation.</p>")
+                    f"<p>{_permit_cta}</p>")
             except Exception as e:
                 log_error(str(e), details={"recipient": _issuer}, endpoint="run_escalations:permit_email")
 
@@ -11532,33 +11771,33 @@ def render_erp_sync_tab(current_username):
     """Owner Console → ERP Sync tab. Permission gating happens once,
     at the top of page_owner_console() (is_owner check) — this
     function does not re-check it."""
-    st.markdown("### SAP ERP Sync")
+    st.markdown(auto_t("### SAP ERP Sync"))
     if not SAP_CONFIGURED:
-        st.warning("SAP is not configured. Add `SAP_OAUTH_TOKEN_URL`, `SAP_CLIENT_ID`, "
-                  "`SAP_CLIENT_SECRET`, and `SAP_API_BASE_URL` to `.streamlit/secrets.toml`.")
+        st.warning(auto_t("SAP is not configured. Add `SAP_OAUTH_TOKEN_URL`, `SAP_CLIENT_ID`, "
+                  "`SAP_CLIENT_SECRET`, and `SAP_API_BASE_URL` to `.streamlit/secrets.toml`."))
         return
-    st.success("SAP OAuth2 credentials are configured.")
+    st.success(auto_t("SAP OAuth2 credentials are configured."))
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("🔄 Import Vendors", use_container_width=True):
+        if st.button(auto_t("🔄 Import Vendors"), use_container_width=True):
             with st.spinner("Importing vendors from SAP..."):
                 ok, msg = sap_import_vendors(triggered_by=current_username)
             (st.success if ok else st.error)(msg)
             get_erp_sync_log.clear()
     with col2:
-        if st.button("🔄 Import Materials", use_container_width=True):
+        if st.button(auto_t("🔄 Import Materials"), use_container_width=True):
             with st.spinner("Importing materials from SAP..."):
                 ok, msg = sap_import_materials(triggered_by=current_username)
             (st.success if ok else st.error)(msg)
             get_erp_sync_log.clear()
     with col3:
-        st.caption("Export a PO to SAP from its detail page (Purchase Orders → select "
+        st.caption(auto_t("Export a PO to SAP from its detail page (Purchase Orders → select "
                   "PO → **Export to SAP**), once its supplier and parts have SAP "
-                  "numbers from the imports above.")
-    st.markdown("#### Recent sync activity")
+                  "numbers from the imports above."))
+    st.markdown(auto_t("#### Recent sync activity"))
     log_rows = get_erp_sync_log(limit=50)
     if not log_rows:
-        st.caption("No sync activity yet.")
+        st.caption(auto_t("No sync activity yet."))
     else:
         for row in log_rows:
             icon = "✅" if row.get("status") == "success" else "❌"
@@ -11821,15 +12060,19 @@ def request_permit_extension(permit_id, requested_until, reason, requested_by):
                 log_error(str(e), endpoint="request_permit_extension:notify")
             if u.get("email") and not str(u["email"]).endswith("@mwdts.internal"):
                 try:
+                    _ext_permit_type_suffix = f" ({esc(_permit.get('permit_type'))})" if _permit else ""
+                    _ext_subject = auto_t_for("🔒 Permit Extension Requested — #{0}", u).format(permit_id)
+                    _ext_who = auto_t_for("{0} requested an extension on permit {1}{2}.", u).format(
+                        f"<strong>{esc(requested_by)}</strong>", f"<strong>#{permit_id}</strong>", _ext_permit_type_suffix)
+                    _ext_until_label = auto_t_for("Requested until:", u)
+                    _ext_reason_label = auto_t_for("Reason:", u)
+                    _ext_cta = auto_t_for("Open MWDTS → Permits to approve or reject. The permit is NOT extended until someone approves it.", u)
                     send_email_notification(u["email"],
-                        f"🔒 Permit Extension Requested — #{permit_id}",
-                        f"<p><strong>{esc(requested_by)}</strong> requested an extension on "
-                        f"permit <strong>#{permit_id}</strong>"
-                        + (f" ({esc(_permit.get('permit_type'))})" if _permit else "") + ".</p>"
-                        f"<p>Requested until: {esc(requested_until.strftime('%b %d, %Y %H:%M'))}</p>"
-                        f"<p>Reason: {esc(reason or '—')}</p>"
-                        f"<p>Open MWDTS → Permits to approve or reject. The permit is NOT extended "
-                        f"until someone approves it.</p>")
+                        _ext_subject,
+                        f"<p>{_ext_who}</p>"
+                        f"<p>{_ext_until_label} {esc(requested_until.strftime('%b %d, %Y %H:%M'))}</p>"
+                        f"<p>{_ext_reason_label} {esc(reason or '—')}</p>"
+                        f"<p>{_ext_cta}</p>")
                 except Exception as e:
                     log_error(str(e), endpoint="request_permit_extension:email")
     except Exception as e:
@@ -11875,12 +12118,15 @@ def decide_permit_extension(permit_id, approve, decided_by):
                               f"Your extension request on permit #{permit_id} was {_verb} by {decided_by}.",
                               category="permit_expiring")
             if _rec and _rec.get("email") and not str(_rec["email"]).endswith("@mwdts.internal"):
+                _verb_translated = auto_t_for("approved", _rec) if approve else auto_t_for("REJECTED", _rec)
+                _decision_subject = auto_t_for("Permit extension {0} — #{1}", _rec).format(_verb_translated, permit_id)
+                _decision_body = auto_t_for("Your extension request on permit {0} was {1} by {2}.", _rec).format(
+                    f"<strong>#{permit_id}</strong>", f"<strong>{_verb_translated}</strong>", esc(decided_by))
+                _rejected_note = auto_t_for("The permit's original expiry still applies — sign the isolation back or raise a new permit.", _rec)
                 send_email_notification(_rec["email"],
-                    f"Permit extension {_verb} — #{permit_id}",
-                    f"<p>Your extension request on permit <strong>#{permit_id}</strong> was "
-                    f"<strong>{_verb}</strong> by {esc(decided_by)}.</p>"
-                    + ("" if approve else "<p>The permit's original expiry still applies — "
-                                          "sign the isolation back or raise a new permit.</p>"))
+                    _decision_subject,
+                    f"<p>{_decision_body}</p>"
+                    + ("" if approve else f"<p>{_rejected_note}</p>"))
     except Exception as e:
         log_error(str(e), endpoint="decide_permit_extension:notify")
     return True
@@ -13419,6 +13665,43 @@ def worker_has_valid_certification(worker_name, certification_type, all_certs=No
               for c in all_certs)
 
 
+def user_is_assigned_to_task(task, full_name, role, team_ids=None):
+    """True if full_name is authorized to ACT on this task — accept or
+    sign back a permit tied to it, change its status, mark it
+    complete, add comments, upload photos. The primary assigned_to,
+    a team member (task_team_members — the "group" a task can be
+    assigned to), or a supervisor/superintendent all pass.
+
+    Supervisors/superintendents are deliberately NOT restricted to
+    their own assignments — they're the ones creating and assigning
+    this work in the first place and need oversight/recovery ability
+    across their whole team, so a single worker being unavailable (on
+    leave, phone dead, whatever) can never make a task permanently
+    stuck with no one able to touch it. The restriction this function
+    exists for is specifically "a worker acting on a DIFFERENT
+    worker's job" — not supervisor oversight.
+
+    Workers who fail this check can still SEE the task (shift
+    awareness — knowing what the rest of the crew has on doesn't need
+    gating), they just can't act on it; callers are responsible for
+    keeping view and edit separate, this function only answers the
+    edit question.
+
+    team_ids, if given, is a pre-fetched set from
+    fetch_task_ids_for_team_member(full_name) — pass it when checking
+    many tasks in a loop (the Kanban board does), same reasoning
+    task_has_active_permit's own docstring gives for its permits
+    parameter: without it, this issues one query per task rendered.
+    """
+    if str(role).strip().lower() in ("supervisor", "superintendent"):
+        return True
+    if task.get("assigned_to") == full_name:
+        return True
+    if team_ids is None:
+        team_ids = fetch_task_ids_for_team_member(full_name)
+    return task.get("id") in team_ids
+
+
 def task_status_change_gate(task, new_status, all_certs=None, permits=None):
     """Single shared check for whether a task can move to a given
     status right now — used identically by the main Task Dashboard
@@ -13681,24 +13964,28 @@ def daily_report_html(report):
     _prod_rows = "".join(f"<li>{mat}: {qty:,.1f} {unit}</li>" for (mat, unit), qty in r["production_totals"].items())
     _task_rows = "".join(f"<li>#{t2['id']} {esc(t2.get('title', ''))}</li>" for t2 in r["tasks_completed"][:20])
     _overdue_rows = "".join(f"<li>#{t2['id']} {esc(t2.get('title', ''))} — "
-                            f"{esc(t2.get('assigned_to') or 'unassigned')}</li>" for t2 in r["tasks_overdue"][:20])
+                            f"{esc(t2.get('assigned_to') or auto_t('unassigned'))}</li>" for t2 in r["tasks_overdue"][:20])
     _incident_rows = "".join(f"<li>#{i['id']} {esc(i.get('incident_type', ''))} at "
-                             f"{esc(i.get('location') or 'no location')}</li>" for i in r["incidents"])
+                             f"{esc(i.get('location') or auto_t('no location'))}</li>" for i in r["incidents"])
     _down_rows = "".join(f"<li>{esc(a.get('name'))} ({esc(a.get('status'))})</li>" for a in r["down_assets"])
     _logbook_rows = "".join(f"<li>{esc(e.get('created_by'))}: {esc(e.get('entry_text'))}</li>"
                             for e in r["logbook_entries"][:10])
+    _none_label = auto_t("None.")
+    _completed_label = auto_t("Completed today:")
+    _overdue_label = auto_t("Currently overdue:")
+    _task_counts_line = auto_t("{0} completed, {1} created, {2} currently overdue (site-wide, not just today's).").format(
+        len(r['tasks_completed']), len(r['tasks_created']), len(r['tasks_overdue']))
     return (
-        f"<h2>Daily Report — {r['date'].strftime('%B %d, %Y')}</h2>"
-        f"<h3>Production</h3><ul>{_prod_rows or '<li>No production logged.</li>'}</ul>"
-        f"<h3>Tasks</h3>"
-        f"<p>{len(r['tasks_completed'])} completed, {len(r['tasks_created'])} created, "
-        f"{len(r['tasks_overdue'])} currently overdue (site-wide, not just today's).</p>"
-        f"<p><strong>Completed today:</strong></p><ul>{_task_rows or '<li>None.</li>'}</ul>"
-        f"<p><strong>Currently overdue:</strong></p><ul>{_overdue_rows or '<li>None.</li>'}</ul>"
-        f"<h3>Incidents ({len(r['incidents'])})</h3><ul>{_incident_rows or '<li>None reported.</li>'}</ul>"
-        f"<h3>Equipment Down ({len(r['down_assets'])})</h3><ul>{_down_rows or '<li>Everything in service.</li>'}</ul>"
-        f"<h3>Permits Issued ({len(r['permits_issued'])})</h3>"
-        f"<h3>Logbook Highlights</h3><ul>{_logbook_rows or '<li>No entries.</li>'}</ul>"
+        f"<h2>{auto_t('Daily Report — {0}').format(r['date'].strftime('%B %d, %Y'))}</h2>"
+        f"<h3>{auto_t('Production')}</h3><ul>{_prod_rows or '<li>' + auto_t('No production logged.') + '</li>'}</ul>"
+        f"<h3>{auto_t('Tasks')}</h3>"
+        f"<p>{_task_counts_line}</p>"
+        f"<p><strong>{_completed_label}</strong></p><ul>{_task_rows or '<li>' + _none_label + '</li>'}</ul>"
+        f"<p><strong>{_overdue_label}</strong></p><ul>{_overdue_rows or '<li>' + _none_label + '</li>'}</ul>"
+        f"<h3>{auto_t('Incidents ({0})').format(len(r['incidents']))}</h3><ul>{_incident_rows or '<li>' + auto_t('None reported.') + '</li>'}</ul>"
+        f"<h3>{auto_t('Equipment Down ({0})').format(len(r['down_assets']))}</h3><ul>{_down_rows or '<li>' + auto_t('Everything in service.') + '</li>'}</ul>"
+        f"<h3>{auto_t('Permits Issued ({0})').format(len(r['permits_issued']))}</h3>"
+        f"<h3>{auto_t('Logbook Highlights')}</h3><ul>{_logbook_rows or '<li>' + auto_t('No entries.') + '</li>'}</ul>"
     )
 
 
@@ -16367,14 +16654,22 @@ def t(key):
 _CURATED_BY_TEXT = {v: k for k, v in TRANSLATIONS["en"].items()}
 
 
-def auto_t(text):
+def auto_t(text, lang=None):
     """Translates an English UI string into the user's language.
 
     Unlike t(), this takes the ENGLISH TEXT ITSELF, not a key — which
     is the whole point: wrapping a string costs one function call, not
     a new entry in eight dictionaries.
+
+    lang, if given, overrides the current viewer's session language —
+    needed for email/WhatsApp notifications specifically, which go to
+    a DIFFERENT person than whoever triggered the send (often from a
+    background context with no "current viewer" at all, e.g. a
+    completion email firing from inside update_task). Every existing
+    call site is unaffected: omitting lang keeps the exact original
+    behavior (the current session's language via get_user_language()).
     """
-    lang = get_user_language()
+    lang = lang or get_user_language()
     if lang == "en" or not text or not text.strip():
         return text
 
@@ -16462,6 +16757,18 @@ def auto_t(text):
         return text
 
 
+def auto_t_for(text, user_record):
+    """auto_t(), but translated into a SPECIFIC recipient's own saved
+    language preference rather than whoever is currently viewing the
+    app — for email/WhatsApp notifications specifically, which go to
+    a different person than whoever triggered the send. Falls back to
+    English for a user_record with no preference set, same as the
+    rest of the app already does for anyone who hasn't chosen a
+    language."""
+    lang = (user_record or {}).get("preferred_language") or "en"
+    return auto_t(text, lang=lang)
+
+
 def set_user_language(lang_code, username):
     """Persists the choice to the database (so it survives future
     logins, not just this session) and updates the session immediately
@@ -16490,12 +16797,12 @@ def set_user_language(lang_code, username):
 # doesn't need per-widget special-casing for which arguments to pass.
 def _dash_widget_mtbf(tasks, assets, incidents, parts_lookup):
     mtbf, mtbf_n = compute_mtbf_hours(tasks)
-    st.metric("MTBF (hours)", f"{mtbf:.1f}" if mtbf is not None else "No data", f"{mtbf_n} interval(s)")
+    st.metric(auto_t("MTBF (hours)"), f"{mtbf:.1f}" if mtbf is not None else "No data", f"{mtbf_n} interval(s)")
 
 def _dash_widget_cost_by_category(tasks, assets, incidents, parts_lookup):
     cats = cost_by_category(tasks, parts_lookup)
     if not cats:
-        st.info("No cost data yet.")
+        st.info(auto_t("No cost data yet."))
     else:
         for c in cats[:5]:
             st.write(f"**{c['category']}**: {c['total_cost']:,.2f}")
@@ -16503,10 +16810,10 @@ def _dash_widget_cost_by_category(tasks, assets, incidents, parts_lookup):
 def _dash_widget_predictive_alerts(tasks, assets, incidents, parts_lookup):
     alerts = get_predictive_failure_alerts(tasks, assets)
     if not alerts:
-        st.info("No assets currently approaching their typical failure window.")
+        st.info(auto_t("No assets currently approaching their typical failure window."))
     else:
         for a in alerts[:3]:
-            st.warning(f"**{a['asset_name']}** — {a['pct_of_window']:.0%} of typical interval between failures")
+            st.warning(auto_t("**{0}** — {1:.0%} of typical interval between failures").format(a['asset_name'], a['pct_of_window']))
 
 def _dash_widget_open_tasks(tasks, assets, incidents, parts_lookup):
     open_t = [t2 for t2 in tasks if t2.get("status") != "Complete"]
@@ -16524,43 +16831,43 @@ def _dash_widget_safety_snapshot(tasks, assets, incidents, parts_lookup):
 def _dash_widget_cost_anomalies(tasks, assets, incidents, parts_lookup):
     anomalies = detect_cost_anomalies(tasks, parts_lookup)
     if not anomalies:
-        st.info("No cost anomalies detected.")
+        st.info(auto_t("No cost anomalies detected."))
     else:
         for a in anomalies[:3]:
-            st.warning(f"**#{a['task_id']} {a['title']}** — {a['cost']:,.2f} (typical: {a['category_mean']:,.2f})")
+            st.warning(auto_t("**#{0} {1}** — {2:,.2f} (typical: {3:,.2f})").format(a['task_id'], a['title'], a['cost'], a['category_mean']))
 
 def _dash_widget_parts_forecast(tasks, assets, incidents, parts_lookup):
     forecast = get_parts_reorder_forecast(list(parts_lookup.values()), horizon_days=30)
     if not forecast:
-        st.info("No parts forecast to need reordering in the next 30 days.")
+        st.info(auto_t("No parts forecast to need reordering in the next 30 days."))
     else:
         for f in forecast[:5]:
             _p = f["part"]
             if f["already_due"]:
-                st.warning(f"**{esc(_p['part_name'])}** — at/below reorder point now")
+                st.warning(auto_t("**{0}** — at/below reorder point now").format(esc(_p['part_name'])))
             else:
-                st.write(f"**{esc(_p['part_name'])}** — reorder point in "
-                        f"~{f['days_until_reorder_point']:.0f} day(s)")
+                st.write(auto_t("**{0}** — reorder point in ~{1:.0f} day(s)").format(esc(_p['part_name']), f['days_until_reorder_point'])
+)
 
 def _dash_widget_electrical_subsections(tasks, assets, incidents, parts_lookup):
     workload = get_electrical_subsection_workload(tasks)
     for sub, counts in workload.items():
-        st.write(f"**{sub}**: {counts['open']} open ({counts['overdue']} overdue), "
-                f"{counts['completed_last_30d']} completed (30d)")
+        st.write(auto_t("**{0}**: {1} open ({2} overdue), {3} completed (30d)").format(sub, counts['open'], counts['overdue'], counts['completed_last_30d'])
+)
 
 def _dash_widget_active_outages(tasks, assets, incidents, parts_lookup):
     outages = fetch_outage_events(active_only=True)
     if not outages:
-        st.info("No active outages.")
+        st.info(auto_t("No active outages."))
     else:
         for e in outages:
-            st.error(f"**{e.get('location') or 'Location not set'}** — Commander: {e['outage_commander']}")
+            st.error(auto_t("**{0}** — Commander: {1}").format(e.get('location') or 'Location not set', e['outage_commander']))
 
 def _dash_widget_transformer_status(tasks, assets, incidents, parts_lookup):
     dga_tests = fetch_dga_tests()
     transformer_tags = sorted(set(t["transformer_tag"] for t in dga_tests))
     if not transformer_tags:
-        st.info("No transformers tracked yet.")
+        st.info(auto_t("No transformers tracked yet."))
         return
     worst_transformer = None
     for tag in transformer_tags:
@@ -16574,10 +16881,10 @@ def _dash_widget_transformer_status(tasks, assets, incidents, parts_lookup):
 def _dash_widget_pending_switching(tasks, assets, incidents, parts_lookup):
     pending = fetch_switching_orders(status="Draft")
     if not pending:
-        st.info("No switching orders awaiting authorization.")
+        st.info(auto_t("No switching orders awaiting authorization."))
     else:
         for o in pending[:3]:
-            st.warning(f"**{o['title']}** — awaiting {o.get('designated_approver') or 'approval'}")
+            st.warning(auto_t("**{0}** — awaiting {1}").format(o['title'], o.get('designated_approver') or 'approval'))
 
 def _dash_widget_calibration_alerts(tasks, assets, incidents, parts_lookup):
     overdue, due_soon = [], []
@@ -16588,12 +16895,12 @@ def _dash_widget_calibration_alerts(tasks, assets, incidents, parts_lookup):
         elif status == "due_soon":
             due_soon.append(c)
     if not overdue and not due_soon:
-        st.info("No calibrations overdue or due soon.")
+        st.info(auto_t("No calibrations overdue or due soon."))
     else:
         if overdue:
-            st.error(f"{len(overdue)} overdue")
+            st.error(auto_t("{0} overdue").format(len(overdue)))
         if due_soon:
-            st.warning(f"{len(due_soon)} due within 7 days")
+            st.warning(auto_t("{0} due within 7 days").format(len(due_soon)))
 
 DASHBOARD_WIDGET_REGISTRY = {
     "mtbf": ("Reliability (MTBF)", "fa-gears", _dash_widget_mtbf),
@@ -16917,7 +17224,7 @@ def render_logo_bar():
         return
     st.markdown(
         f'<style>:root {{ --header-top-offset: {60 + LOGO_BAR_HEIGHT}px; }}</style>'
-        f'<div class="logo-bar"><img src="{esc(logo_url)}" alt="Company logo"></div>',
+        f'<div class="logo-bar"><img src="{esc(logo_url)}" alt="{auto_t("Company logo")}"></div>',
         unsafe_allow_html=True,
     )
 
@@ -17528,15 +17835,24 @@ def send_predictive_downtime_alerts(tasks, assets, triggered_by):
             log_error(str(e), details={"recipient": u.get("full_name")}, endpoint="send_predictive_downtime_alerts:notify")
         if u.get("email") and not str(u["email"]).endswith("@mwdts.internal"):
             try:
-                _rows = "".join(
-                    f"<li><strong>{esc(a['asset_name'])}</strong> — {a['pct_of_window']*100:.0f}% of its "
-                    f"typical {a['mtbf_hours']:.0f}h failure window elapsed ({a['num_failures']} prior "
-                    f"failures)" + (f", ${a['downtime_cost_per_hour']:,.2f}/hr if down" if a['downtime_cost_per_hour'] else "")
-                    + "</li>" for a in due_alerts)
-                send_email_notification(u["email"], f"🔧 {len(due_alerts)} Asset(s) Approaching Predicted Failure",
-                    f"<p>Based on historical failure patterns (MTBF):</p><ul>{_rows}</ul>"
-                    f"<p>Open MWDTS → Equipment Health for full detail. This does not automatically "
-                    f"schedule anything — review and act as appropriate.</p>")
+                _pd_window_note = auto_t_for("of its typical {0}h failure window elapsed ({1} prior failures)", u)
+                _pd_cost_suffix = auto_t_for(", {0}/hr if down", u)
+                _pd_row_items = []
+                for a in due_alerts:
+                    _mtbf_str = f"{a['mtbf_hours']:.0f}"
+                    _window_text = _pd_window_note.format(_mtbf_str, a['num_failures'])
+                    _cost_str = f"${a['downtime_cost_per_hour']:,.2f}"
+                    _cost_text = _pd_cost_suffix.format(_cost_str) if a['downtime_cost_per_hour'] else ""
+                    _pd_row_items.append(
+                        f"<li><strong>{esc(a['asset_name'])}</strong> — {a['pct_of_window']*100:.0f}% "
+                        f"{_window_text}{_cost_text}</li>")
+                _rows = "".join(_pd_row_items)
+                _pd_subject = auto_t_for("🔧 {0} Asset(s) Approaching Predicted Failure", u).format(len(due_alerts))
+                _pd_intro = auto_t_for("Based on historical failure patterns (MTBF):", u)
+                _pd_cta = auto_t_for("Open MWDTS → Equipment Health for full detail. This does not automatically schedule anything — review and act as appropriate.", u)
+                send_email_notification(u["email"], _pd_subject,
+                    f"<p>{_pd_intro}</p><ul>{_rows}</ul>"
+                    f"<p>{_pd_cta}</p>")
             except Exception as e:
                 log_error(str(e), details={"recipient": u.get("full_name")}, endpoint="send_predictive_downtime_alerts:email")
 
@@ -18059,7 +18375,7 @@ def check_timeout():
                 del st.query_params["session"]
             st.session_state.authenticated = False
             st.session_state.user_payload = None
-            st.warning("Session expired due to inactivity. Please log in again.")
+            st.warning(auto_t("Session expired due to inactivity. Please log in again."))
             st.rerun()
         else:
             st.session_state.last_activity = datetime.now()
@@ -18277,18 +18593,18 @@ def whatsapp_login():
     MWDTS approval, so the same admin-gated path applies here too)."""
     if not WHATSAPP_LOGIN_CONFIGURED:
         return
-    with st.expander("Login with WhatsApp", key="whatsapp_login_expander"):
+    with st.expander(auto_t("Login with WhatsApp"), key="whatsapp_login_expander"):
         _stage = st.session_state.get("_wa_login_stage", "enter_phone")
 
         if _stage == "enter_phone":
             _wa_phone_raw = st.text_input(
-                "WhatsApp number (with country code)", placeholder="+233241234567",
+                auto_t("WhatsApp number (with country code)"), placeholder="+233241234567",
                 key="wa_phone_input")
-            if st.button("Send code", key="wa_send_code_btn"):
+            if st.button(auto_t("Send code"), key="wa_send_code_btn"):
                 _wa_phone = _normalize_whatsapp_number(_wa_phone_raw)
                 if not _wa_phone:
-                    st.error("Enter your number in international format, starting with + "
-                            "and your country code (e.g. +233241234567).")
+                    st.error(auto_t("Enter your number in international format, starting with + "
+                            "and your country code (e.g. +233241234567)."))
                 else:
                     _ok, _err = send_whatsapp_otp(_wa_phone)
                     if _ok:
@@ -18296,12 +18612,12 @@ def whatsapp_login():
                         st.session_state["_wa_login_stage"] = "enter_code"
                         st.rerun()
                     else:
-                        st.error(f"Couldn't send the code: {_err}")
+                        st.error(auto_t("Couldn't send the code: {0}").format(_err))
 
         elif _stage == "enter_code":
             _wa_phone = st.session_state.get("_wa_login_phone", "")
-            st.caption(f"Code sent to {esc(_wa_phone)} on WhatsApp.")
-            _wa_code = st.text_input("Enter the 6-digit code", key="wa_code_input", max_chars=6)
+            st.caption(auto_t("Code sent to {0} on WhatsApp.").format(esc(_wa_phone)))
+            _wa_code = st.text_input(auto_t("Enter the 6-digit code"), key="wa_code_input", max_chars=6)
             _wa_col1, _wa_col2 = st.columns(2)
             if _wa_col1.button("Verify", key="wa_verify_btn"):
                 _ok, _err = check_whatsapp_otp(_wa_phone, _wa_code.strip())
@@ -18314,9 +18630,9 @@ def whatsapp_login():
                         st.session_state["_wa_login_stage"] = "no_match"
                         st.rerun()
                     elif matched_user.get("is_suspended"):
-                        st.error("🚫 This account is suspended. Contact the administrator.")
+                        st.error(auto_t("🚫 This account is suspended. Contact the administrator."))
                     elif not matched_user.get("is_approved"):
-                        st.info("⏳ Your access request is pending administrator approval.")
+                        st.info(auto_t("⏳ Your access request is pending administrator approval."))
                     else:
                         clear_login_failures(matched_user.get("username"))
                         st.session_state.user_payload = {
@@ -18361,20 +18677,20 @@ def email_login():
     Forgot Password flow just above this, not a hard requirement for
     the rest of the login page to work.
     """
-    with st.expander("Login with Email", key="email_login_expander"):
+    with st.expander(auto_t("Login with Email"), key="email_login_expander"):
         _stage = st.session_state.get("_em_login_stage", "enter_email")
 
         if _stage == "enter_email":
-            _em_addr = st.text_input("Email address", placeholder="you@company.com", key="em_addr_input")
-            if st.button("Send code", key="em_send_code_btn"):
+            _em_addr = st.text_input(auto_t("Email address"), placeholder="you@company.com", key="em_addr_input")
+            if st.button(auto_t("Send code"), key="em_send_code_btn"):
                 if not _em_addr or "@" not in _em_addr:
-                    st.error("Enter a valid email address.")
+                    st.error(auto_t("Enter a valid email address."))
                 else:
                     _em_key = f"emailcode:{_em_addr.strip().lower()}"
                     _locked, _secs = is_login_locked(_em_key)
                     if _locked:
-                        st.error(f"Too many code requests for this address. "
-                                f"Try again in about {max(1, _secs // 60)} minute(s).")
+                        st.error(auto_t("Too many code requests for this address. Try again in about {0} minute(s).").format(max(1, _secs // 60))
+)
                     else:
                         record_login_failure(_em_key)
                         request_email_login_code(_em_addr)
@@ -18388,13 +18704,13 @@ def email_login():
             # happened server-side — same principle as the Forgot
             # Password message above, extended here rather than
             # showing a different caption for "account found" vs not.
-            st.caption(f"If {esc(_em_addr)} is registered or eligible, a code was sent to it.")
-            _em_code = st.text_input("Enter the 6-digit code", key="em_code_input", max_chars=6)
+            st.caption(auto_t("If {0} is registered or eligible, a code was sent to it.").format(esc(_em_addr)))
+            _em_code = st.text_input(auto_t("Enter the 6-digit code"), key="em_code_input", max_chars=6)
             _em_col1, _em_col2 = st.columns(2)
             if _em_col1.button("Verify", key="em_verify_btn"):
                 _ok, _purpose, _matched_user = verify_email_login_code(_em_addr, _em_code.strip())
                 if not _ok:
-                    st.error("That code is invalid or has expired. Request a new one.")
+                    st.error(auto_t("That code is invalid or has expired. Request a new one."))
                 elif _purpose == "login" and _matched_user:
                     complete_login(_matched_user)
                     for _k in ("_em_login_stage", "_em_login_email"):
@@ -18409,8 +18725,8 @@ def email_login():
                     st.session_state["_verified_signup_email"] = _em_addr
                     for _k in ("_em_login_stage", "_em_login_email"):
                         st.session_state.pop(_k, None)
-                    st.success("✅ Email verified. Scroll down to **Create Account Profile** "
-                              "to finish requesting access — your email is already filled in.")
+                    st.success(auto_t("✅ Email verified. Scroll down to **Create Account Profile** "
+                              "to finish requesting access — your email is already filled in."))
             if _em_col2.button("Use a different email", key="em_restart_btn"):
                 for _k in ("_em_login_stage", "_em_login_email"):
                     st.session_state.pop(_k, None)
@@ -18418,20 +18734,20 @@ def email_login():
 
         elif _stage == "no_match":
             _wa_phone = st.session_state.get("_wa_login_phone", "")
-            st.info(f"No MWDTS account found for **{esc(_wa_phone)}**.")
+            st.info(auto_t("No MWDTS account found for **{0}**.").format(esc(_wa_phone)))
             with st.form("wa_signup_form"):
-                st.caption("First time signing in with this number — this creates an "
+                st.caption(auto_t("First time signing in with this number — this creates an "
                           "access request. An administrator still reviews and sets your "
-                          "actual role.")
-                _wa_username = st.text_input("Choose Username").strip().lower()
-                _wa_name = st.text_input("Full Name *")
-                _wa_role = st.selectbox("Requested Access Level", ["Worker", "Supervisor", "Superintendent"])
-                _wa_submit = st.form_submit_button("📨 Request Access", use_container_width=True)
+                          "actual role."))
+                _wa_username = st.text_input(auto_t("Choose Username")).strip().lower()
+                _wa_name = st.text_input(auto_t("Full Name *"))
+                _wa_role = st.selectbox(auto_t("Requested Access Level"), ["Worker", "Supervisor", "Superintendent"], format_func=auto_t)
+                _wa_submit = st.form_submit_button(auto_t("📨 Request Access"), use_container_width=True)
             if _wa_submit:
                 if not _wa_username or not _wa_name:
-                    st.error("Username and full name are required.")
+                    st.error(auto_t("Username and full name are required."))
                 elif any(u["username"].lower() == _wa_username for u in fetch_all_users_from_db()):
-                    st.error("That username is taken. Please choose another.")
+                    st.error(auto_t("That username is taken. Please choose another."))
                 else:
                     _ok, _err = register_user_to_db(
                         _wa_username, _wa_name, _wa_role,
@@ -18441,13 +18757,13 @@ def email_login():
                                                                 # because the schema requires
                                                                 # a password_hash row
                     if _ok:
-                        st.success("✅ Access request submitted. You'll be able to sign in "
-                                   "with WhatsApp once an administrator approves it.")
+                        st.success(auto_t("✅ Access request submitted. You'll be able to sign in "
+                                   "with WhatsApp once an administrator approves it."))
                         for _k in ("_wa_login_stage", "_wa_login_phone"):
                             st.session_state.pop(_k, None)
                     else:
                         st.error(_err or "Registration failed.")
-            if st.button("Use a different number", key="wa_restart_from_nomatch_btn"):
+            if st.button(auto_t("Use a different number"), key="wa_restart_from_nomatch_btn"):
                 for _k in ("_wa_login_stage", "_wa_login_phone"):
                     st.session_state.pop(_k, None)
                 st.rerun()
@@ -18529,7 +18845,7 @@ def google_oauth_login():
         # Worth setting APP_URL in secrets.toml if this button doesn't
         # work; see this function's own docstring above.
         _google_href = esc("?auto_google_login=1")
-    st.markdown(f"""<div class="google-login-link-wrap"> <a href="{_google_href}" class="google-login-link"> Login with Google </a> </div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="google-login-link-wrap"> <a href="{_google_href}" class="google-login-link"> {auto_t("Login with Google")} </a> </div>""", unsafe_allow_html=True)
 
 
 def handle_google_oauth_return():
@@ -18566,8 +18882,8 @@ def handle_google_oauth_return():
 
     google_email = st.user.get("email")
     if not google_email:
-        st.error("Google didn't return an email address for this account — cannot continue.")
-        if st.button("Try a different account"):
+        st.error(auto_t("Google didn't return an email address for this account — cannot continue."))
+        if st.button(auto_t("Try a different account")):
             st.logout()
         return True
 
@@ -18579,47 +18895,47 @@ def handle_google_oauth_return():
         # an access request exactly like the normal signup form does,
         # rather than either silently granting access or dead-ending
         # the person with no path forward at all.
-        st.info(f"No MWDTS account found for **{esc(google_email)}**.")
+        st.info(auto_t("No MWDTS account found for **{0}**.").format(esc(google_email)))
         with st.form("google_signup_form"):
-            st.caption("First time signing in with Google — this creates an access request, "
+            st.caption(auto_t("First time signing in with Google — this creates an access request, "
                       "same as the normal sign-up form. An administrator still reviews and "
-                      "sets your actual role.")
+                      "sets your actual role."))
             _g_username = st.text_input(
-                "Choose Username",
+                auto_t("Choose Username"),
                 value=re.sub(r"[^a-z0-9_]", "", google_email.split("@")[0].lower()),
             ).strip().lower()
-            _g_name = st.text_input("Full Name *", value=st.user.get("name", ""))
-            _g_role = st.selectbox("Requested Access Level", ["Worker", "Supervisor", "Superintendent"])
-            _g_submit = st.form_submit_button("📨 Request Access", use_container_width=True)
+            _g_name = st.text_input(auto_t("Full Name *"), value=st.user.get("name", ""))
+            _g_role = st.selectbox(auto_t("Requested Access Level"), ["Worker", "Supervisor", "Superintendent"], format_func=auto_t)
+            _g_submit = st.form_submit_button(auto_t("📨 Request Access"), use_container_width=True)
         if _g_submit:
             if not _g_username or not _g_name:
-                st.error("Username and full name are required.")
+                st.error(auto_t("Username and full name are required."))
             elif any(u["username"].lower() == _g_username for u in users):
-                st.error("That username is taken. Please choose another.")
+                st.error(auto_t("That username is taken. Please choose another."))
             else:
                 _ok, _err = register_user_to_db(
                     _g_username, _g_name, _g_role,
                     _generate_google_account_password(), email=google_email)
                 if _ok:
-                    st.success("✅ Access request submitted. You'll be able to sign in "
-                               "with Google once an administrator approves it.")
+                    st.success(auto_t("✅ Access request submitted. You'll be able to sign in "
+                               "with Google once an administrator approves it."))
                 else:
                     st.error(_err or "Registration failed.")
-        if st.button("Use a different Google account"):
+        if st.button(auto_t("Use a different Google account")):
             st.logout()
         return True
 
     if matched_user.get("is_suspended"):
-        st.error("🚫 **This account is suspended.** Contact the administrator "
-                 "if you believe this is a mistake.")
-        if st.button("Use a different Google account", key="google_switch_suspended"):
+        st.error(auto_t("🚫 **This account is suspended.** Contact the administrator "
+                 "if you believe this is a mistake."))
+        if st.button(auto_t("Use a different Google account"), key="google_switch_suspended"):
             st.logout()
         return True
 
     if not matched_user.get("is_approved"):
-        st.info("⏳ **Your access request is pending.** The administrator has "
-                "not yet reviewed it. You'll be able to sign in once approved.")
-        if st.button("Use a different Google account", key="google_switch_pending"):
+        st.info(auto_t("⏳ **Your access request is pending.** The administrator has "
+                "not yet reviewed it. You'll be able to sign in once approved."))
+        if st.button(auto_t("Use a different Google account"), key="google_switch_pending"):
             st.logout()
         return True
 
@@ -18677,7 +18993,7 @@ if st.query_params.get("fcm_token"):
         del st.query_params["app_source"]
     if st.session_state.authenticated:
         if save_fcm_token(st.session_state.user_payload.get("username"), _fcm_tok):
-            st.toast("🔔 Push notifications ready on this device.")
+            st.toast(auto_t("🔔 Push notifications ready on this device."))
     else:
         st.session_state["_pending_fcm_token"] = _fcm_tok
 
@@ -18695,9 +19011,9 @@ if st.query_params.get("update_available"):
 if st.session_state.get("_update_available_tag") and not st.session_state.get("_update_banner_dismissed"):
     _update_col1, _update_col2 = st.columns([6, 1])
     with _update_col1:
-        st.info(f"📱 A newer version of the app is available "
-                f"({esc(st.session_state['_update_available_tag'])}). "
-                f"[Download it here](https://github.com/mosee2002/mine-task-tracker/releases/latest).")
+        st.info(auto_t("📱 A newer version of the app is available ({0}). [Download it here](https://github.com/mosee2002/mine-task-tracker/releases/latest).").format(esc(st.session_state['_update_available_tag']))
+
+)
     with _update_col2:
         if st.button("✕", key="_dismiss_update_banner"):
             st.session_state["_update_banner_dismissed"] = True
@@ -18716,7 +19032,7 @@ if not st.session_state.authenticated and st.query_params.get("auto_google_login
         st.login()
     except Exception as _google_login_err:
         log_error(str(_google_login_err), endpoint="auto_google_login")
-        st.error("Couldn't reach Google sign-in. Please try again, or use username/password below.")
+        st.error(auto_t("Couldn't reach Google sign-in. Please try again, or use username/password below."))
         st.stop()
 
 if not st.session_state.authenticated and not st.session_state.get("_session_token_checked"):
@@ -18768,7 +19084,7 @@ if not st.session_state.authenticated and not st.session_state["_pre_login_welco
     # continuous-reload issue.
     try:
         render_logo_bar()
-        st.markdown('''
+        st.markdown(auto_t('''
         <div class="landing-hero">
             <i class="fas fa-hard-hat landing-icon"></i>
             <h1>Mine & Workshop Digital Tracker</h1>
@@ -18776,7 +19092,7 @@ if not st.session_state.authenticated and not st.session_state["_pre_login_welco
             system — tasks, permits, incidents, and shift handovers, all in one place,
             accessible from your phone.</p>
         </div>
-        ''', unsafe_allow_html=True)
+        '''), unsafe_allow_html=True)
 
         render_subheading("What's inside", level=4)
         _landing_features = [
@@ -18802,8 +19118,8 @@ if not st.session_state.authenticated and not st.session_state["_pre_login_welco
 
         st.markdown("<br>", unsafe_allow_html=True)
         render_subheading("Get Started", level=4)
-        st.caption("Choose your role to continue to login — same login form either way, this "
-                  "just points you in the right direction.")
+        st.caption(auto_t("Choose your role to continue to login — same login form either way, this "
+                  "just points you in the right direction."))
         _role_cards = [
             {"icon": "fa-helmet-safety", "title": "Worker", "desc": "Field tasks & incident reporting", "tone": "info"},
             {"icon": "fa-user-gear", "title": "Supervisor", "desc": "Crew, tasks & shift handovers", "tone": "ok"},
@@ -18813,7 +19129,7 @@ if not st.session_state.authenticated and not st.session_state["_pre_login_welco
         for _rcol, _rcard in zip([_rcol1, _rcol2, _rcol3], _role_cards):
             with _rcol:
                 st.markdown(render_action_cards([_rcard]), unsafe_allow_html=True)
-                if st.button(f"Continue as {_rcard['title']}", key=f"_role_landing_{_rcard['title']}",
+                if st.button(auto_t("Continue as {0}").format(_rcard['title']), key=f"_role_landing_{_rcard['title']}",
                             use_container_width=True):
                     st.session_state["_pre_login_welcome_dismissed"] = True
                     st.rerun()
@@ -18823,7 +19139,7 @@ if not st.session_state.authenticated and not st.session_state["_pre_login_welco
         # at login, same as every other role), just not something to
         # visually advertise alongside the three main roles.
         st.markdown('<div style="text-align:center; margin-top:0.8rem;">', unsafe_allow_html=True)
-        if st.button("Admin", key="_admin_landing_link", type="tertiary"):
+        if st.button(auto_t("Admin"), key="_admin_landing_link", type="tertiary"):
             st.session_state["_pre_login_welcome_dismissed"] = True
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
@@ -18917,14 +19233,14 @@ elif not st.session_state.authenticated:
     render_logo_bar()
     render_poster_slideshow()
     render_ticker_bar()
-    st.markdown('''
+    st.markdown(auto_t('''
     <div class="main-header">
         <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
         <small>Smart Maintenance Management System</small>
     </div>
-    ''', unsafe_allow_html=True)
+    '''), unsafe_allow_html=True)
     st.markdown('<div class="main-header-spacer"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>', unsafe_allow_html=True)
+    st.markdown(auto_t('<div class="sub-header"><i class="fas fa-shield-alt"></i> Secure Login Gateway</div>'), unsafe_allow_html=True)
 
     # Checked before the rest of this screen: if this rerun is the
     # browser landing back from a Google login redirect, this
@@ -18951,18 +19267,18 @@ elif not st.session_state.authenticated:
     # --- Owner not configured -------------------------------------------
     if SUPABASE_AVAILABLE and not owner_is_configured():
         st.error(
-            "⚠️ **No owner configured.** Add `OWNER_USERNAME = \"your-username\"` to "
+            auto_t("⚠️ **No owner configured.** Add `OWNER_USERNAME = \"your-username\"` to "
             "`.streamlit/secrets.toml` and restart. Until then the Owner Console is "
-            "unreachable and nobody can approve access requests."
+            "unreachable and nobody can approve access requests.")
         )
 
     # --- Demo mode notice -------------------------------------------------
     if not SUPABASE_AVAILABLE:
         st.info(
-            "**Demo mode — no database connected.** Nothing you enter will be saved. "
+            auto_t("**Demo mode — no database connected.** Nothing you enter will be saved. "
             "Sign in with `superintendent1` / `boss000`, `supervisor1` / `super789`, "
             "or `worker1` / `worker123`. These accounts exist ONLY in demo mode and "
-            "disappear automatically once Supabase is connected."
+            "disappear automatically once Supabase is connected.")
         )
 
     # --- First-run administrator bootstrap --------------------------------
@@ -18970,26 +19286,26 @@ elif not st.session_state.authenticated:
     # log in: the demo accounts are gone, and self-registration requires an
     # existing Superintendent to approve it.
     elif not has_any_admin():
-        st.warning("**First-run setup.** The database has no administrator yet. "
+        st.warning(auto_t("**First-run setup.** The database has no administrator yet. "
                    "Create one now — this form disappears permanently once an "
-                   "administrator exists.")
+                   "administrator exists."))
         with st.form("bootstrap_admin", clear_on_submit=True):
             render_subheading("Create the first Superintendent account", level=4)
-            _bs_user = st.text_input("Username", placeholder="e.g. amoses").strip().lower()
-            _bs_name = st.text_input("Full Name", placeholder="Your full name")
-            _bs_email = st.text_input("Email (optional)")
-            _bs_p1 = st.text_input("Password", type="password")
-            _bs_p2 = st.text_input("Confirm Password", type="password")
-            _bs_go = st.form_submit_button("🚀 Create Administrator", use_container_width=True)
+            _bs_user = st.text_input(auto_t("Username"), placeholder="e.g. amoses").strip().lower()
+            _bs_name = st.text_input(auto_t("Full Name"), placeholder="Your full name")
+            _bs_email = st.text_input(auto_t("Email (optional)"))
+            _bs_p1 = st.text_input(auto_t("Password"), type="password")
+            _bs_p2 = st.text_input(auto_t("Confirm Password"), type="password")
+            _bs_go = st.form_submit_button(auto_t("🚀 Create Administrator"), use_container_width=True)
             if _bs_go:
                 if not (_bs_user and _bs_name and _bs_p1):
-                    st.error("Username, full name, and password are required.")
+                    st.error(auto_t("Username, full name, and password are required."))
                 elif _bs_p1 != _bs_p2:
-                    st.error("Passwords do not match.")
+                    st.error(auto_t("Passwords do not match."))
                 else:
                     _ok, _err = create_first_admin(_bs_user, _bs_name, _bs_p1, _bs_email or None)
                     if _ok:
-                        st.success("Administrator created. You can now log in below.")
+                        st.success(auto_t("Administrator created. You can now log in below."))
                         st.rerun()
                     else:
                         st.error(_err)
@@ -19012,9 +19328,9 @@ elif not st.session_state.authenticated:
                 expiry = _parse_dt(u.get("reset_token_expiry")) or datetime.now()
                 if expiry > datetime.now():
                     with st.form("reset_password_form", clear_on_submit=True):
-                        st.markdown("### Reset Your Password")
-                        new_pass = st.text_input("New Password", type="password")
-                        if st.form_submit_button("Reset Password"):
+                        st.markdown(auto_t("### Reset Your Password"))
+                        new_pass = st.text_input(auto_t("New Password"), type="password")
+                        if st.form_submit_button(auto_t("Reset Password")):
                             strong, msg = is_strong_password(new_pass)
                             if strong:
                                 hashed = hash_password(new_pass)
@@ -19023,34 +19339,34 @@ elif not st.session_state.authenticated:
                                     "password_reset_token": None,
                                     "reset_token_expiry": None
                                 }):
-                                    st.success("Password updated! Please log in.")
+                                    st.success(auto_t("Password updated! Please log in."))
                                     st.query_params.clear()
                                     st.rerun()
                                 else:
-                                    st.error("Failed to update password.")
+                                    st.error(auto_t("Failed to update password."))
                             else:
                                 st.error(msg)
                 else:
-                    st.error("Reset link expired.")
+                    st.error(auto_t("Reset link expired."))
                 found = True
                 break
         if not found:
-            st.error("Invalid reset token.")
+            st.error(auto_t("Invalid reset token."))
 
     # Normal login form — hidden once a password has been verified and
     # we're waiting on a 2FA code instead, so the person isn't shown
     # both forms confusingly at once.
     if not st.session_state.get("_pending_2fa_username"):
         with st.form("login_form", clear_on_submit=True):
-            user_in = st.text_input("Username", placeholder="Enter your username").strip().lower()
-            pass_in = st.text_input("Password", type="password", placeholder="Enter your password")
-            login_submitted = st.form_submit_button('Authenticate Profile', use_container_width=True, key="password_login_submit_btn")
+            user_in = st.text_input(auto_t("Username"), placeholder="Enter your username").strip().lower()
+            pass_in = st.text_input(auto_t("Password"), type="password", placeholder="Enter your password")
+            login_submitted = st.form_submit_button(auto_t('Authenticate Profile'), use_container_width=True, key="password_login_submit_btn")
 
         if login_submitted:
             locked, seconds_left = is_login_locked(user_in)
             if locked:
                 mins = max(1, seconds_left // 60)
-                st.error(f"🔒 Too many failed attempts. This account is locked for about {mins} more minute(s).")
+                st.error(auto_t("🔒 Too many failed attempts. This account is locked for about {0} more minute(s).").format(mins))
             else:
                 matched_user, status = authenticate_user(user_in, pass_in)
                 if matched_user:
@@ -19068,44 +19384,44 @@ elif not st.session_state.authenticated:
                         complete_login(matched_user)
                         st.rerun()
                 elif status == "pending_approval":
-                    st.info("⏳ **Your access request is pending.** The administrator has "
-                            "not yet reviewed it. You'll be able to sign in once approved.")
+                    st.info(auto_t("⏳ **Your access request is pending.** The administrator has "
+                            "not yet reviewed it. You'll be able to sign in once approved."))
                 elif status == "suspended":
-                    st.error("🚫 **This account is suspended.** Contact the administrator "
-                             "if you believe this is a mistake.")
+                    st.error(auto_t("🚫 **This account is suspended.** Contact the administrator "
+                             "if you believe this is a mistake."))
                 elif status == "denied":
-                    st.error("🚫 **Your access request was declined.** Contact the "
-                             "administrator for details.")
+                    st.error(auto_t("🚫 **Your access request was declined.** Contact the "
+                             "administrator for details."))
                 else:
                     record_login_failure(user_in)
                     attempts = _login_state().get(str(user_in).lower(), {}).get("count", 0)
                     remaining = max(0, LOGIN_MAX_ATTEMPTS - attempts)
                     if remaining > 0:
-                        st.error(f"Invalid credentials. {remaining} attempt(s) remaining before lockout.")
+                        st.error(auto_t("Invalid credentials. {0} attempt(s) remaining before lockout.").format(remaining))
                     else:
-                        st.error(f"🔒 Too many failed attempts. Account locked for {LOGIN_LOCKOUT_MINUTES} minutes.")
+                        st.error(auto_t("🔒 Too many failed attempts. Account locked for {0} minutes.").format(LOGIN_LOCKOUT_MINUTES))
     else:
         # ---------- 2FA CHALLENGE ----------
-        st.markdown("### 🔐 Two-Factor Authentication")
+        st.markdown(auto_t("### 🔐 Two-Factor Authentication"))
         _2fa_username = st.session_state["_pending_2fa_username"]
-        st.caption(f"Enter the 6-digit code from your authenticator app for **{esc(_2fa_username)}**, "
-                  "or one of your backup codes.")
+        st.caption(auto_t("Enter the 6-digit code from your authenticator app for **{0}**, or one of your backup codes.").format(esc(_2fa_username))
+)
         with st.form("totp_challenge_form", clear_on_submit=True):
-            _totp_code_in = st.text_input("Code", max_chars=20, placeholder="123456")
-            _totp_submitted = st.form_submit_button("Verify", use_container_width=True)
-        if st.button("← Back to login"):
+            _totp_code_in = st.text_input(auto_t("Code"), max_chars=20, placeholder="123456")
+            _totp_submitted = st.form_submit_button(auto_t("Verify"), use_container_width=True)
+        if st.button(auto_t("← Back to login")):
             del st.session_state["_pending_2fa_username"]
             st.rerun()
         if _totp_submitted:
             locked, seconds_left = is_login_locked(f"2fa:{_2fa_username}")
             if locked:
                 mins = max(1, seconds_left // 60)
-                st.error(f"🔒 Too many failed 2FA attempts. Try again in about {mins} minute(s).")
+                st.error(auto_t("🔒 Too many failed 2FA attempts. Try again in about {0} minute(s).").format(mins))
             else:
                 _fresh_user = next((u for u in fetch_all_users_from_db()
                                     if u["username"] == _2fa_username), None)
                 if not _fresh_user or not _fresh_user.get("totp_enabled"):
-                    st.error("2FA state changed — please log in again.")
+                    st.error(auto_t("2FA state changed — please log in again."))
                     del st.session_state["_pending_2fa_username"]
                 elif verify_totp_code(_fresh_user.get("totp_secret", ""), _totp_code_in) or \
                         consume_backup_code(_2fa_username, _totp_code_in):
@@ -19114,21 +19430,21 @@ elif not st.session_state.authenticated:
                     st.rerun()
                 else:
                     record_login_failure(f"2fa:{_2fa_username}")
-                    st.error("Invalid code. Check your authenticator app's time is in sync, "
-                            "or use a backup code.")
+                    st.error(auto_t("Invalid code. Check your authenticator app's time is in sync, "
+                            "or use a backup code."))
 
     # Forgot password link
-    with st.expander("Forgot Password?"):
+    with st.expander(auto_t("Forgot Password?")):
         with st.form("reset_form", clear_on_submit=True):
-            reset_email = st.text_input("Enter your registered email", placeholder="email@example.com")
-            if st.form_submit_button("Send Reset Link"):
+            reset_email = st.text_input(auto_t("Enter your registered email"), placeholder="email@example.com")
+            if st.form_submit_button(auto_t("Send Reset Link")):
                 if not reset_email or "@" not in reset_email:
-                    st.error("Enter a valid email address.")
+                    st.error(auto_t("Enter a valid email address."))
                 else:
                     _locked, _secs = is_login_locked(f"reset:{reset_email.lower()}")
                     if _locked:
-                        st.error(f"Too many reset requests for this address. "
-                                 f"Try again in about {max(1, _secs // 60)} minute(s).")
+                        st.error(auto_t("Too many reset requests for this address. Try again in about {0} minute(s).").format(max(1, _secs // 60))
+)
                     else:
                         record_login_failure(f"reset:{reset_email.lower()}")
                         users = fetch_all_users_from_db()
@@ -19141,7 +19457,7 @@ elif not st.session_state.authenticated:
                         # trying emails one at a time. If SMTP itself isn't configured,
                         # that's an operator problem visible in the Owner Console health
                         # check, not something to reveal to whoever is at this form.
-                        st.success("If that email is registered, a reset link has been sent.")
+                        st.success(auto_t("If that email is registered, a reset link has been sent."))
 
     if AUTH_AVAILABLE and GOOGLE_CLIENT_ID:
         google_oauth_login()
@@ -19151,48 +19467,48 @@ elif not st.session_state.authenticated:
     whatsapp_login()
 
     st.markdown("---")
-    st.markdown('<div class="sub-header"><i class="fas fa-user-plus"></i> Create Account Profile</div>', unsafe_allow_html=True)
+    st.markdown(auto_t('<div class="sub-header"><i class="fas fa-user-plus"></i> Create Account Profile</div>'), unsafe_allow_html=True)
 
     with st.form("register_form", clear_on_submit=True):
-        st.caption("Submitting this creates an **access request**. An administrator "
+        st.caption(auto_t("Submitting this creates an **access request**. An administrator "
                    "reviews it and decides your role — selecting a role below is a "
-                   "request, not a grant.")
+                   "request, not a grant."))
         _rc1, _rc2 = st.columns(2)
         with _rc1:
-            reg_user = st.text_input("Choose Username", placeholder="Pick a unique username").strip().lower()
-            reg_name = st.text_input("Full Name *", placeholder="Your full name")
-            reg_email = st.text_input("Work Email *", placeholder="email@company.com",
+            reg_user = st.text_input(auto_t("Choose Username"), placeholder="Pick a unique username").strip().lower()
+            reg_name = st.text_input(auto_t("Full Name *"), placeholder="Your full name")
+            reg_email = st.text_input(auto_t("Work Email *"), placeholder="email@company.com",
                                       value=st.session_state.pop("_verified_signup_email", ""))
-            reg_pass = st.text_input("Set Password *", type="password",
+            reg_pass = st.text_input(auto_t("Set Password *"), type="password",
                                      placeholder="8+ chars, upper, lower, digit, symbol")
         with _rc2:
-            reg_empid = st.text_input("Employee / Contractor ID",
+            reg_empid = st.text_input(auto_t("Employee / Contractor ID"),
                                       placeholder="Helps the admin verify you")
-            reg_title = st.text_input("Job Title", placeholder="e.g. Fitter, Electrician")
-            reg_dept = st.text_input("Department / Crew", placeholder="e.g. Fixed Plant")
-            reg_role = st.selectbox("Requested Access Level",
-                                    ["Worker", "Supervisor", "Superintendent"])
-        register_submitted = st.form_submit_button('📨 Request Access', use_container_width=True)
+            reg_title = st.text_input(auto_t("Job Title"), placeholder="e.g. Fitter, Electrician")
+            reg_dept = st.text_input(auto_t("Department / Crew"), placeholder="e.g. Fixed Plant")
+            reg_role = st.selectbox(auto_t("Requested Access Level"),
+                                    ["Worker", "Supervisor", "Superintendent"], format_func=auto_t)
+        register_submitted = st.form_submit_button(auto_t('📨 Request Access'), use_container_width=True)
 
     if register_submitted:
         if not SUPABASE_AVAILABLE:
-            st.error("Cannot register in demo mode — no database is connected.")
+            st.error(auto_t("Cannot register in demo mode — no database is connected."))
         elif reg_user and reg_name and reg_pass and reg_email:
             users = fetch_all_users_from_db()
             if any(u["username"].lower() == reg_user for u in users):
-                st.error("That username is taken. Please choose another.")
+                st.error(auto_t("That username is taken. Please choose another."))
             else:
                 ok, err = register_user_to_db(
                     reg_user, reg_name, reg_role, reg_pass, reg_email,
                     job_title=reg_title or None, department=reg_dept or None,
                     employee_id=reg_empid or None)
                 if ok:
-                    st.success("✅ Access request submitted. You'll be able to sign in "
-                               "once an administrator approves it.")
+                    st.success(auto_t("✅ Access request submitted. You'll be able to sign in "
+                               "once an administrator approves it."))
                 else:
                     st.error(err or "Registration failed.")
         else:
-            st.error("Username, full name, email, and password are required.")
+            st.error(auto_t("Username, full name, email, and password are required."))
     st.stop()
 else:
     check_timeout()
@@ -19206,21 +19522,21 @@ else:
         render_logo_bar()
         render_poster_slideshow()
         render_ticker_bar()
-        st.markdown('''
+        st.markdown(auto_t('''
         <div class="main-header">
             <i class="fas fa-key"></i> Password Change Required
         </div>
-        ''', unsafe_allow_html=True)
+        '''), unsafe_allow_html=True)
         st.markdown('<div class="main-header-spacer"></div>', unsafe_allow_html=True)
-        st.warning("An administrator reset your password. Choose a new one to continue — "
-                  "you won't be able to use the app until this is done.")
+        st.warning(auto_t("An administrator reset your password. Choose a new one to continue — "
+                  "you won't be able to use the app until this is done."))
         with st.form("forced_password_change", clear_on_submit=True):
-            _fp1 = st.text_input("New Password", type="password")
-            _fp2 = st.text_input("Confirm New Password", type="password")
-            _fp_go = st.form_submit_button("Set New Password", use_container_width=True)
+            _fp1 = st.text_input(auto_t("New Password"), type="password")
+            _fp2 = st.text_input(auto_t("Confirm New Password"), type="password")
+            _fp_go = st.form_submit_button(auto_t("Set New Password"), use_container_width=True)
             if _fp_go:
                 if _fp1 != _fp2:
-                    st.error("Passwords do not match.")
+                    st.error(auto_t("Passwords do not match."))
                 else:
                     _strong, _msg = is_strong_password(_fp1)
                     if not _strong:
@@ -19232,10 +19548,10 @@ else:
                         st.session_state.user_payload["must_change_password"] = False
                         log_audit(st.session_state.user_payload.get("name", "unknown"),
                                  "forced_password_change_completed", {})
-                        st.success("Password updated.")
+                        st.success(auto_t("Password updated."))
                         st.rerun()
                     else:
-                        st.error("Failed to update password. Try again.")
+                        st.error(auto_t("Failed to update password. Try again."))
         st.stop()
 
 # -------------------------------
@@ -19366,7 +19682,7 @@ if not st.session_state.user_payload or "name" not in st.session_state.user_payl
             del st.query_params["session"]
         st.session_state.authenticated = False
         st.session_state.user_payload = None
-        st.warning("Your session couldn't be verified — please log in again.")
+        st.warning(auto_t("Your session couldn't be verified — please log in again."))
         st.rerun()
     # Ordinary "not logged in yet" — the welcome landing page and login
     # form rendered above have already shown whatever this visitor
@@ -19400,20 +19716,20 @@ if st.query_params.get("push_endpoint"):
         if _k in st.query_params:
             del st.query_params[_k]
     if save_push_subscription(username, _pe, _pp, _pa):
-        st.toast("🔔 Push notifications enabled on this device.")
+        st.toast(auto_t("🔔 Push notifications enabled on this device."))
     else:
-        st.toast("⚠️ Couldn't save that subscription — see error log in Owner Console.")
+        st.toast(auto_t("⚠️ Couldn't save that subscription — see error log in Owner Console."))
 elif st.query_params.get("push_unsubscribed"):
     del st.query_params["push_unsubscribed"]
     try:
         supabase.table("push_subscriptions").delete().eq("username", username).execute()
     except Exception as e:
         log_error(str(e), endpoint="push_unsubscribe_callback")
-    st.toast("🔕 Push notifications turned off on this device.")
+    st.toast(auto_t("🔕 Push notifications turned off on this device."))
 elif st.query_params.get("push_error"):
     _push_err = st.query_params.get("push_error")
     del st.query_params["push_error"]
-    st.toast(f"⚠️ Push notifications: {_push_err}")
+    st.toast(auto_t("⚠️ Push notifications: {0}").format(_push_err))
 
 # Broadcast the logged-in username to the TOP-LEVEL window via
 # postMessage on every authenticated page load — not just when visiting
@@ -19459,7 +19775,7 @@ st.markdown('<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap
 try:
     from streamlit_option_menu import option_menu
 except ImportError:
-    st.error("streamlit-option-menu not installed. Please run: pip install streamlit-option-menu")
+    st.error(auto_t("streamlit-option-menu not installed. Please run: pip install streamlit-option-menu"))
     st.stop()
 
 nav_options = ["Task Dashboard", "Kanban Board", "Task Templates", "Pre-Start Checklists", "Logbook", "Scan Hub", "Offline Mode", "Sync Review", "Help", "Production", "Haulage", "Assets", "Equipment Health", "Permits", "Inventory", "Incidents",
@@ -19561,68 +19877,68 @@ with st.sidebar:
     selected_section = st.session_state["_current_nav_section"]
     st.markdown("---")
 
-    st.markdown(f"""<div class="sidebar-user"> <i class="fas fa-user-circle user-icon"></i> <div class="user-name">{esc(full_name)}</div> <div class="user-role"> <i class="fas fa-id-badge"></i> {user['role']} <span class="verified-badge">VERIFIED</span> </div> </div>""", unsafe_allow_html=True)
+    st.markdown(f"""<div class="sidebar-user"> <i class="fas fa-user-circle user-icon"></i> <div class="user-name">{esc(full_name)}</div> <div class="user-role"> <i class="fas fa-id-badge"></i> {user['role']} <span class="verified-badge">{auto_t("VERIFIED")}</span> </div> </div>""", unsafe_allow_html=True)
 
     if USING_HARDCODED:
-        st.caption('⚠️ Using hardcoded Supabase – set secrets.toml for production')
+        st.caption(auto_t('⚠️ Using hardcoded Supabase – set secrets.toml for production'))
 
     # Notifications
     if SUPABASE_AVAILABLE:
         notifications = fetch_notifications(username)
         unread = sum(1 for n in notifications if not n['is_read'])
         if unread > 0:
-            st.warning(f"🔔 {unread} unread notification(s)")
+            st.warning(auto_t("🔔 {0} unread notification(s)").format(unread))
             for n in notifications[:3]:
                 if not n['is_read']:
                     st.info(f"**{n['title']}**\n{n['body']}")
-                    if st.button("Mark as read", key=f"read_{n['id']}"):
+                    if st.button(auto_t("Mark as read"), key=f"read_{n['id']}"):
                         mark_notification_read(n['id'])
                         st.rerun()
 
-    if st.button("🌓 Toggle Theme", use_container_width=True):
+    if st.button(auto_t("🌓 Toggle Theme"), use_container_width=True):
         st.session_state.dark_mode = not st.session_state.dark_mode
         st.rerun()
 
     _glove_label = "🧤 Glove Mode: ON" if st.session_state.glove_mode else "🧤 Glove Mode: OFF"
     if st.button(_glove_label, use_container_width=True,
-                help="Enlarges buttons, inputs, and checkboxes for use with gloves or in low-light conditions."):
+                help=auto_t("Enlarges buttons, inputs, and checkboxes for use with gloves or in low-light conditions.")):
         st.session_state.glove_mode = not st.session_state.glove_mode
         st.rerun()
 
     if can(role, "broadcast.send"):
         st.markdown("---")
-        st.markdown("📢 **Send Broadcast**")
-        broadcast_msg = st.text_area("Message to all Workers", placeholder="Type your broadcast...")
-        if st.button("📤 Send Broadcast", use_container_width=True):
+        st.markdown(auto_t("📢 **Send Broadcast**"))
+        broadcast_msg = st.text_area(auto_t("Message to all Workers"), placeholder="Type your broadcast...")
+        if st.button(auto_t("📤 Send Broadcast"), use_container_width=True):
             if broadcast_msg:
                 if send_broadcast_to_db(full_name, user['role'], broadcast_msg):
                     fetch_recent_broadcasts.clear()
-                    st.success("Broadcast sent — every active user notified, with email.")
+                    st.success(auto_t("Broadcast sent — every active user notified, with email."))
                 else:
-                    st.error("Couldn't send the broadcast — check the error log in Owner Console.")
+                    st.error(auto_t("Couldn't send the broadcast — check the error log in Owner Console."))
                 log_audit(full_name, "broadcast", {"message": broadcast_msg[:50]})
                 st.rerun()
             else:
-                st.error("Message cannot be empty.")
+                st.error(auto_t("Message cannot be empty."))
 
     st.markdown("---")
-    st.markdown("💬 **Chat Rooms**")
-    if st.button("🌍 Global Chat", use_container_width=True):
+    st.markdown(auto_t("💬 **Chat Rooms**"))
+    if st.button(auto_t("🌍 Global Chat"), use_container_width=True):
         st.session_state.chat_room = "global"
         navigate_to("Chat")
         st.rerun()
     if can(role, "chat.supervisor_room"):
-        if st.button("🔒 Supervisor Room", use_container_width=True):
+        if st.button(auto_t("🔒 Supervisor Room"), use_container_width=True):
             st.session_state.chat_room = "supervisor"
             navigate_to("Chat")
             st.rerun()
 
-    st.markdown("👤 **Private Chat**")
+    st.markdown(auto_t("👤 **Private Chat**"))
     all_users = fetch_all_users_from_db()
     other_users = [u["full_name"] for u in all_users if u["full_name"] != full_name and u.get("is_approved", False)]
     if other_users:
-        selected_user = st.selectbox("Choose contact", other_users)
-        if st.button("🔐 Open Private Chat", use_container_width=True):
+        selected_user = st.selectbox(auto_t("Choose contact"), other_users)
+        if st.button(auto_t("🔐 Open Private Chat"), use_container_width=True):
             sorted_names = sorted([full_name, selected_user])
             room_name = f"private:{sorted_names[0]}_{sorted_names[1]}"
             st.session_state.chat_room = room_name
@@ -19630,15 +19946,15 @@ with st.sidebar:
             navigate_to("Chat")
             st.rerun()
     else:
-        st.info("No other approved users available.")
+        st.info(auto_t("No other approved users available."))
 
     st.markdown("---")
-    st.markdown("👤 **Profile**")
-    if st.button("👤 My Profile", use_container_width=True):
+    st.markdown(auto_t("👤 **Profile**"))
+    if st.button(auto_t("👤 My Profile"), use_container_width=True):
         navigate_to("Profile")
         st.rerun()
 
-    if st.button("🚪 Logout", use_container_width=True):
+    if st.button(auto_t("🚪 Logout"), use_container_width=True):
         log_audit(full_name, "logout")
         _logout_token = st.query_params.get("session")
         if _logout_token:
@@ -19663,7 +19979,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button(auto_t("🔄 Refresh Data"), use_container_width=True):
         st.rerun()
 
 render_struggle_banner(selected_section)
@@ -19677,12 +19993,12 @@ render_struggle_banner(selected_section)
 if selected_section == "Task Dashboard":
     render_poster_slideshow()
     render_ticker_bar()
-    st.markdown('''
+    st.markdown(auto_t('''
     <div class="main-header">
         <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker
         <small>Smart Maintenance Management System</small>
     </div>
-    ''', unsafe_allow_html=True)
+    '''), unsafe_allow_html=True)
     st.markdown('<div class="main-header-spacer"></div>', unsafe_allow_html=True)
 
 # Sidebar auto-collapse after navigating — best-effort, same category
@@ -19696,7 +20012,7 @@ if selected_section == "Task Dashboard":
 # between Streamlit versions (was "collapsedControl" before 1.38) and
 # could change again in a future release, silently breaking this.
 if st.session_state.pop("_nav_collapsed", False):
-    st.markdown("""
+    st.markdown(auto_t("""
     <script>
     (function() {
         const btn = document.querySelector('[data-testid="stSidebarCollapseButton"] button')
@@ -19705,7 +20021,7 @@ if st.session_state.pop("_nav_collapsed", False):
         if (btn) { btn.click(); }
     })();
     </script>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
 if 'profile_tab' not in st.session_state:
     st.session_state.profile_tab = False
@@ -19722,8 +20038,8 @@ else:
 # --- Global search: find a page or a record without hunting through
 # every section manually. Deliberately placed above the nav so it's
 # reachable from anywhere, on every page, not buried inside one. ---
-with st.expander("🔍 Search the app", expanded=False):
-    _search_q = st.text_input("Find a page or a record", key="_global_search_q",
+with st.expander(auto_t("🔍 Search the app"), expanded=False):
+    _search_q = st.text_input(auto_t("Find a page or a record"), key="_global_search_q",
                               placeholder="e.g. \"logo\", \"conveyor belt\", or a contractor's name",
                               label_visibility="collapsed")
     if _search_q.strip():
@@ -19731,14 +20047,14 @@ with st.expander("🔍 Search the app", expanded=False):
         _record_hits = search_records(_search_q, role, full_name)
 
         if _feature_hits:
-            st.caption("Pages")
+            st.caption(auto_t("Pages"))
             for _label, _icon, _target in _feature_hits[:8]:
                 if st.button(f"→ {_label}", key=f"search_page_{_target}_{_label}"):
                     navigate_to(_target)
                     st.rerun()
 
         if _record_hits:
-            st.caption("Records")
+            st.caption(auto_t("Records"))
             for _kind, _title, _subtitle, _target, _rec_id in _record_hits[:15]:
                 _btn_label = f"{_kind}: {_title or '(untitled)'}" + (f" — {_subtitle}" if _subtitle else "")
                 if st.button(f"→ {_btn_label}", key=f"search_rec_{_kind}_{_rec_id}"):
@@ -19746,7 +20062,7 @@ with st.expander("🔍 Search the app", expanded=False):
                     st.rerun()
 
         if not _feature_hits and not _record_hits:
-            st.caption("No matches — try a different word, or check the section directly.")
+            st.caption(auto_t("No matches — try a different word, or check the section directly."))
 
 # Main navigation now renders inside the sidebar (see below) — this
 # used to be a horizontal bar here with its own collapse-on-click
@@ -19758,7 +20074,7 @@ st.markdown(
     f'<div class="breadcrumb-bar">'
     f'<div class="crumbs"><i class="fas fa-hard-hat"></i> MWDTS &nbsp;/&nbsp; '
     f'<span class="current">{esc(t(f"nav.{selected_section}"))}</span></div>'
-    f'<div class="welcome">Welcome, <b>{esc(full_name)}</b></div>'
+    f'<div class="welcome">{auto_t("Welcome,")} <b>{esc(full_name)}</b></div>'
     f'</div>',
     unsafe_allow_html=True,
 )
@@ -19817,7 +20133,7 @@ if _section_actually_changed:
 
 _prev = st.session_state.get("previous_section")
 if _prev and _prev != selected_section and _prev in nav_options:
-    if st.button(f"← Back to {t(f'nav.{_prev}')}", key="back_button"):
+    if st.button(auto_t("← Back to {0}").format(t(f'nav.{_prev}')), key="back_button"):
         navigate_to(_prev)
         st.session_state.pop("previous_section", None)
         st.session_state["_scroll_to_top_pending"] = True
@@ -19864,7 +20180,7 @@ if AI_FEATURES_AVAILABLE and selected_section != "Chat":
     # getting you TO the Assistant — once you're already there, it
     # has nothing left to do.
     with st.container(key="floating-ai-toggle"):
-        if st.button("🤖", key="floating_ai_toggle_btn", help="Ask the AI Assistant"):
+        if st.button("🤖", key="floating_ai_toggle_btn", help=auto_t("Ask the AI Assistant")):
             st.session_state.chat_room = "ai_assistant"
             st.session_state["_focused_assistant_mode"] = True
             navigate_to("Chat")
@@ -19882,7 +20198,7 @@ if AI_FEATURES_AVAILABLE and selected_section != "Chat":
     # logic (checks before re-attaching, polls for the button since
     # Streamlit's own render timing isn't guaranteed) to maximize the
     # odds it actually works, not a guarantee that it will every time.
-    st.markdown("""
+    st.markdown(auto_t("""
     <script>
     (function() {
         function initDrag() {
@@ -19947,7 +20263,7 @@ if AI_FEATURES_AVAILABLE and selected_section != "Chat":
         initDrag();
     })();
     </script>
-    """, unsafe_allow_html=True)
+    """), unsafe_allow_html=True)
 
 # Bottom navigation bar — see the CSS comment above (.bottom-nav-bar)
 # for why this is a real position:fixed bar with real buttons rather
@@ -19969,30 +20285,30 @@ def page_locations():
     if LOCATION_HIERARCHY_MODULE_AVAILABLE:
         location_hierarchy.render_location_hierarchy()
     else:
-        st.error("The Locations module file (location_hierarchy.py) isn't present in this deployment — "
-                "it needs to sit alongside app.py for this section to work.")
+        st.error(auto_t("The Locations module file (location_hierarchy.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work."))
 
 
 def page_jsa_library():
     if JSA_LIBRARY_MODULE_AVAILABLE:
         jsa_library.render_jsa_library()
     else:
-        st.error("The JSA Library module file (jsa_library.py) isn't present in this deployment — "
-                "it needs to sit alongside app.py for this section to work.")
+        st.error(auto_t("The JSA Library module file (jsa_library.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work."))
 
 
 def page_crew_clock():
     if CREW_CLOCK_MODULE_AVAILABLE:
         crew_clock.render_crew_clock()
     else:
-        st.error("The Crew Clock module file (crew_clock.py) isn't present in this deployment — "
-                "it needs to sit alongside app.py for this section to work.")
+        st.error(auto_t("The Crew Clock module file (crew_clock.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work."))
 
 
 
 def page_timeline():
     render_section_header("⏱️ Activity Timeline")
-    st.markdown("Recent actions across all tasks (last 50)")
+    st.markdown(auto_t("Recent actions across all tasks (last 50)"))
 
     if SUPABASE_AVAILABLE:
         try:
@@ -20020,21 +20336,21 @@ def page_timeline():
 
                 render_log_entries(activities.data, action_verb=_activity_phrase)
             else:
-                st.info("No activity logs yet.")
+                st.info(auto_t("No activity logs yet."))
         except Exception:
-            st.info("Activity log unavailable.")
+            st.info(auto_t("Activity log unavailable."))
     else:
-        st.info("Activity log not available (Supabase not connected).")
+        st.info(auto_t("Activity log not available (Supabase not connected)."))
 
 
 def page_help():
     render_section_header("❓ Help / How It Works")
-    st.caption("A plain-language guide to what each feature does and how to use it.")
+    st.caption(auto_t("A plain-language guide to what each feature does and how to use it."))
     if AI_FEATURES_AVAILABLE:
-        st.info("💬 Prefer to ask in your own words? The **🤖 Assistant** room in Chat can answer "
-               "'how do I...' questions conversationally, using this same guide.")
+        st.info(auto_t("💬 Prefer to ask in your own words? The **🤖 Assistant** room in Chat can answer "
+               "'how do I...' questions conversationally, using this same guide."))
 
-    _help_search = st.text_input("🔍 Search for a feature", key="help_search",
+    _help_search = st.text_input(auto_t("🔍 Search for a feature"), key="help_search",
                                  placeholder="e.g. permit, motor rewind, calibration")
 
     for category, features in HOW_IT_WORKS_GUIDE.items():
@@ -20053,8 +20369,8 @@ def page_help():
         _help_search.lower() in name.lower() or _help_search.lower() in desc.lower()
         for features in HOW_IT_WORKS_GUIDE.values() for name, desc in features.items()
     ):
-        st.info(f"No matches for \"{_help_search}\" — try a different term, or check Feedback "
-               "if you think something's missing from this guide.")
+        st.info(auto_t("No matches for \"{0}\" — try a different term, or check Feedback if you think something's missing from this guide.").format(_help_search)
+)
 
 
 def page_profile():
@@ -20072,16 +20388,16 @@ def page_profile():
 
     st.markdown(f"""<div class="profile-card"> {_avatar_html} <div class="profile-card-name">{esc(full_name)}</div> <div class="profile-card-role">{esc(user['role'])}</div> <div class="profile-card-details"> <span><i class="fas fa-user"></i> {esc(username)}</span> <span><i class="fas fa-envelope"></i> {esc(user_email) if user_email else "No email set"}</span> </div> </div>""", unsafe_allow_html=True)
 
-    st.markdown("### 📱 Phone Number")
+    st.markdown(auto_t("### 📱 Phone Number"))
     st.caption(
-        "Used for WhatsApp login and SMS alerts (task assignments, announcements, "
+        auto_t("Used for WhatsApp login and SMS alerts (task assignments, announcements, "
         "password reset links). Without this set, those can only reach you through "
-        "whichever method you used to sign up."
+        "whichever method you used to sign up.")
     )
     _current_phone = next(
         (u.get("phone_number") for u in fetch_all_users_from_db() if u.get("username") == username), None)
     if _current_phone:
-        st.write(f"Current number on file: **{esc(_current_phone)}**")
+        st.write(auto_t("Current number on file: **{0}**").format(esc(_current_phone)))
     _phone_col1, _phone_col2 = st.columns([3, 1])
     _new_phone_raw = _phone_col1.text_input(
         "WhatsApp / SMS number (with country code)",
@@ -20090,24 +20406,24 @@ def page_profile():
     if _phone_col2.button("Save number", key="profile_phone_save_btn"):
         _new_phone = _normalize_whatsapp_number(_new_phone_raw)
         if not _new_phone:
-            st.error("Enter your number in international format, starting with + "
-                    "and your country code (e.g. +233241234567).")
+            st.error(auto_t("Enter your number in international format, starting with + "
+                    "and your country code (e.g. +233241234567)."))
         else:
             _phone_taken = any(
                 u.get("phone_number") == _new_phone and u.get("username") != username
                 for u in fetch_all_users_from_db())
             if _phone_taken:
-                st.error("That number is already linked to a different account.")
+                st.error(auto_t("That number is already linked to a different account."))
             elif update_user_profile(username, {"phone_number": _new_phone}):
                 log_audit(full_name, "phone_number_updated", {})
-                st.success("Phone number saved.")
+                st.success(auto_t("Phone number saved."))
                 st.rerun()
             else:
-                st.error("Couldn't save — the phone_number column may not exist yet "
+                st.error(auto_t("Couldn't save — the phone_number column may not exist yet "
                         "(see WhatsApp login setup: `ALTER TABLE facility_users ADD "
-                        "COLUMN phone_number text;`).")
+                        "COLUMN phone_number text;`)."))
 
-    st.markdown("### 🔔 Push Notifications")
+    st.markdown(auto_t("### 🔔 Push Notifications"))
     # This whole flow was rebuilt around a real, static HTML page
     # (static/push-setup.html) opened via a genuine link tap, after
     # three separate in-app JavaScript-injection techniques all
@@ -20142,32 +20458,32 @@ def page_profile():
         except Exception:
             pass
     if not PUSH_CONFIGURED:
-        st.caption("Push notifications aren't set up on this deployment yet "
-                  "(needs `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` in secrets).")
+        st.caption(auto_t("Push notifications aren't set up on this deployment yet "
+                  "(needs `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` in secrets)."))
     elif not APP_URL:
-        st.caption("Push notifications need `APP_URL` set in secrets so this button knows "
-                  "where to send you back to after subscribing.")
+        st.caption(auto_t("Push notifications need `APP_URL` set in secrets so this button knows "
+                  "where to send you back to after subscribing."))
     else:
         _push_setup_base = f"{APP_URL.rstrip('/')}/app/static/push-setup.html"
         _return_url_q = urllib.parse.quote(APP_URL.rstrip('/') + '/', safe='')
         if _existing_push_subs:
-            st.caption(f"✅ Enabled on {len(_existing_push_subs)} device"
-                      f"{'s' if len(_existing_push_subs) != 1 else ''} on this browser/phone.")
+            st.caption(auto_t("✅ Enabled on {0} device{1} on this browser/phone.").format(len(_existing_push_subs), 's' if len(_existing_push_subs) != 1 else '')
+)
             _unsub_href = esc(f"{_push_setup_base}?action=unsubscribe&return_url={_return_url_q}")
-            st.markdown(f'<a href="{_unsub_href}" class="action-link-button">Turn off on this device</a>',
+            st.markdown(f'<a href="{_unsub_href}" class="action-link-button">{auto_t("Turn off on this device")}</a>',
                        unsafe_allow_html=True)
         else:
-            st.caption("Get notified instantly for task assignments, incident alerts, and "
-                      "announcements — even when MWDTS isn't open in your browser.")
+            st.caption(auto_t("Get notified instantly for task assignments, incident alerts, and "
+                      "announcements — even when MWDTS isn't open in your browser."))
             _sub_href = esc(f"{_push_setup_base}?action=subscribe&return_url={_return_url_q}")
-            st.markdown(f'<a href="{_sub_href}" class="action-link-button">🔔 Enable Push Notifications</a>',
+            st.markdown(f'<a href="{_sub_href}" class="action-link-button">🔔 {auto_t("Enable Push Notifications")}</a>',
                        unsafe_allow_html=True)
 
 
-    st.markdown("#### Notification Preferences")
-    st.caption("Choose which of these send a device push. Everything still shows in "
+    st.markdown(auto_t("#### Notification Preferences"))
+    st.caption(auto_t("Choose which of these send a device push. Everything still shows in "
               "your in-app notification bell either way — this only controls what "
-              "interrupts you outside the app.")
+              "interrupts you outside the app."))
     _current_prefs = get_notification_preferences(username)
     _new_prefs = {}
     _pref_cols = st.columns(2)
@@ -20176,43 +20492,43 @@ def page_profile():
             _new_prefs[_cat_key] = st.checkbox(
                 _cat_label, value=_current_prefs.get(_cat_key, True),
                 key=f"notif_pref_{_cat_key}")
-    if st.button("💾 Save notification preferences", key="save_notif_prefs_btn"):
+    if st.button(auto_t("💾 Save notification preferences"), key="save_notif_prefs_btn"):
         if update_notification_preferences(username, _new_prefs):
-            st.success("Notification preferences saved.")
+            st.success(auto_t("Notification preferences saved."))
             st.rerun()
         else:
-            st.error("Couldn't save — the notification_preferences column may not exist "
-                    "yet (see schema_additions.sql Phase 49).")
+            st.error(auto_t("Couldn't save — the notification_preferences column may not exist "
+                    "yet (see schema_additions.sql Phase 49)."))
 
-    st.markdown("#### 🔐 Two-Factor Authentication")
+    st.markdown(auto_t("#### 🔐 Two-Factor Authentication"))
     _2fa_user_record = next((u for u in fetch_all_users_from_db() if u.get("username") == username), None)
     _2fa_currently_on = bool(_2fa_user_record and _2fa_user_record.get("totp_enabled"))
 
     if _2fa_currently_on:
-        st.success("Two-factor authentication is **ON** for this account.")
-        st.caption("Requires a code from your authenticator app (or a backup code) every "
-                  "time you log in with your password.")
-        with st.expander("Disable two-factor authentication"):
-            st.warning("This makes your account reachable with just your password again.")
+        st.success(auto_t("Two-factor authentication is **ON** for this account."))
+        st.caption(auto_t("Requires a code from your authenticator app (or a backup code) every "
+                  "time you log in with your password."))
+        with st.expander(auto_t("Disable two-factor authentication")):
+            st.warning(auto_t("This makes your account reachable with just your password again."))
             _disable_confirm_code = st.text_input(
-                "Enter your current 6-digit code to confirm", key="disable_2fa_code",
+                auto_t("Enter your current 6-digit code to confirm"), key="disable_2fa_code",
                 max_chars=6, placeholder="123456")
-            if st.button("🔓 Disable 2FA", key="disable_2fa_btn"):
+            if st.button(auto_t("🔓 Disable 2FA"), key="disable_2fa_btn"):
                 if verify_totp_code(_2fa_user_record.get("totp_secret", ""), _disable_confirm_code):
                     if disable_totp(username, username):
-                        st.success("Two-factor authentication disabled.")
+                        st.success(auto_t("Two-factor authentication disabled."))
                         st.rerun()
                     else:
-                        st.error("Failed to disable — try again or contact the Owner.")
+                        st.error(auto_t("Failed to disable — try again or contact the Owner."))
                 else:
-                    st.error("Incorrect code.")
+                    st.error(auto_t("Incorrect code."))
     elif not QR_GENERATION_AVAILABLE:
-        st.info("Two-factor authentication needs the QR code libraries (reportlab + Pillow) "
-               "that this deployment doesn't currently have available.")
+        st.info(auto_t("Two-factor authentication needs the QR code libraries (reportlab + Pillow) "
+               "that this deployment doesn't currently have available."))
     else:
-        st.caption("Add a second step to your login using any authenticator app "
-                  "(Google Authenticator, Authy, Microsoft Authenticator, 1Password, etc.).")
-        if st.button("🔐 Set up two-factor authentication", key="start_2fa_setup"):
+        st.caption(auto_t("Add a second step to your login using any authenticator app "
+                  "(Google Authenticator, Authy, Microsoft Authenticator, 1Password, etc.)."))
+        if st.button(auto_t("🔐 Set up two-factor authentication"), key="start_2fa_setup"):
             st.session_state["_2fa_setup_secret"] = generate_totp_secret()
             st.rerun()
 
@@ -20221,11 +20537,11 @@ def page_profile():
             _qr_img = generate_totp_qr(_setup_secret, username)
             if _qr_img:
                 st.image(_qr_img, width=220, caption="Scan with your authenticator app")
-            st.caption(f"Or enter this key manually: `{_setup_secret}`")
-            st.markdown("**Confirm setup** — enter the 6-digit code your app is now showing:")
-            _confirm_code = st.text_input("Confirmation code", key="2fa_confirm_code",
+            st.caption(auto_t("Or enter this key manually: `{0}`").format(_setup_secret))
+            st.markdown(auto_t("**Confirm setup** — enter the 6-digit code your app is now showing:"))
+            _confirm_code = st.text_input(auto_t("Confirmation code"), key="2fa_confirm_code",
                                           max_chars=6, placeholder="123456")
-            if st.button("✅ Confirm & enable", key="confirm_2fa_btn"):
+            if st.button(auto_t("✅ Confirm & enable"), key="confirm_2fa_btn"):
                 if verify_totp_code(_setup_secret, _confirm_code):
                     _backup_plain, _backup_hashed = generate_backup_codes()
                     if enable_totp(username, _setup_secret, _backup_hashed):
@@ -20233,30 +20549,30 @@ def page_profile():
                         del st.session_state["_2fa_setup_secret"]
                         st.rerun()
                     else:
-                        st.error("Failed to save — try again.")
+                        st.error(auto_t("Failed to save — try again."))
                 else:
-                    st.error("That code didn't match — check your app's time is in sync and try again.")
+                    st.error(auto_t("That code didn't match — check your app's time is in sync and try again."))
 
         if st.session_state.get("_2fa_show_backup_codes"):
-            st.success("Two-factor authentication is now ON.")
-            st.warning("**Save these backup codes now** — each works once, if you ever lose "
-                      "access to your authenticator app. They will not be shown again.")
+            st.success(auto_t("Two-factor authentication is now ON."))
+            st.warning(auto_t("**Save these backup codes now** — each works once, if you ever lose "
+                      "access to your authenticator app. They will not be shown again."))
             st.code("\n".join(st.session_state["_2fa_show_backup_codes"]))
-            if st.button("I've saved my backup codes", key="ack_backup_codes"):
+            if st.button(auto_t("I've saved my backup codes"), key="ack_backup_codes"):
                 del st.session_state["_2fa_show_backup_codes"]
                 st.rerun()
 
 
     st.caption(
-        "Translates navigation, common buttons, and headers. Most of the app's detailed "
+        auto_t("Translates navigation, common buttons, and headers. Most of the app's detailed "
         "content still shows in English for now — this is a genuine foundation, not a "
-        "complete translation, and it's worth knowing that going in."
+        "complete translation, and it's worth knowing that going in.")
     )
     _lang_codes = list(SUPPORTED_LANGUAGES.keys())
     _lang_names = list(SUPPORTED_LANGUAGES.values())
     _current_lang = get_user_language()
     _new_lang_name = st.selectbox(
-        "Preferred language", _lang_names,
+        auto_t("Preferred language"), _lang_names,
         index=_lang_codes.index(_current_lang) if _current_lang in _lang_codes else 0,
         label_visibility="collapsed",
     )
@@ -20265,7 +20581,7 @@ def page_profile():
         set_user_language(_new_lang_code, username)
         st.rerun()
 
-    st.markdown("### 🔔 Notifications")
+    st.markdown(auto_t("### 🔔 Notifications"))
     # The username broadcast to the wrapper site used to live here, but
     # that meant the wrapper only learned who was logged in if someone
     # happened to visit this specific settings section — the bell was
@@ -20274,29 +20590,29 @@ def page_profile():
     # `username` is first set) instead of here.
 
     if not PUSH_CONFIGURED:
-        st.caption("Not set up yet on this deployment — see PUSH_NOTIFICATIONS_SETUP.md.")
+        st.caption(auto_t("Not set up yet on this deployment — see PUSH_NOTIFICATIONS_SETUP.md."))
     else:
         st.info(
-            "**Enable notifications from the app's install link, not from here.** "
+            auto_t("**Enable notifications from the app's install link, not from here.** "
             "Streamlit Community Cloud serves .js files in a way that a Service Worker "
             "can't register from — this isn't a setup mistake, it's a documented platform "
             "limitation. The install link (mwdts-app on GitHub Pages) doesn't have that "
             "restriction, so that's where the real toggle lives now. If you don't have "
-            "that link, ask whoever manages the deployment."
+            "that link, ask whoever manages the deployment.")
         )
 
-    uploaded_avatar = st.file_uploader("Upload Avatar", type=["jpg", "jpeg", "png", "gif", "webp"], key="avatar_upload")
+    uploaded_avatar = st.file_uploader(auto_t("Upload Avatar"), type=["jpg", "jpeg", "png", "gif", "webp"], key="avatar_upload")
     if uploaded_avatar is not None:
-        if st.button("Update Avatar"):
-            st.success("Avatar updated! (feature in development - will store to Supabase Storage)")
+        if st.button(auto_t("Update Avatar")):
+            st.success(auto_t("Avatar updated! (feature in development - will store to Supabase Storage)"))
             st.session_state.user_payload['avatar_url'] = "https://via.placeholder.com/150"
             st.rerun()
 
-    st.markdown("### Change Password")
-    old_pass = st.text_input("Current Password", type="password")
-    new_pass1 = st.text_input("New Password", type="password")
-    new_pass2 = st.text_input("Confirm New Password", type="password")
-    if st.button("Update Password"):
+    st.markdown(auto_t("### Change Password"))
+    old_pass = st.text_input(auto_t("Current Password"), type="password")
+    new_pass1 = st.text_input(auto_t("New Password"), type="password")
+    new_pass2 = st.text_input(auto_t("Confirm New Password"), type="password")
+    if st.button(auto_t("Update Password")):
         if old_pass and new_pass1 and new_pass2:
             if new_pass1 == new_pass2:
                 users = fetch_all_users_from_db()
@@ -20305,38 +20621,38 @@ def page_profile():
                         if verify_password(old_pass, u["password_hash"]):
                             new_hash = hash_password(new_pass1)
                             if update_user_profile(username, {"password_hash": new_hash}):
-                                st.success("Password updated!")
+                                st.success(auto_t("Password updated!"))
                                 st.rerun()
                             else:
-                                st.error("Failed to update password.")
+                                st.error(auto_t("Failed to update password."))
                         else:
-                            st.error("Current password is incorrect.")
+                            st.error(auto_t("Current password is incorrect."))
                         break
             else:
-                st.error("New passwords do not match.")
+                st.error(auto_t("New passwords do not match."))
         else:
-            st.error("All fields are required.")
+            st.error(auto_t("All fields are required."))
 
-    st.markdown("### Update Email")
-    new_email = st.text_input("New Email", value=user_email if user_email else "")
-    if st.button("Update Email"):
+    st.markdown(auto_t("### Update Email"))
+    new_email = st.text_input(auto_t("New Email"), value=user_email if user_email else "")
+    if st.button(auto_t("Update Email")):
         if new_email:
             if update_user_profile(username, {"email": new_email}):
                 st.session_state.user_payload['email'] = new_email
-                st.success("Email updated!")
+                st.success(auto_t("Email updated!"))
                 st.rerun()
             else:
-                st.error("Failed to update email.")
+                st.error(auto_t("Failed to update email."))
 
 # ---- ACTIVITY TIMELINE ----
 
 
 def page_admin():
     if not can(role, "audit.view"):
-        st.warning("You do not have admin privileges.")
+        st.warning(auto_t("You do not have admin privileges."))
     else:
         render_section_header("⚙️ Admin Panel")
-        st.markdown("### Manage Users")
+        st.markdown(auto_t("### Manage Users"))
         all_users = fetch_all_users_from_db()
         if all_users:
             rows = ['<table class="user-table"><thead><tr>'
@@ -20362,10 +20678,10 @@ def page_admin():
             rows.append('</tbody></table>')
             st.markdown("".join(rows), unsafe_allow_html=True)
         else:
-            st.info("No users found in database.")
+            st.info(auto_t("No users found in database."))
 
         if SUPABASE_AVAILABLE:
-            st.markdown("### 🔍 Audit Trail Viewer")
+            st.markdown(auto_t("### 🔍 Audit Trail Viewer"))
             try:
                 # Fetches a bounded recent batch once (last 90 days, capped
                 # at 1000 rows), then filters client-side — simpler than
@@ -20382,13 +20698,13 @@ def page_admin():
                 _acol1, _acol2, _acol3 = st.columns(3)
                 with _acol1:
                     _audit_users = ["All Users"] + sorted(set(l.get("user_name") for l in _all_logs if l.get("user_name")))
-                    _audit_user_filter = st.selectbox("Filter by user", _audit_users, key="audit_user_filter")
+                    _audit_user_filter = st.selectbox(auto_t("Filter by user"), _audit_users, key="audit_user_filter")
                 with _acol2:
                     _audit_actions = ["All Actions"] + sorted(set(l.get("action") for l in _all_logs if l.get("action")))
-                    _audit_action_filter = st.selectbox("Filter by action type", _audit_actions, key="audit_action_filter")
+                    _audit_action_filter = st.selectbox(auto_t("Filter by action type"), _audit_actions, key="audit_action_filter")
                 with _acol3:
-                    _audit_range = st.selectbox("Date range", ["Last 7 days", "Last 30 days", "Last 90 days"],
-                                                index=1, key="audit_range_filter")
+                    _audit_range = st.selectbox(auto_t("Date range"), ["Last 7 days", "Last 30 days", "Last 90 days"],
+                                                index=1, key="audit_range_filter", format_func=auto_t)
 
                 _range_days = {"Last 7 days": 7, "Last 30 days": 30, "Last 90 days": 90}[_audit_range]
                 _range_cutoff = datetime.now() - timedelta(days=_range_days)
@@ -20400,23 +20716,23 @@ def page_admin():
                     and (_parse_dt(l.get("created_at")) or datetime.min) >= _range_cutoff
                 ]
 
-                st.caption(f"Showing {len(_filtered_logs)} of {len(_all_logs)} entries from the last 90 days.")
-                if st.button("📥 Export Filtered as CSV", key="audit_export_csv") and _filtered_logs:
+                st.caption(auto_t("Showing {0} of {1} entries from the last 90 days.").format(len(_filtered_logs), len(_all_logs)))
+                if st.button(auto_t("📥 Export Filtered as CSV"), key="audit_export_csv") and _filtered_logs:
                     _audit_csv_rows = ["user_name,action,details,created_at"]
                     for l in _filtered_logs:
                         _d = (l.get("details") or "").replace('"', '""')
                         _audit_csv_rows.append(
                             f'"{l.get("user_name", "")}","{l.get("action", "")}","{_d}","{l.get("created_at", "")}"')
-                    st.download_button("Download", "\n".join(_audit_csv_rows),
+                    st.download_button(auto_t("Download"), "\n".join(_audit_csv_rows),
                                       f"audit_trail_{datetime.now().strftime('%Y%m%d')}.csv",
                                       "text/csv", key="audit_dl_csv")
 
                 render_log_entries(_filtered_logs)
             except Exception as e:
                 log_error(str(e), endpoint="audit_trail_viewer")
-                st.info("Audit log unavailable.")
+                st.info(auto_t("Audit log unavailable."))
         else:
-            st.info("Audit log not available (Supabase not connected).")
+            st.info(auto_t("Audit log not available (Supabase not connected)."))
 
 # ---- PROFILE TAB ----
 
@@ -20426,13 +20742,13 @@ def page_feedback():
     can_manage_feedback = can(role, "feedback.manage")
 
     if can_manage_feedback:
-        st.caption("Submit ideas for improving this app, and upvote the ones you want built next.")
+        st.caption(auto_t("Submit ideas for improving this app, and upvote the ones you want built next."))
         feedback_tabs = ["All Suggestions", "Submit Suggestion"]
         fb_icons = ["lightbulb", "plus-circle"]
     else:
-        st.caption("Submit ideas for improving this app. Suggestions are reviewed by the "
+        st.caption(auto_t("Submit ideas for improving this app. Suggestions are reviewed by the "
                   "site administrator — you can see the status of your own submissions here, "
-                  "but not what others have submitted.")
+                  "but not what others have submitted."))
         feedback_tabs = ["My Suggestions", "Submit Suggestion"]
         fb_icons = ["file-earmark-text", "plus-circle"]
 
@@ -20477,10 +20793,10 @@ def page_feedback():
             st.info("No suggestions match these filters yet." if (all_feedback) else
                     "No suggestions yet — be the first to submit one.")
 
-        if can_manage_feedback and all_feedback and st.button("📥 Export all suggestions as CSV"):
+        if can_manage_feedback and all_feedback and st.button(auto_t("📥 Export all suggestions as CSV")):
             _csv = export_feedback_csv(all_feedback, _vote_counts)
             if _csv:
-                st.download_button("Download CSV", _csv, "feedback_export.csv", "text/csv",
+                st.download_button(auto_t("Download CSV"), _csv, "feedback_export.csv", "text/csv",
                                   key="dl_feedback_csv")
 
         _status_tone = {"New": "info", "Under Review": "warn", "Planned": "info",
@@ -20503,8 +20819,8 @@ def page_feedback():
                     if toggle_feedback_vote(fid, full_name, already_voted):
                         st.rerun()
                     else:
-                        st.error("Vote didn't register — check Row Level Security "
-                                "on app_feedback_votes.")
+                        st.error(auto_t("Vote didn't register — check Row Level Security "
+                                "on app_feedback_votes."))
                 st.markdown('</div>', unsafe_allow_html=True)
             with _bcol:
                 _fb_chips = render_meta_chips([
@@ -20530,37 +20846,37 @@ def page_feedback():
                 st.markdown(f"""<div class="custom-card" style="border-left-color: var(--tone-{tone});"> <strong>{esc(f.get('title'))}</strong> <span class="priority-badge" style="background:var(--tone-{tone});">{esc(f.get('status', 'New'))}</span>{_fb_extra} </div>""", unsafe_allow_html=True)
 
                 if can(role, "feedback.manage"):
-                    with st.expander(f"⚙️ Manage #{fid}"):
-                        _new_status = st.selectbox("Status", FEEDBACK_STATUSES,
+                    with st.expander(auto_t("⚙️ Manage #{0}").format(fid)):
+                        _new_status = st.selectbox(auto_t("Status"), FEEDBACK_STATUSES,
                                                    index=FEEDBACK_STATUSES.index(f.get('status', 'New'))
                                                    if f.get('status') in FEEDBACK_STATUSES else 0,
                                                    key=f"fb_status_{fid}")
-                        _response = st.text_area("Response (optional)",
+                        _response = st.text_area(auto_t("Response (optional)"),
                                                  value=f.get('admin_response') or '',
                                                  key=f"fb_resp_{fid}",
                                                  placeholder="e.g. 'Good idea — added to next sprint' "
                                                             "or 'Not planned because...'")
-                        if st.button("💾 Save", key=f"fb_save_{fid}"):
+                        if st.button(auto_t("💾 Save"), key=f"fb_save_{fid}"):
                             if update_feedback_status(fid, _new_status, _response or None, full_name):
-                                st.success("Updated.")
+                                st.success(auto_t("Updated."))
                                 st.rerun()
                             else:
-                                st.error("Save failed — check Row Level Security on app_feedback.")
+                                st.error(auto_t("Save failed — check Row Level Security on app_feedback."))
 
     elif fb_sub == "Submit Suggestion":
-        st.markdown("### Submit a New Suggestion")
+        st.markdown(auto_t("### Submit a New Suggestion"))
         with st.form("new_feedback_form", clear_on_submit=True):
-            fb_title = st.text_input("Title *", max_chars=150,
+            fb_title = st.text_input(auto_t("Title *"), max_chars=150,
                                      placeholder="e.g. 'Add offline mode for underground areas'")
             fb_category = selectbox_with_other("Category", FEEDBACK_CATEGORIES,
                                                key_prefix="feedback_category")
-            fb_description = st.text_area("Description",
+            fb_description = st.text_area(auto_t("Description"),
                                           placeholder="What would this improve, and why does it matter to you?")
-            fb_submitted = st.form_submit_button("💡 Submit Suggestion")
+            fb_submitted = st.form_submit_button(auto_t("💡 Submit Suggestion"))
             if fb_submitted:
                 ok, err, new_item = submit_feedback(fb_title, fb_description, fb_category, full_name)
                 if ok:
-                    st.success("Thanks — your suggestion has been posted.")
+                    st.success(auto_t("Thanks — your suggestion has been posted."))
                     st.rerun()
                 else:
                     st.error(err or "Failed to submit suggestion.")
@@ -20672,66 +20988,66 @@ def page_contractors():
 def page_worker_reports():
     render_section_header("📝 Worker Reports", "Departmental activity reports, visible to everyone")
 
-    _wr_tab = st.radio("View", ["Submit My Report", "Comprehensive Report"], horizontal=True,
-                       label_visibility="collapsed", key="wr_tab_select")
+    _wr_tab = st.radio(auto_t("View"), ["Submit My Report", "Comprehensive Report"], horizontal=True,
+                       label_visibility="collapsed", key="wr_tab_select", format_func=auto_t)
 
     if _wr_tab == "Submit My Report":
-        st.caption("Completed and incomplete tasks, items used, and locations are pulled automatically "
-                  "from your actual task data — review the draft below and add any notes before submitting.")
-        _wr_dept = st.selectbox("Department", REPORT_DEPARTMENTS, key="wr_submit_dept")
-        _wr_date = st.date_input("Report Date", value=datetime.now().date(), key="wr_submit_date")
-        _wr_shift = st.selectbox("Shift (optional)", ["", "Day Shift", "Night Shift", "Swing Shift"],
-                                 key="wr_submit_shift")
+        st.caption(auto_t("Completed and incomplete tasks, items used, and locations are pulled automatically "
+                  "from your actual task data — review the draft below and add any notes before submitting."))
+        _wr_dept = st.selectbox(auto_t("Department"), REPORT_DEPARTMENTS, key="wr_submit_dept")
+        _wr_date = st.date_input(auto_t("Report Date"), value=datetime.now().date(), key="wr_submit_date")
+        _wr_shift = st.selectbox(auto_t("Shift (optional)"), ["", "Day Shift", "Night Shift", "Swing Shift"],
+                                 key="wr_submit_shift", format_func=auto_t)
 
         _wr_draft = generate_worker_report_draft(username, full_name, _wr_date)
 
         render_subheading("Draft (auto-generated)", level=5)
         _wr_col1, _wr_col2 = st.columns(2)
         with _wr_col1:
-            st.metric("Completed Tasks", len(_wr_draft["completed_tasks"]))
+            st.metric(auto_t("Completed Tasks"), len(_wr_draft["completed_tasks"]))
         with _wr_col2:
-            st.metric("Incomplete Tasks", len(_wr_draft["incomplete_tasks"]))
+            st.metric(auto_t("Incomplete Tasks"), len(_wr_draft["incomplete_tasks"]))
 
         if _wr_draft["completed_tasks"]:
-            with st.expander(f"✅ Completed ({len(_wr_draft['completed_tasks'])})"):
+            with st.expander(auto_t("✅ Completed ({0})").format(len(_wr_draft['completed_tasks']))):
                 for t2 in _wr_draft["completed_tasks"]:
                     st.write(f"- #{t2['task_id']} {esc(t2['title'])} — {esc(t2['location'])}")
         if _wr_draft["incomplete_tasks"]:
-            with st.expander(f"⏳ Incomplete ({len(_wr_draft['incomplete_tasks'])})"):
+            with st.expander(auto_t("⏳ Incomplete ({0})").format(len(_wr_draft['incomplete_tasks']))):
                 for t2 in _wr_draft["incomplete_tasks"]:
                     st.write(f"- #{t2['task_id']} {esc(t2['title'])} — {esc(t2['location'])}")
         if _wr_draft["items_used"]:
-            with st.expander(f"🔩 Items Used ({len(_wr_draft['items_used'])})"):
+            with st.expander(auto_t("🔩 Items Used ({0})").format(len(_wr_draft['items_used']))):
                 for item in _wr_draft["items_used"]:
                     st.write(f"- {esc(item['part_name'])}: {item['quantity']:g}")
         if _wr_draft["locations"]:
-            st.caption(f"📍 Locations: {esc(_wr_draft['locations'])}")
+            st.caption(auto_t("📍 Locations: {0}").format(esc(_wr_draft['locations'])))
 
         if not _wr_draft["completed_tasks"] and not _wr_draft["incomplete_tasks"]:
-            st.info("No tasks found for you on this date — you can still submit a report with notes only.")
+            st.info(auto_t("No tasks found for you on this date — you can still submit a report with notes only."))
 
         with st.form("submit_worker_report_form"):
-            _wr_notes = st.text_area("Notes (optional)", max_chars=1000,
+            _wr_notes = st.text_area(auto_t("Notes (optional)"), max_chars=1000,
                                     placeholder="Anything the auto-generated draft above doesn't capture...")
-            if st.form_submit_button("📤 Submit Report", type="primary"):
+            if st.form_submit_button(auto_t("📤 Submit Report"), type="primary"):
                 if create_worker_report(full_name, username, _wr_dept, _wr_date, _wr_draft,
                                        shift=_wr_shift or None, notes=_wr_notes.strip() or None):
-                    st.success("Report submitted.")
+                    st.success(auto_t("Report submitted."))
                     st.rerun()
                 else:
-                    st.error("Failed to submit — this is most likely Row Level Security "
+                    st.error(auto_t("Failed to submit — this is most likely Row Level Security "
                             "blocking the write. Run the RLS fix in schema_additions.sql "
-                            "(Phase 43) against your Supabase database, then try again.")
+                            "(Phase 43) against your Supabase database, then try again."))
 
     else:  # Comprehensive Report
-        st.caption("Merges every submitted report for a department and date into one combined view.")
-        _cr_dept = st.selectbox("Department", REPORT_DEPARTMENTS, key="wr_comprehensive_dept")
-        _cr_date = st.date_input("Report Date", value=datetime.now().date(), key="wr_comprehensive_date")
+        st.caption(auto_t("Merges every submitted report for a department and date into one combined view."))
+        _cr_dept = st.selectbox(auto_t("Department"), REPORT_DEPARTMENTS, key="wr_comprehensive_dept")
+        _cr_date = st.date_input(auto_t("Report Date"), value=datetime.now().date(), key="wr_comprehensive_date")
 
         _comprehensive = build_comprehensive_report(_cr_dept, _cr_date)
 
         if _comprehensive["worker_count"] == 0:
-            st.info(f"No reports submitted yet for {_cr_dept} on {_cr_date}.")
+            st.info(auto_t("No reports submitted yet for {0} on {1}.").format(_cr_dept, _cr_date))
         else:
             st.markdown(f"#### {esc(_cr_dept)} — {_cr_date}")
             _cc1, _cc2, _cc3 = st.columns(3)
@@ -20750,19 +21066,19 @@ def page_worker_reports():
             render_subheading("Individual Reports", level=5)
             for r in _comprehensive["reports"]:
                 with st.expander(f"{esc(r['worker_name'])}" + (f" — {r['shift']}" if r.get("shift") else "")):
-                    st.write(f"**Completed**: {len(r['completed_tasks'])} | **Incomplete**: {len(r['incomplete_tasks'])}")
+                    st.write(auto_t("**Completed**: {0} | **Incomplete**: {1}").format(len(r['completed_tasks']), len(r['incomplete_tasks'])))
                     for t2 in r["completed_tasks"]:
                         st.write(f"  ✅ #{t2['task_id']} {esc(t2['title'])}")
                     for t2 in r["incomplete_tasks"]:
                         st.write(f"  ⏳ #{t2['task_id']} {esc(t2['title'])}")
                     if r.get("notes"):
-                        st.write(f"**Notes**: {esc(r['notes'])}")
+                        st.write(auto_t("**Notes**: {0}").format(esc(r['notes'])))
 
 
 def page_handover():
     render_section_header("🔄 Shift Handover Log")
-    st.caption("Structured handover between shifts. Lost context between crews is a recognised contributor to incidents, "
-               "so outstanding work and safety concerns are captured explicitly.")
+    st.caption(auto_t("Structured handover between shifts. Lost context between crews is a recognised contributor to incidents, "
+               "so outstanding work and safety concerns are captured explicitly."))
 
     handover_tabs = ["Recent Handovers"]
     if can(role, "handover.create"):
@@ -20779,7 +21095,7 @@ def page_handover():
     if handover_sub == "Recent Handovers":
         unack = [h for h in handovers if not h.get('acknowledged')]
         if unack:
-            st.warning(f"📋 {len(unack)} handover(s) not yet acknowledged by the incoming supervisor.")
+            st.warning(auto_t("📋 {0} handover(s) not yet acknowledged by the incoming supervisor.").format(len(unack)))
         if not handovers:
             render_empty_state("fa-right-left", "No handovers logged yet", "Shift handover records will appear here.")
         for h in handovers:
@@ -20799,17 +21115,17 @@ def page_handover():
             ])
             st.markdown(f"""<div class="custom-card" style="border-left-color: {'#dc2626' if has_safety else '#0f3460'};"> <strong>{esc(h.get('shift'))} — {esc(h.get('crew') or 'No crew')}</strong> {ack_badge} {_ho_meta_chips} {_ho_fields} {f"<small>Acknowledged by {esc(h.get('acknowledged_by'))} at {_fmt_log_time(h.get('acknowledged_at'))}</small>" if h.get('acknowledged') else ""} </div>""", unsafe_allow_html=True)
             if not h.get('acknowledged') and can(role, "handover.acknowledge"):
-                if st.button("✅ Acknowledge Handover", key=f"ack_ho_{h['id']}"):
+                if st.button(auto_t("✅ Acknowledge Handover"), key=f"ack_ho_{h['id']}"):
                     if acknowledge_handover(h['id'], full_name):
-                        st.success("Handover acknowledged.")
+                        st.success(auto_t("Handover acknowledged."))
                         st.rerun()
                     else:
-                        st.error("Failed to acknowledge. Check Row Level Security "
-                                "on the shift_handovers table.")
+                        st.error(auto_t("Failed to acknowledge. Check Row Level Security "
+                                "on the shift_handovers table."))
 
     elif handover_sub == "New Handover":
         if require(role, "handover.create"):
-            st.markdown("### Log Shift Handover")
+            st.markdown(auto_t("### Log Shift Handover"))
             all_users_ho = fetch_all_users_from_db()
             supervisor_names = [u['full_name'] for u in all_users_ho
                                 if u['role'].strip().lower() in ('supervisor', 'superintendent')
@@ -20831,25 +21147,25 @@ def page_handover():
             _draft = st.session_state.get("_handover_draft") or {}
             if _draft:
                 _c = _draft["counts"]
-                st.info(f"Drafted from {_c['completed']} completed, {_c['outstanding']} outstanding "
-                       f"({_c['overdue']} overdue), {_c['incidents']} incident(s) in the last "
-                       f"{_ho_hours}h. **Review and correct everything below before submitting** — "
-                       "this is a starting point, not a finished handover.")
+                st.info(auto_t("Drafted from {0} completed, {1} outstanding ({2} overdue), {3} incident(s) in the last {4}h. **Review and correct everything below before submitting** — this is a starting point, not a finished handover.").format(_c['completed'], _c['outstanding'], _c['overdue'], _c['incidents'], _ho_hours)
+
+
+)
 
             with st.form("handover_form", clear_on_submit=True):
-                shift = st.selectbox("Shift", ["Day Shift", "Night Shift", "Swing Shift", "Weekend Day", "Weekend Night"])
-                crew = st.text_input("Crew / Team", max_chars=100)
-                incoming = st.selectbox("Incoming Supervisor", ["TBA"] + supervisor_names)
-                work_completed = st.text_area("Work Completed This Shift *",
+                shift = st.selectbox(auto_t("Shift"), ["Day Shift", "Night Shift", "Swing Shift", "Weekend Day", "Weekend Night"], format_func=auto_t)
+                crew = st.text_input(auto_t("Crew / Team"), max_chars=100)
+                incoming = st.selectbox(auto_t("Incoming Supervisor"), ["TBA"] + supervisor_names)
+                work_completed = st.text_area(auto_t("Work Completed This Shift *"),
                                               value=_draft.get("work_completed", ""))
-                work_outstanding = st.text_area("Work Outstanding / Handed Over *",
+                work_outstanding = st.text_area(auto_t("Work Outstanding / Handed Over *"),
                                                 value=_draft.get("work_outstanding", ""))
-                safety_concerns = st.text_area("Safety Concerns",
+                safety_concerns = st.text_area(auto_t("Safety Concerns"),
                                                value=_draft.get("safety_concerns", ""),
                                                placeholder="Leave blank if none. Anything entered here triggers a notification.")
-                equipment_status = st.text_area("Equipment Status / Defects",
+                equipment_status = st.text_area(auto_t("Equipment Status / Defects"),
                                                 value=_draft.get("equipment_status", ""))
-                submitted = st.form_submit_button("📤 Submit Handover")
+                submitted = st.form_submit_button(auto_t("📤 Submit Handover"))
                 if submitted:
                     if work_completed and work_outstanding:
                         h = create_handover(shift, crew, full_name,
@@ -20858,47 +21174,47 @@ def page_handover():
                                             safety_concerns, equipment_status)
                         if h:
                             st.session_state.pop("_handover_draft", None)
-                            st.success("Handover logged.")
+                            st.success(auto_t("Handover logged."))
                             st.rerun()
                         else:
-                            st.error("Failed to log handover.")
+                            st.error(auto_t("Failed to log handover."))
                     else:
-                        st.error("Work completed and work outstanding are both required.")
+                        st.error(auto_t("Work completed and work outstanding are both required."))
 
     elif handover_sub == "Shift Roster":
-        st.markdown("### 🗓️ Shift Roster")
+        st.markdown(auto_t("### 🗓️ Shift Roster"))
         all_users_roster = fetch_all_users_from_db()
         worker_names = [u["full_name"] for u in all_users_roster
                         if u.get("is_approved") and u["full_name"]]
         if not worker_names:
-            st.info("No approved users found.")
+            st.info(auto_t("No approved users found."))
         else:
             with st.form("shift_roster_form", clear_on_submit=True):
-                _roster_worker = st.selectbox("Worker", worker_names)
+                _roster_worker = st.selectbox(auto_t("Worker"), worker_names)
                 _rcol1, _rcol2 = st.columns(2)
                 with _rcol1:
-                    _start_date = st.date_input("Shift start date", datetime.now().date())
-                    _start_time = st.time_input("Shift start time", datetime.now().time())
+                    _start_date = st.date_input(auto_t("Shift start date"), datetime.now().date())
+                    _start_time = st.time_input(auto_t("Shift start time"), datetime.now().time())
                 with _rcol2:
-                    _end_date = st.date_input("Shift end date", datetime.now().date())
-                    _end_time = st.time_input("Shift end time",
+                    _end_date = st.date_input(auto_t("Shift end date"), datetime.now().date())
+                    _end_time = st.time_input(auto_t("Shift end time"),
                                               (datetime.now() + timedelta(hours=8)).time())
-                _crew_name = st.text_input("Crew name (optional)")
-                if st.form_submit_button("Assign shift"):
+                _crew_name = st.text_input(auto_t("Crew name (optional)"))
+                if st.form_submit_button(auto_t("Assign shift")):
                     _shift_start = datetime.combine(_start_date, _start_time)
                     _shift_end = datetime.combine(_end_date, _end_time)
                     if _shift_end <= _shift_start:
-                        st.error("Shift end must be after shift start.")
+                        st.error(auto_t("Shift end must be after shift start."))
                     elif assign_shift(_roster_worker, _shift_start, _shift_end, _crew_name, full_name):
-                        st.success(f"Shift assigned to {_roster_worker}.")
+                        st.success(auto_t("Shift assigned to {0}.").format(_roster_worker))
                         st.rerun()
                     else:
-                        st.error("Failed to assign shift — check the error log.")
+                        st.error(auto_t("Failed to assign shift — check the error log."))
 
         render_subheading("Currently on shift", level=4)
         _on_shift_now = get_workers_on_shift()
         if not _on_shift_now:
-            st.caption("No one is currently rostered on.")
+            st.caption(auto_t("No one is currently rostered on."))
         else:
             for _s in _on_shift_now:
                 st.markdown(render_meta_chips([
@@ -20910,7 +21226,7 @@ def page_handover():
         render_subheading("Upcoming shifts", level=4)
         _upcoming = fetch_upcoming_shifts()
         if not _upcoming:
-            st.caption("No upcoming shifts scheduled.")
+            st.caption(auto_t("No upcoming shifts scheduled."))
         else:
             for _u in _upcoming:
                 _ucol1, _ucol2 = st.columns([4, 2])
@@ -20919,15 +21235,15 @@ def page_handover():
                             f"{_fmt_log_time(_u.get('shift_start'))} to {_fmt_log_time(_u.get('shift_end'))}"
                             + (f" ({_u['crew_name']})" if _u.get('crew_name') else ""))
                 with _ucol2:
-                    if st.button("🗑️ Delete", key=f"del_shift_{_u['id']}"):
+                    if st.button(auto_t("🗑️ Delete"), key=f"del_shift_{_u['id']}"):
                         if delete_shift(_u["id"], full_name):
                             st.rerun()
 
 
 def page_haulage():
     render_section_header("🚚 Haulage & Logistics")
-    st.caption("Shipment tracking from mine to port/railway — flags delays by comparing "
-              "actual arrival against what was expected, not by guesswork.")
+    st.caption(auto_t("Shipment tracking from mine to port/railway — flags delays by comparing "
+              "actual arrival against what was expected, not by guesswork."))
     can_manage_haulage = can(role, "handover.create")
 
     _haul_tabs = ["Active Shipments", "Delivered"]
@@ -20963,21 +21279,21 @@ def page_haulage():
                                    f"{esc(_s['status'])}</span>", unsafe_allow_html=True)
                     with _scol2:
                         if can_manage_haulage:
-                            if _s["status"] == "Scheduled" and st.button("🚛 Mark departed", key=f"depart_{_s['id']}"):
+                            if _s["status"] == "Scheduled" and st.button(auto_t("🚛 Mark departed"), key=f"depart_{_s['id']}"):
                                 if mark_shipment_departed(_s["id"], full_name):
                                     st.rerun()
                             if _s["status"] == "In Transit":
-                                _delay_note = st.text_input("Delay reason (if any)", key=f"delay_note_{_s['id']}",
+                                _delay_note = st.text_input(auto_t("Delay reason (if any)"), key=f"delay_note_{_s['id']}",
                                                             label_visibility="collapsed",
                                                             placeholder="Leave blank if on time")
-                                if st.button("✅ Mark arrived", key=f"arrive_{_s['id']}"):
+                                if st.button(auto_t("✅ Mark arrived"), key=f"arrive_{_s['id']}"):
                                     if mark_shipment_arrived(_s["id"], _delay_note, full_name):
                                         st.rerun()
 
     elif haul_sub == "Delivered":
         _delivered = [s for s in fetch_shipments(status="Delivered") if s]
         if not _delivered:
-            st.info("No delivered shipments logged yet.")
+            st.info(auto_t("No delivered shipments logged yet."))
         else:
             _avg_delay = average_delay_hours(_delivered)
             if _avg_delay is not None:
@@ -20999,41 +21315,41 @@ def page_haulage():
                         "danger" if (_delay or 0) > 0 else "ok"),
                     ]), unsafe_allow_html=True)
                     if _s.get("delay_reason"):
-                        st.caption(f"Note: {_s['delay_reason']}")
+                        st.caption(auto_t("Note: {0}").format(_s['delay_reason']))
 
     elif haul_sub == "New Shipment":
-        st.markdown("### Schedule a Shipment")
+        st.markdown(auto_t("### Schedule a Shipment"))
         with st.form("new_shipment_form", clear_on_submit=True):
-            _sh_material = st.text_input("Material type *", placeholder="e.g. Manganese Ore")
+            _sh_material = st.text_input(auto_t("Material type *"), placeholder="e.g. Manganese Ore")
             _scol1, _scol2 = st.columns(2)
             with _scol1:
-                _sh_qty = st.number_input("Quantity *", min_value=0.0, value=0.0, step=1.0)
+                _sh_qty = st.number_input(auto_t("Quantity *"), min_value=0.0, value=0.0, step=1.0)
             with _scol2:
-                _sh_unit = st.selectbox("Unit", ["tonnes", "m³", "loads"])
-            _sh_mode = st.selectbox("Transport mode", ["Truck", "Rail"])
-            _sh_destination = st.text_input("Destination *", placeholder="e.g. Takoradi Port")
-            _sh_carrier = st.text_input("Carrier / operator")
-            _sh_expected = st.date_input("Expected arrival date")
-            _sh_expected_time = st.time_input("Expected arrival time")
-            if st.form_submit_button("📦 Schedule shipment"):
+                _sh_unit = st.selectbox(auto_t("Unit"), ["tonnes", "m³", "loads"], format_func=auto_t)
+            _sh_mode = st.selectbox(auto_t("Transport mode"), ["Truck", "Rail"], format_func=auto_t)
+            _sh_destination = st.text_input(auto_t("Destination *"), placeholder="e.g. Takoradi Port")
+            _sh_carrier = st.text_input(auto_t("Carrier / operator"))
+            _sh_expected = st.date_input(auto_t("Expected arrival date"))
+            _sh_expected_time = st.time_input(auto_t("Expected arrival time"))
+            if st.form_submit_button(auto_t("📦 Schedule shipment")):
                 if not _sh_material.strip() or not _sh_destination.strip():
-                    st.error("Material type and destination are required.")
+                    st.error(auto_t("Material type and destination are required."))
                 elif _sh_qty <= 0:
-                    st.error("Quantity must be greater than zero.")
+                    st.error(auto_t("Quantity must be greater than zero."))
                 else:
                     _expected_dt = datetime.combine(_sh_expected, _sh_expected_time)
                     _new_shipment = create_shipment(_sh_material.strip(), _sh_qty, _sh_unit, _sh_mode,
                                                    _sh_destination.strip(), _sh_carrier, _expected_dt, full_name)
                     if _new_shipment:
-                        st.success(f"Shipment {_new_shipment['shipment_ref']} scheduled.")
+                        st.success(auto_t("Shipment {0} scheduled.").format(_new_shipment['shipment_ref']))
                         st.rerun()
                     else:
-                        st.error("Failed to schedule shipment — check the error log.")
+                        st.error(auto_t("Failed to schedule shipment — check the error log."))
 
 
 def page_production():
     render_section_header("🏭 Production Tracking")
-    st.caption("Shift-by-shift output — logged by supervisors, visible to everyone.")
+    st.caption(auto_t("Shift-by-shift output — logged by supervisors, visible to everyone."))
     can_log_production = can(role, "handover.create")
 
     _prod_tabs = ["Recent Shifts", "Summary", "Shift Benchmarking"]
@@ -21051,7 +21367,7 @@ def page_production():
             render_empty_state("fa-industry", "No production logged yet",
                               "Shift output will show here once a supervisor logs the first record.")
         else:
-            _prod_search = st.text_input("🔍 Search by material or location", "", key="prod_search")
+            _prod_search = st.text_input(auto_t("🔍 Search by material or location"), "", key="prod_search")
             _prod_display = quick_filter(_prod_records, _prod_search, ["material_type", "location"])
             for _pr in _prod_display:
                 with st.container(border=True):
@@ -21068,14 +21384,14 @@ def page_production():
                         if _pr.get("notes"):
                             st.caption(_pr["notes"])
                     with _pcol2:
-                        if can_log_production and st.button("🗑️ Delete", key=f"del_prod_{_pr['id']}"):
+                        if can_log_production and st.button(auto_t("🗑️ Delete"), key=f"del_prod_{_pr['id']}"):
                             if delete_production_record(_pr["id"], full_name):
                                 st.rerun()
 
     elif prod_sub == "Summary":
         _summary_records = fetch_production_records(limit=500)
         if not _summary_records:
-            st.info("No production data yet to summarize.")
+            st.info(auto_t("No production data yet to summarize."))
         else:
             _totals = production_totals_by_date(_summary_records)
             _material_totals = {}
@@ -21103,11 +21419,11 @@ def page_production():
     elif prod_sub == "Shift Benchmarking":
         _bench_records = fetch_production_records(limit=500)
         if not _bench_records:
-            st.info("No production data yet to benchmark.")
+            st.info(auto_t("No production data yet to benchmark."))
         else:
             _benchmarks = compute_shift_benchmarks(_bench_records)
             if not _benchmarks:
-                st.info("No shift data recorded yet.")
+                st.info(auto_t("No shift data recorded yet."))
             else:
                 # Grouped by material so tonnes of ore and tonnes of
                 # waste rock never get compared against each other —
@@ -21137,42 +21453,42 @@ def page_production():
                     st.markdown("---")
 
     elif prod_sub == "Log Production":
-        st.markdown("### Log Shift Production")
+        st.markdown(auto_t("### Log Shift Production"))
         with st.form("log_production_form", clear_on_submit=True):
-            _prod_date = st.date_input("Production date", datetime.now().date())
-            _prod_shift = st.selectbox("Shift", ["Day Shift", "Night Shift", "Swing Shift",
-                                                 "Weekend Day", "Weekend Night"])
-            _prod_location = st.text_input("Location / Pit")
-            _prod_material = st.text_input("Material type *", placeholder="e.g. Manganese Ore, Waste Rock")
+            _prod_date = st.date_input(auto_t("Production date"), datetime.now().date())
+            _prod_shift = st.selectbox(auto_t("Shift"), ["Day Shift", "Night Shift", "Swing Shift",
+                                                 "Weekend Day", "Weekend Night"], format_func=auto_t)
+            _prod_location = st.text_input(auto_t("Location / Pit"))
+            _prod_material = st.text_input(auto_t("Material type *"), placeholder="e.g. Manganese Ore, Waste Rock")
             _pcol1, _pcol2 = st.columns(2)
             with _pcol1:
-                _prod_qty = st.number_input("Quantity *", min_value=0.0, value=0.0, step=1.0)
+                _prod_qty = st.number_input(auto_t("Quantity *"), min_value=0.0, value=0.0, step=1.0)
             with _pcol2:
-                _prod_unit = st.selectbox("Unit", ["tonnes", "m³", "loads"])
-            _prod_notes = st.text_area("Notes")
+                _prod_unit = st.selectbox(auto_t("Unit"), ["tonnes", "m³", "loads"], format_func=auto_t)
+            _prod_notes = st.text_area(auto_t("Notes"))
             _prod_grade = st.number_input(
-                "Ore grade % (optional — leave at 0 if not applicable, e.g. for waste rock)",
+                auto_t("Ore grade % (optional — leave at 0 if not applicable, e.g. for waste rock)"),
                 min_value=0.0, max_value=100.0, value=0.0, step=0.1)
-            if st.form_submit_button("📝 Log production"):
+            if st.form_submit_button(auto_t("📝 Log production")):
                 if not _prod_material.strip():
-                    st.error("Material type is required.")
+                    st.error(auto_t("Material type is required."))
                 elif _prod_qty <= 0:
-                    st.error("Quantity must be greater than zero.")
+                    st.error(auto_t("Quantity must be greater than zero."))
                 elif log_production(_prod_date, _prod_shift, _prod_location, _prod_material.strip(),
                                    _prod_qty, _prod_unit, _prod_notes, full_name,
                                    ore_grade_pct=(_prod_grade if _prod_grade > 0 else None)):
-                    st.success("Production logged.")
+                    st.success(auto_t("Production logged."))
                     st.rerun()
                 else:
-                    st.error("Failed to log production — check the error log.")
+                    st.error(auto_t("Failed to log production — check the error log."))
 
 
 
 def page_technician_certifications():
     render_section_header("🎓 Technician Competency & Certification Tracking")
-    st.caption("Who's currently qualified for HV switching, arc flash work, and other electrical "
+    st.caption(auto_t("Who's currently qualified for HV switching, arc flash work, and other electrical "
               "safety-critical tasks — with expiry alerts, same pattern already used for contractor "
-              "compliance, extended to your own in-house team.")
+              "compliance, extended to your own in-house team."))
 
     _tc_all = fetch_technician_certifications()
     _tc_overdue, _tc_due_soon = [], []
@@ -21189,30 +21505,30 @@ def page_technician_certifications():
         st.warning(f"⚠️ **{len(_tc_due_soon)} certification(s) expiring within 30 days**: " +
                    ", ".join(f"{c['technician_name']} ({c['certification_type']})" for c in _tc_due_soon))
 
-    with st.expander("➕ Log a Certification"):
+    with st.expander(auto_t("➕ Log a Certification")):
         with st.form("new_tech_cert_form", clear_on_submit=True):
-            _tc_name = st.text_input("Technician Name *", max_chars=100)
+            _tc_name = st.text_input(auto_t("Technician Name *"), max_chars=100)
             _tc_type = selectbox_with_other("Certification Type", CERTIFICATION_TYPES, key_prefix="tech_cert_type")
-            _tc_issued = st.date_input("Issued Date", value=datetime.now().date())
-            _tc_has_expiry = st.checkbox("Has an expiry date", value=True)
-            _tc_expiry = st.date_input("Expiry Date", value=datetime.now().date(), disabled=not _tc_has_expiry) if _tc_has_expiry else None
-            _tc_body = st.text_input("Issuing Body (optional)")
-            _tc_cert_num = st.text_input("Certificate Number (optional)")
-            _tc_notes = st.text_area("Notes (optional)", max_chars=500)
-            if st.form_submit_button("💾 Save Certification"):
+            _tc_issued = st.date_input(auto_t("Issued Date"), value=datetime.now().date())
+            _tc_has_expiry = st.checkbox(auto_t("Has an expiry date"), value=True)
+            _tc_expiry = st.date_input(auto_t("Expiry Date"), value=datetime.now().date(), disabled=not _tc_has_expiry) if _tc_has_expiry else None
+            _tc_body = st.text_input(auto_t("Issuing Body (optional)"))
+            _tc_cert_num = st.text_input(auto_t("Certificate Number (optional)"))
+            _tc_notes = st.text_area(auto_t("Notes (optional)"), max_chars=500)
+            if st.form_submit_button(auto_t("💾 Save Certification")):
                 if not _tc_name.strip():
-                    st.error("Technician Name is required.")
+                    st.error(auto_t("Technician Name is required."))
                 else:
                     if create_technician_certification(_tc_name.strip(), _tc_type, _tc_issued, full_name,
                                                         expiry_date=_tc_expiry, issuing_body=_tc_body.strip() or None,
                                                         certificate_number=_tc_cert_num.strip() or None,
                                                         notes=_tc_notes.strip() or None):
-                        st.success(f"Certification logged for {_tc_name}.")
+                        st.success(auto_t("Certification logged for {0}.").format(_tc_name))
                         st.rerun()
                     else:
-                        st.error("Failed to save — this is most likely Row Level Security "
+                        st.error(auto_t("Failed to save — this is most likely Row Level Security "
                                 "blocking the write. Run the RLS fix in schema_additions.sql "
-                                "(Phase 42) against your Supabase database, then try again.")
+                                "(Phase 42) against your Supabase database, then try again."))
 
     if not _tc_all:
         render_empty_state("fa-award", "No certifications recorded yet",
@@ -21220,33 +21536,35 @@ def page_technician_certifications():
     else:
         render_subheading("All Technicians", level=4)
         _tc_names = sorted(set(c["technician_name"] for c in _tc_all))
-        _tc_search = st.text_input("🔍 Search by technician name", key="tech_cert_search")
+        _tc_search = st.text_input(auto_t("🔍 Search by technician name"), key="tech_cert_search")
         _tc_filtered_names = [n for n in _tc_names if _tc_search.lower() in n.lower()] if _tc_search else _tc_names
         for name in _tc_filtered_names:
             with st.expander(name):
                 for c in [c for c in _tc_all if c["technician_name"] == name]:
                     _days_until, _status = technician_certification_status(c)
                     _colour = {"overdue": "#dc2626", "due_soon": "#f59e0b", "ok": "#16a34a", "no_expiry": "#94a3b8"}[_status]
-                    _status_text = {"overdue": "EXPIRED", "due_soon": f"Expires in {_days_until}d",
-                                   "ok": f"Valid ({_days_until}d remaining)", "no_expiry": "No expiry date set"}[_status]
-                    st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour}; padding: 0.6rem;"> <strong>{esc(c['certification_type'])}</strong> <span class="status-badge" style="background:{_colour};">{_status_text}</span> <p>Issued {str(c['issued_date'])[:10]} {f" — Expires {str(c['expiry_date'])[:10]}" if c.get('expiry_date') else ''}</p> </div>""", unsafe_allow_html=True)
+                    _status_text = {"overdue": auto_t("EXPIRED"), "due_soon": auto_t("Expires in {0}d").format(_days_until),
+                                   "ok": auto_t("Valid ({0}d remaining)").format(_days_until), "no_expiry": auto_t("No expiry date set")}[_status]
+                    _issued_label = auto_t("Issued {0}").format(str(c['issued_date'])[:10])
+                    _expires_suffix = auto_t(" — Expires {0}").format(str(c['expiry_date'])[:10]) if c.get('expiry_date') else ''
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour}; padding: 0.6rem;"> <strong>{esc(c['certification_type'])}</strong> <span class="status-badge" style="background:{_colour};">{_status_text}</span> <p>{_issued_label}{_expires_suffix}</p> </div>""", unsafe_allow_html=True)
 
 
 def page_arc_flash_studies():
     render_section_header("⚠️ Arc Flash Study / Label Currency Tracking")
-    st.caption("Tracks when each panel's arc flash study was last done, and flags when a review "
+    st.caption(auto_t("Tracks when each panel's arc flash study was last done, and flags when a review "
               "is due. Incident energy, PPE category, and boundary values are recorded exactly as "
-              "your engineer/firm reported them — this app doesn't calculate these itself.")
-    with st.expander("ℹ️ About the 5-year default"):
+              "your engineer/firm reported them — this app doesn't calculate these itself."))
+    with st.expander(auto_t("ℹ️ About the 5-year default")):
         st.markdown(
-            "NFPA 70E Article 130.5 requires the data supporting an arc flash label to be "
+            auto_t("NFPA 70E Article 130.5 requires the data supporting an arc flash label to be "
             "reviewed for accuracy at intervals **not to exceed 5 years** — that's the "
             "regulatory maximum used as the default below, not a recommended cadence. "
             "**The standard also requires immediate review after any major system modification** "
             "(new equipment, transformer or breaker changes, utility fault current changes) "
             "regardless of where you are in the 5-year cycle — this app has no way to know when "
             "such a change happened, so acting on that trigger is on your own team, not something "
-            "this page can flag for you."
+            "this page can flag for you.")
         )
 
     _af_studies = fetch_arc_flash_studies()
@@ -21259,21 +21577,21 @@ def page_arc_flash_studies():
         st.warning(f"⚠️ **{len(_af_due_soon)} panel(s) due for review within 90 days**: " +
                    ", ".join(s["equipment_tag"] for s in _af_due_soon))
 
-    with st.expander("➕ Log an Arc Flash Study"):
+    with st.expander(auto_t("➕ Log an Arc Flash Study")):
         with st.form("new_arc_flash_form", clear_on_submit=True):
-            _af_tag = st.text_input("Equipment Tag / Panel ID *", max_chars=100)
-            _af_location = st.text_input("Location")
+            _af_tag = st.text_input(auto_t("Equipment Tag / Panel ID *"), max_chars=100)
+            _af_location = st.text_input(auto_t("Location"))
             _af_asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in st.session_state.get("assets", [])]
-            _af_asset_choice = st.selectbox("Linked Asset (optional)", _af_asset_options)
-            _af_date = st.date_input("Study Date", value=datetime.now().date())
-            _af_energy = st.text_input("Incident Energy (cal/cm²)", placeholder="e.g. 8.2")
-            _af_ppe = st.text_input("PPE Category", placeholder="e.g. Category 2")
-            _af_boundary = st.text_input("Arc Flash Boundary", placeholder="e.g. 1.2 m")
-            _af_engineer = st.text_input("Performed By (engineer/firm)")
-            _af_notes = st.text_area("Notes (optional)", max_chars=500)
-            if st.form_submit_button("💾 Save Arc Flash Study"):
+            _af_asset_choice = st.selectbox(auto_t("Linked Asset (optional)"), _af_asset_options)
+            _af_date = st.date_input(auto_t("Study Date"), value=datetime.now().date())
+            _af_energy = st.text_input(auto_t("Incident Energy (cal/cm²)"), placeholder="e.g. 8.2")
+            _af_ppe = st.text_input(auto_t("PPE Category"), placeholder="e.g. Category 2")
+            _af_boundary = st.text_input(auto_t("Arc Flash Boundary"), placeholder="e.g. 1.2 m")
+            _af_engineer = st.text_input(auto_t("Performed By (engineer/firm)"))
+            _af_notes = st.text_area(auto_t("Notes (optional)"), max_chars=500)
+            if st.form_submit_button(auto_t("💾 Save Arc Flash Study")):
                 if not _af_tag.strip():
-                    st.error("Equipment Tag / Panel ID is required.")
+                    st.error(auto_t("Equipment Tag / Panel ID is required."))
                 else:
                     _af_asset_id = None
                     if _af_asset_choice != "None":
@@ -21284,12 +21602,12 @@ def page_arc_flash_studies():
                                              ppe_category=_af_ppe.strip() or None,
                                              arc_flash_boundary=_af_boundary.strip() or None,
                                              notes=_af_notes.strip() or None):
-                        st.success(f"Arc flash study logged for {_af_tag}.")
+                        st.success(auto_t("Arc flash study logged for {0}.").format(_af_tag))
                         st.rerun()
                     else:
-                        st.error("Failed to save — this is most likely Row Level Security "
+                        st.error(auto_t("Failed to save — this is most likely Row Level Security "
                                 "blocking the write. Run the RLS fix in schema_additions.sql "
-                                "(Phase 41) against your Supabase database, then try again.")
+                                "(Phase 41) against your Supabase database, then try again."))
 
     if not _af_studies:
         render_empty_state("fa-triangle-exclamation", "No arc flash studies recorded yet",
@@ -21300,84 +21618,85 @@ def page_arc_flash_studies():
             _next_review, _days_until, _status = arc_flash_study_status(s)
             _colour = {"overdue": "#dc2626", "due_soon": "#f59e0b", "ok": "#16a34a"}[_status]
             with st.expander(f"{esc(s['equipment_tag'])} — {_status.replace('_', ' ').title()}"):
-                st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour}; padding: 0.6rem;"> <p>Studied {str(s['study_date'])[:10]} — next review due {_next_review}</p> </div>""", unsafe_allow_html=True)
+                _studied_line = auto_t("Studied {0} — next review due {1}").format(str(s['study_date'])[:10], _next_review)
+                st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour}; padding: 0.6rem;"> <p>{_studied_line}</p> </div>""", unsafe_allow_html=True)
                 if s.get("incident_energy_cal_cm2"):
-                    st.write(f"**Incident Energy**: {esc(s['incident_energy_cal_cm2'])} cal/cm²")
+                    st.write(auto_t("**Incident Energy**: {0} cal/cm²").format(esc(s['incident_energy_cal_cm2'])))
                 if s.get("ppe_category"):
-                    st.write(f"**PPE Category**: {esc(s['ppe_category'])}")
+                    st.write(auto_t("**PPE Category**: {0}").format(esc(s['ppe_category'])))
                 if s.get("arc_flash_boundary"):
-                    st.write(f"**Arc Flash Boundary**: {esc(s['arc_flash_boundary'])}")
+                    st.write(auto_t("**Arc Flash Boundary**: {0}").format(esc(s['arc_flash_boundary'])))
                 if s.get("performed_by"):
-                    st.write(f"**Performed By**: {esc(s['performed_by'])}")
+                    st.write(auto_t("**Performed By**: {0}").format(esc(s['performed_by'])))
                 if s.get("notes"):
-                    st.write(f"**Notes**: {esc(s['notes'])}")
+                    st.write(auto_t("**Notes**: {0}").format(esc(s['notes'])))
 
 
 def page_relay_settings():
     render_section_header("🎛️ Relay Settings Database")
-    st.caption("A searchable record of what's configured on each protection relay, plus as-found/"
+    st.caption(auto_t("A searchable record of what's configured on each protection relay, plus as-found/"
               "as-left comparison during testing to catch unintended changes. This is tracking and "
               "mechanical comparison only — whether a difference actually matters, and any "
-              "coordination judgment, is for your own qualified team to decide.")
+              "coordination judgment, is for your own qualified team to decide."))
 
     _relay_tags = sorted(set(r["relay_tag"] for r in fetch_relay_setting_records()))
 
-    with st.expander("➕ Record Relay Settings"):
-        st.caption("Add parameters as needed — relay parameter sets vary by manufacturer and "
-                  "function, so this isn't a fixed form. Add a row per setting you're recording.")
+    with st.expander(auto_t("➕ Record Relay Settings")):
+        st.caption(auto_t("Add parameters as needed — relay parameter sets vary by manufacturer and "
+                  "function, so this isn't a fixed form. Add a row per setting you're recording."))
         if "_relay_param_rows" not in st.session_state:
             st.session_state["_relay_param_rows"] = 1
         _rcol1, _rcol2 = st.columns(2)
         with _rcol1:
-            if st.button("➕ Add another parameter row"):
+            if st.button(auto_t("➕ Add another parameter row")):
                 st.session_state["_relay_param_rows"] += 1
                 st.rerun()
         with _rcol2:
-            if st.session_state["_relay_param_rows"] > 1 and st.button("➖ Remove last row"):
+            if st.session_state["_relay_param_rows"] > 1 and st.button(auto_t("➖ Remove last row")):
                 st.session_state["_relay_param_rows"] -= 1
                 st.rerun()
 
         with st.form("new_relay_record_form", clear_on_submit=True):
-            _rel_tag = st.text_input("Relay Tag / ID *", placeholder="e.g. R1, Feeder 3 Overcurrent Relay")
-            _rel_feeder = st.text_input("Feeder / Circuit")
-            _rel_model = st.text_input("Relay Model / Manufacturer")
-            _rel_record_type = st.selectbox("Record Type", RELAY_RECORD_TYPES)
-            _rel_date = st.date_input("Test/Record Date", value=datetime.now().date())
-            st.markdown("**Settings**")
+            _rel_tag = st.text_input(auto_t("Relay Tag / ID *"), placeholder="e.g. R1, Feeder 3 Overcurrent Relay")
+            _rel_feeder = st.text_input(auto_t("Feeder / Circuit"))
+            _rel_model = st.text_input(auto_t("Relay Model / Manufacturer"))
+            _rel_record_type = st.selectbox(auto_t("Record Type"), RELAY_RECORD_TYPES)
+            _rel_date = st.date_input(auto_t("Test/Record Date"), value=datetime.now().date())
+            st.markdown(auto_t("**Settings**"))
             _rel_params = {}
             for i in range(st.session_state["_relay_param_rows"]):
                 _pcol1, _pcol2 = st.columns(2)
                 with _pcol1:
-                    _pname = st.text_input(f"Parameter {i+1}", key=f"relay_param_name_{i}",
+                    _pname = st.text_input(auto_t("Parameter {0}").format(i+1), key=f"relay_param_name_{i}",
                                           placeholder="e.g. Pickup Current")
                 with _pcol2:
-                    _pval = st.text_input(f"Value {i+1}", key=f"relay_param_val_{i}", placeholder="e.g. 400A")
+                    _pval = st.text_input(auto_t("Value {0}").format(i+1), key=f"relay_param_val_{i}", placeholder="e.g. 400A")
                 if _pname.strip():
                     _rel_params[_pname.strip()] = _pval.strip()
-            _rel_notes = st.text_area("Notes (optional)", max_chars=500)
-            if st.form_submit_button("💾 Save Relay Settings Record"):
+            _rel_notes = st.text_area(auto_t("Notes (optional)"), max_chars=500)
+            if st.form_submit_button(auto_t("💾 Save Relay Settings Record")):
                 if not _rel_tag.strip():
-                    st.error("Relay Tag / ID is required.")
+                    st.error(auto_t("Relay Tag / ID is required."))
                 elif not _rel_params:
-                    st.error("At least one parameter is required.")
+                    st.error(auto_t("At least one parameter is required."))
                 else:
                     if create_relay_setting_record(_rel_tag.strip(), _rel_feeder.strip() or None,
                                                    _rel_model.strip() or None, _rel_record_type,
                                                    _rel_params, _rel_date, full_name,
                                                    notes=_rel_notes.strip() or None):
-                        st.success(f"Settings recorded for {_rel_tag}.")
+                        st.success(auto_t("Settings recorded for {0}.").format(_rel_tag))
                         st.rerun()
                     else:
-                        st.error("Failed to save — this is most likely Row Level Security "
+                        st.error(auto_t("Failed to save — this is most likely Row Level Security "
                                 "blocking the write. Run the RLS fix in schema_additions.sql "
-                                "(Phase 40) against your Supabase database, then try again.")
+                                "(Phase 40) against your Supabase database, then try again."))
 
     if not _relay_tags:
         render_empty_state("fa-sliders", "No relay settings recorded yet",
                           "Add a record above to start building your relay settings history.")
     else:
         render_subheading("Relay History & As-Found/As-Left Comparison", level=4)
-        _selected_relay = st.selectbox("Select relay", _relay_tags, key="relay_select")
+        _selected_relay = st.selectbox(auto_t("Select relay"), _relay_tags, key="relay_select")
         _relay_records = sorted(fetch_relay_setting_records(relay_tag=_selected_relay),
                                 key=lambda r: r["test_date"], reverse=True)
 
@@ -21388,12 +21707,13 @@ def page_relay_settings():
             _comparison = compare_relay_settings(_as_found_records[0], _as_left_records[0])
             _changed_count = sum(1 for c in _comparison if c["changed"])
             if _changed_count:
-                st.warning(f"⚠️ {_changed_count} parameter(s) differ between As-Found and As-Left.")
+                st.warning(auto_t("⚠️ {0} parameter(s) differ between As-Found and As-Left.").format(_changed_count))
             else:
-                st.success("No differences between As-Found and As-Left.")
+                st.success(auto_t("No differences between As-Found and As-Left."))
             for c in _comparison:
                 _row_colour = "#dc2626" if c["changed"] else "#16a34a"
-                st.markdown(f"""<div class="custom-card" style="border-left-color: {_row_colour}; padding: 0.6rem;"> <strong>{esc(c['parameter'])}</strong> <p style="margin: 0.2rem 0; font-size: 0.85rem;"> As-Found: {esc(str(c['as_found_value']))} → As-Left: {esc(str(c['as_left_value']))} </p> </div>""", unsafe_allow_html=True)
+                _relay_compare_line = auto_t("As-Found: {0} → As-Left: {1}").format(esc(str(c['as_found_value'])), esc(str(c['as_left_value'])))
+                st.markdown(f"""<div class="custom-card" style="border-left-color: {_row_colour}; padding: 0.6rem;"> <strong>{esc(c['parameter'])}</strong> <p style="margin: 0.2rem 0; font-size: 0.85rem;"> {_relay_compare_line} </p> </div>""", unsafe_allow_html=True)
 
         render_subheading("Full Record History", level=5)
         for r in _relay_records:
@@ -21401,15 +21721,15 @@ def page_relay_settings():
                 for param, val in r.get("settings", {}).items():
                     st.write(f"**{esc(param)}**: {esc(str(val))}")
                 if r.get("notes"):
-                    st.write(f"**Notes**: {esc(r['notes'])}")
+                    st.write(auto_t("**Notes**: {0}").format(esc(r['notes'])))
 
 
 def page_hv_switching_schedule():
     render_section_header("🔀 HV Switching Schedule")
-    st.caption("Scheduled switching operations, each requiring a named person's sign-off before any "
+    st.caption(auto_t("Scheduled switching operations, each requiring a named person's sign-off before any "
               "step can be executed. Same principle as Outage Commander: this app tracks progress "
               "through YOUR team's own switching order — it never authors or suggests the switching "
-              "sequence itself.")
+              "sequence itself."))
 
     _switching_orders = fetch_switching_orders()
     _draft_orders = [o for o in _switching_orders if o["status"] == "Draft"]
@@ -21417,25 +21737,27 @@ def page_hv_switching_schedule():
     _completed_orders = [o for o in _switching_orders if o["status"] == "Completed"]
 
     if _draft_orders:
-        st.warning(f"📝 {len(_draft_orders)} switching order(s) awaiting authorization.")
+        st.warning(auto_t("📝 {0} switching order(s) awaiting authorization.").format(len(_draft_orders)))
 
     if _active_orders:
         render_subheading("Active Switching Orders", level=4)
         for order in _active_orders:
             _steps = order.get("steps", [])
             _cur_idx = order.get("current_step_index", 0)
-            st.markdown(f"""<div class="custom-card" style="border-left-color: #f59e0b;"> <strong>{esc(order['title'])}</strong> <span class="status-badge" style="background:#f59e0b;">{esc(order['status'])}</span> <p>{esc(order['feeder_circuit'])} — Scheduled {_fmt_log_time(order['scheduled_datetime'])}</p> <p>Authorized by <strong>{esc(order.get('authorized_by', ''))}</strong> at {_fmt_log_time(order.get('authorized_at'))}</p> </div>""", unsafe_allow_html=True)
+            _switch_schedule_line = auto_t("{0} — Scheduled {1}").format(esc(order['feeder_circuit']), _fmt_log_time(order['scheduled_datetime']))
+            _switch_auth_line = auto_t("Authorized by {0} at {1}").format(f"<strong>{esc(order.get('authorized_by', ''))}</strong>", _fmt_log_time(order.get('authorized_at')))
+            st.markdown(f"""<div class="custom-card" style="border-left-color: #f59e0b;"> <strong>{esc(order['title'])}</strong> <span class="status-badge" style="background:#f59e0b;">{esc(order['status'])}</span> <p>{_switch_schedule_line}</p> <p>{_switch_auth_line}</p> </div>""", unsafe_allow_html=True)
             if _cur_idx < len(_steps):
-                st.markdown(f"**Current step ({_cur_idx + 1} of {len(_steps)}):** {esc(_steps[_cur_idx])}")
+                st.markdown(auto_t("**Current step ({0} of {1}):** {2}").format(_cur_idx + 1, len(_steps), esc(_steps[_cur_idx])))
                 with st.form(f"advance_switch_{order['id']}"):
-                    _sw_notes = st.text_input("Notes (optional)", key=f"sw_notes_{order['id']}")
-                    if st.form_submit_button("✅ Mark Step Complete & Advance"):
+                    _sw_notes = st.text_input(auto_t("Notes (optional)"), key=f"sw_notes_{order['id']}")
+                    if st.form_submit_button(auto_t("✅ Mark Step Complete & Advance")):
                         if advance_switching_step(order["id"], _steps[_cur_idx], full_name, notes=_sw_notes or None):
                             st.rerun()
                         else:
-                            st.error("Failed to advance — this order may not be authorized. Refresh and try again.")
+                            st.error(auto_t("Failed to advance — this order may not be authorized. Refresh and try again."))
             if order.get("step_log"):
-                with st.expander(f"📋 Execution log ({len(order['step_log'])} step(s))"):
+                with st.expander(auto_t("📋 Execution log ({0} step(s))").format(len(order['step_log']))):
                     for log_entry in order["step_log"]:
                         st.write(f"✓ {esc(log_entry['step_text'])} — {_fmt_log_time(log_entry['completed_at'])} "
                                 f"by {esc(log_entry['completed_by'])}"
@@ -21445,8 +21767,13 @@ def page_hv_switching_schedule():
     if _draft_orders:
         render_subheading("Awaiting Authorization", level=4)
         for order in _draft_orders:
-            st.markdown(f"""<div class="custom-card" style="border-left-color: #94a3b8;"> <strong>{esc(order['title'])}</strong> <span class="status-badge" style="background:#94a3b8;">DRAFT</span> <p>{esc(order['feeder_circuit'])} — Scheduled {_fmt_log_time(order['scheduled_datetime'])}</p> <p>{len(order.get('steps', []))} step(s) — created by {esc(order.get('created_by', ''))}</p> <p>Awaiting authorization from: <strong>{esc(order.get('designated_approver') or 'Not set')}</strong></p> </div>""", unsafe_allow_html=True)
-            with st.expander("Review steps before authorizing"):
+            _draft_label = auto_t("DRAFT")
+            _draft_schedule_line = auto_t("{0} — Scheduled {1}").format(esc(order['feeder_circuit']), _fmt_log_time(order['scheduled_datetime']))
+            _draft_steps_line = auto_t("{0} step(s) — created by {1}").format(len(order.get('steps', [])), esc(order.get('created_by', '')))
+            _draft_not_set = auto_t("Not set")
+            _draft_awaiting_line = auto_t("Awaiting authorization from: {0}").format(f"<strong>{esc(order.get('designated_approver') or _draft_not_set)}</strong>")
+            st.markdown(f"""<div class="custom-card" style="border-left-color: #94a3b8;"> <strong>{esc(order['title'])}</strong> <span class="status-badge" style="background:#94a3b8;">{_draft_label}</span> <p>{_draft_schedule_line}</p> <p>{_draft_steps_line}</p> <p>{_draft_awaiting_line}</p> </div>""", unsafe_allow_html=True)
+            with st.expander(auto_t("Review steps before authorizing")):
                 for i, step in enumerate(order.get("steps", []), 1):
                     st.write(f"{i}. {esc(step)}")
             # Identity-based, not a free-text name field — the person
@@ -21455,61 +21782,61 @@ def page_hv_switching_schedule():
             # the button; the logged-in session does.
             _is_designated_approver = (order.get("designated_approver") or "").strip().lower() == full_name.strip().lower()
             if _is_designated_approver:
-                if st.button(f"✅ Authorize as {full_name}", key=f"authorize_btn_{order['id']}", type="primary"):
+                if st.button(auto_t("✅ Authorize as {0}").format(full_name), key=f"authorize_btn_{order['id']}", type="primary"):
                     if authorize_switching_order(order["id"], full_name):
-                        st.success("Order authorized — steps can now be executed.")
+                        st.success(auto_t("Order authorized — steps can now be executed."))
                         st.rerun()
                     else:
-                        st.error("Failed to authorize — please refresh and try again.")
+                        st.error(auto_t("Failed to authorize — please refresh and try again."))
             else:
-                st.caption(f"🔒 Only {esc(order.get('designated_approver') or 'the designated approver')} "
-                          "can authorize this order — they'll need to log in and do this themselves.")
+                st.caption(auto_t("🔒 Only {0} can authorize this order — they'll need to log in and do this themselves.").format(esc(order.get('designated_approver') or 'the designated approver'))
+)
 
-    with st.expander("➕ Create a New Switching Order"):
-        st.caption("Write your team's own switching sequence, in order — this becomes the exact "
-                  "steps that get tracked and executed once authorized.")
+    with st.expander(auto_t("➕ Create a New Switching Order")):
+        st.caption(auto_t("Write your team's own switching sequence, in order — this becomes the exact "
+                  "steps that get tracked and executed once authorized."))
         with st.form("new_switching_order_form", clear_on_submit=True):
-            _sw_title = st.text_input("Title *", placeholder="e.g. Feeder 3 Bay Isolation for Maintenance")
-            _sw_feeder = st.text_input("Feeder / Circuit *")
-            _sw_date = st.date_input("Scheduled Date")
-            _sw_time = st.time_input("Scheduled Time")
-            _sw_officer = st.text_input("Switching Officer (optional)")
-            _sw_approver = st.text_input("Designated Approver *",
-                                        help="Must be a different person from you — they'll need to "
-                                             "log in themselves and authorize this before any step can be executed.")
-            _sw_steps_raw = st.text_area("Switching Steps (one per line, in order) *", height=200,
+            _sw_title = st.text_input(auto_t("Title *"), placeholder="e.g. Feeder 3 Bay Isolation for Maintenance")
+            _sw_feeder = st.text_input(auto_t("Feeder / Circuit *"))
+            _sw_date = st.date_input(auto_t("Scheduled Date"))
+            _sw_time = st.time_input(auto_t("Scheduled Time"))
+            _sw_officer = st.text_input(auto_t("Switching Officer (optional)"))
+            _sw_approver = st.text_input(auto_t("Designated Approver *"),
+                                        help=auto_t("Must be a different person from you — they'll need to "
+                                             "log in themselves and authorize this before any step can be executed."))
+            _sw_steps_raw = st.text_area(auto_t("Switching Steps (one per line, in order) *"), height=200,
                                         placeholder="Confirm isolation points\nOpen CB-05\nApply earths at...\n...")
-            if st.form_submit_button("💾 Save as Draft"):
+            if st.form_submit_button(auto_t("💾 Save as Draft")):
                 _sw_steps = [s.strip() for s in _sw_steps_raw.split("\n") if s.strip()]
                 if not _sw_title.strip() or not _sw_feeder.strip():
-                    st.error("Title and Feeder / Circuit are required.")
+                    st.error(auto_t("Title and Feeder / Circuit are required."))
                 elif not _sw_steps:
-                    st.error("At least one switching step is required.")
+                    st.error(auto_t("At least one switching step is required."))
                 elif not _sw_approver.strip():
-                    st.error("Designated Approver is required.")
+                    st.error(auto_t("Designated Approver is required."))
                 elif _sw_approver.strip().lower() == full_name.strip().lower():
-                    st.error("The Designated Approver must be a different person from you — "
-                            "self-authorization isn't permitted for switching orders.")
+                    st.error(auto_t("The Designated Approver must be a different person from you — "
+                            "self-authorization isn't permitted for switching orders."))
                 else:
                     _sw_datetime = datetime.combine(_sw_date, _sw_time)
                     if create_switching_order(_sw_title.strip(), _sw_feeder.strip(), _sw_datetime, _sw_steps,
                                              full_name, _sw_approver.strip(),
                                              switching_officer=_sw_officer.strip() or None):
-                        st.success("Switching order saved as Draft — awaiting authorization "
-                                  f"from {_sw_approver.strip()}.")
+                        st.success(auto_t("Switching order saved as Draft — awaiting authorization from {0}.").format(_sw_approver.strip())
+)
                         st.rerun()
                     else:
-                        st.error("Failed to save — this is most likely Row Level Security blocking "
+                        st.error(auto_t("Failed to save — this is most likely Row Level Security blocking "
                                 "the write, or the schema is missing the designated_approver column "
                                 "(Phase 39). Run schema_additions.sql against your Supabase database, "
-                                "then try again.")
+                                "then try again."))
 
     if _completed_orders:
         render_subheading("Completed Switching Orders", level=4)
         for order in _completed_orders:
-            with st.expander(f"{esc(order['title'])} — completed {_fmt_log_time(order.get('completed_at'))}"):
-                st.write(f"**Feeder/Circuit**: {esc(order['feeder_circuit'])}")
-                st.write(f"**Authorized by**: {esc(order.get('authorized_by', ''))}")
+            with st.expander(auto_t("{0} — completed {1}").format(esc(order['title']), _fmt_log_time(order.get('completed_at')))):
+                st.write(auto_t("**Feeder/Circuit**: {0}").format(esc(order['feeder_circuit'])))
+                st.write(auto_t("**Authorized by**: {0}").format(esc(order.get('authorized_by', ''))))
                 for log_entry in order.get("step_log", []):
                     st.write(f"✓ {esc(log_entry['step_text'])} — {_fmt_log_time(log_entry['completed_at'])} "
                             f"by {esc(log_entry['completed_by'])}")
@@ -21517,78 +21844,80 @@ def page_hv_switching_schedule():
 
 def page_fault_recorder():
     render_section_header("📊 Fault & Disturbance Recorder")
-    st.caption("A structured log of trip/fault events — which feeder tripped, what protection "
+    st.caption(auto_t("A structured log of trip/fault events — which feeder tripped, what protection "
               "device operated, the fault type and cause. Built for root cause analysis and "
               "spotting patterns, not for reading raw waveform data (COMTRADE files) — that "
-              "level of signal analysis needs your fault recorder's own dedicated software.")
+              "level of signal analysis needs your fault recorder's own dedicated software."))
 
     _fault_events = fetch_fault_events()
 
     if _fault_events:
         render_subheading("Trends by Feeder", level=4)
-        st.caption("Sorted worst-first — a feeder tripping repeatedly on the SAME fault type "
+        st.caption(auto_t("Sorted worst-first — a feeder tripping repeatedly on the SAME fault type "
                   "points to something specific and fixable; a mix of unrelated fault types "
-                  "at the same total count tells a different story.")
+                  "at the same total count tells a different story."))
         _trends = get_fault_trends_by_feeder(_fault_events)
         for t in _trends:
             _type_breakdown = ", ".join(f"{v} {k}" for k, v in sorted(t["by_type"].items(), key=lambda x: -x[1]))
-            st.markdown(f"""<div class="custom-card" style="border-left-color: {'#dc2626' if t['total'] >= 5 else '#0f3460'};"> <strong>{esc(t['feeder'])}</strong> <span class="status-badge" style="background:{'#dc2626' if t['total'] >= 5 else '#0f3460'};">{t['total']} trip(s)</span> <p>{esc(_type_breakdown)}</p> </div>""", unsafe_allow_html=True)
+            _type_breakdown = ", ".join(f"{v} {k}" for k, v in sorted(t["by_type"].items(), key=lambda x: -x[1]))
+            _trip_count_label = auto_t("{0} trip(s)").format(t['total'])
+            st.markdown(f"""<div class="custom-card" style="border-left-color: {'#dc2626' if t['total'] >= 5 else '#0f3460'};"> <strong>{esc(t['feeder'])}</strong> <span class="status-badge" style="background:{'#dc2626' if t['total'] >= 5 else '#0f3460'};">{_trip_count_label}</span> <p>{esc(_type_breakdown)}</p> </div>""", unsafe_allow_html=True)
 
-    with st.expander("➕ Log a Fault Event"):
+    with st.expander(auto_t("➕ Log a Fault Event")):
         with st.form("new_fault_event_form", clear_on_submit=True):
-            _fe_date = st.date_input("Event Date", value=datetime.now().date())
-            _fe_time = st.time_input("Event Time", value=datetime.now().time())
-            _fe_feeder = st.text_input("Feeder / Circuit *", placeholder="e.g. Feeder 3, 132kV Bus A")
-            _fe_device = st.text_input("Protection Device That Operated", placeholder="e.g. Relay R1, CB-05")
+            _fe_date = st.date_input(auto_t("Event Date"), value=datetime.now().date())
+            _fe_time = st.time_input(auto_t("Event Time"), value=datetime.now().time())
+            _fe_feeder = st.text_input(auto_t("Feeder / Circuit *"), placeholder="e.g. Feeder 3, 132kV Bus A")
+            _fe_device = st.text_input(auto_t("Protection Device That Operated"), placeholder="e.g. Relay R1, CB-05")
             _fe_type = selectbox_with_other("Fault Type", FAULT_TYPES, key_prefix="fault_type")
-            _fe_cause = st.text_input("Apparent Cause", placeholder="e.g. Vegetation contact, insulator failure")
-            _fe_notes = st.text_area("Notes (optional)", max_chars=500)
-            if st.form_submit_button("💾 Log Fault Event"):
+            _fe_cause = st.text_input(auto_t("Apparent Cause"), placeholder="e.g. Vegetation contact, insulator failure")
+            _fe_notes = st.text_area(auto_t("Notes (optional)"), max_chars=500)
+            if st.form_submit_button(auto_t("💾 Log Fault Event")):
                 if not _fe_feeder.strip():
-                    st.error("Feeder / Circuit is required.")
+                    st.error(auto_t("Feeder / Circuit is required."))
                 else:
                     _fe_datetime = datetime.combine(_fe_date, _fe_time)
                     if create_fault_event(_fe_datetime, _fe_feeder.strip(), _fe_device.strip() or None,
                                          _fe_type, _fe_cause.strip() or None, full_name,
                                          notes=_fe_notes.strip() or None):
-                        st.success("Fault event logged.")
+                        st.success(auto_t("Fault event logged."))
                         st.rerun()
                     else:
-                        st.error("Failed to log event — this is most likely Row Level Security "
+                        st.error(auto_t("Failed to log event — this is most likely Row Level Security "
                                 "blocking the write. Run the RLS fix in schema_additions.sql "
-                                "(Phase 37) against your Supabase database, then try again.")
+                                "(Phase 37) against your Supabase database, then try again."))
 
     if not _fault_events:
         render_empty_state("fa-bolt", "No fault events logged yet",
                           "Log one above to start building your trip history.")
     else:
         render_subheading("Event History", level=4)
-        _fe_search = st.text_input("🔍 Search by feeder, device, or cause", key="fault_event_search")
+        _fe_search = st.text_input(auto_t("🔍 Search by feeder, device, or cause"), key="fault_event_search")
         _filtered_events = quick_filter(_fault_events, _fe_search, ["feeder", "protection_device", "cause"])
         for e in _filtered_events:
             with st.expander(f"{esc(e['feeder'])} — {esc(e.get('fault_type') or 'Unspecified')} — "
                             f"{_fmt_log_time(e.get('event_datetime'))}"):
-                st.write(f"**Protection Device**: {esc(e.get('protection_device') or 'Not recorded')}")
-                st.write(f"**Cause**: {esc(e.get('cause') or 'Not recorded')}")
+                st.write(auto_t("**Protection Device**: {0}").format(esc(e.get('protection_device') or 'Not recorded')))
+                st.write(auto_t("**Cause**: {0}").format(esc(e.get('cause') or 'Not recorded')))
                 if e.get("notes"):
-                    st.write(f"**Notes**: {esc(e['notes'])}")
-                st.caption(f"Logged by {esc(e.get('created_by', ''))}")
+                    st.write(auto_t("**Notes**: {0}").format(esc(e['notes'])))
+                st.caption(auto_t("Logged by {0}").format(esc(e.get('created_by', ''))))
 
 
 def page_transformer_health():
     render_section_header("⚡ Transformer Health Dashboard")
-    st.caption("Dissolved Gas Analysis (DGA) history and condition flags — builds a record over time "
+    st.caption(auto_t("Dissolved Gas Analysis (DGA) history and condition flags — builds a record over time "
               "of your most expensive asset. Flags below are a reference-table comparison, not a "
-              "diagnosis; treat any Condition 3 or 4 flag as a signal to get a qualified engineer's read.")
-    with st.expander("ℹ️ About the thresholds used here"):
+              "diagnosis; treat any Condition 3 or 4 flag as a signal to get a qualified engineer's read."))
+    with st.expander(auto_t("ℹ️ About the thresholds used here")):
         st.markdown(
-            "Reference values are the \"Condition 1–4\" dissolved-gas table as published in guidance "
+            auto_t("Reference values are the \"Condition 1–4\" dissolved-gas table as published in guidance "
             "citing IEEE C57.104 (values per US Bureau of Reclamation FIST 3-31, *Transformer "
             "Diagnostics*). This is the older, simpler condition-level framework — the 2019 revision "
             "of C57.104 moved to a more complex statistical method using age- and equipment-type-"
             "specific norms, which this app does not implement. **A flagged reading means "
             "\"compare this against published guidance and get a qualified read\" — never a "
-            "standalone diagnosis of what's wrong with the transformer.**"
+            "standalone diagnosis of what's wrong with the transformer.**")
         )
 
     _all_dga_tests = fetch_dga_tests()
@@ -21608,18 +21937,20 @@ def page_transformer_health():
         _fleet_rows.sort(key=lambda r: r[1], reverse=True)
         for tag, worst, worst_gases, test_date in _fleet_rows:
             _colour = {0: "#94a3b8", 1: "#16a34a", 2: "#f59e0b", 3: "#ea580c", 4: "#dc2626"}[worst]
-            _label = {0: "No data", 1: "Condition 1", 2: "Condition 2", 3: "Condition 3", 4: "Condition 4"}[worst]
+            _label = {0: auto_t("No data"), 1: auto_t("Condition 1"), 2: auto_t("Condition 2"), 3: auto_t("Condition 3"), 4: auto_t("Condition 4")}[worst]
             _gas_names = ", ".join(DGA_GAS_LABELS.get(g, g) for g in worst_gases)
-            st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour};"> <strong>{esc(tag)}</strong> <span class="status-badge" style="background:{_colour};">{_label}</span> <p>Last tested {esc(str(test_date)[:10])}{f' — driven by {esc(_gas_names)}' if worst_gases else ''}</p> </div>""", unsafe_allow_html=True)
+            _dga_tested_line = auto_t("Last tested {0}").format(esc(str(test_date)[:10]))
+            _dga_driven_by = auto_t(" — driven by {0}").format(esc(_gas_names)) if worst_gases else ''
+            st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour};"> <strong>{esc(tag)}</strong> <span class="status-badge" style="background:{_colour};">{_label}</span> <p>{_dga_tested_line}{_dga_driven_by}</p> </div>""", unsafe_allow_html=True)
 
-    with st.expander("➕ Log a DGA Test"):
+    with st.expander(auto_t("➕ Log a DGA Test")):
         with st.form("new_dga_test_form", clear_on_submit=True):
-            _dga_tag = st.text_input("Transformer Tag / ID *", max_chars=100)
+            _dga_tag = st.text_input(auto_t("Transformer Tag / ID *"), max_chars=100)
             _dga_asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in st.session_state.get("assets", [])]
-            _dga_asset_choice = st.selectbox("Linked Asset (optional)", _dga_asset_options)
-            _dga_date = st.date_input("Test Date", value=datetime.now().date())
-            _dga_lab = st.text_input("Lab Name (optional)")
-            st.markdown("**Gas Readings (ppm) — leave blank if not tested**")
+            _dga_asset_choice = st.selectbox(auto_t("Linked Asset (optional)"), _dga_asset_options)
+            _dga_date = st.date_input(auto_t("Test Date"), value=datetime.now().date())
+            _dga_lab = st.text_input(auto_t("Lab Name (optional)"))
+            st.markdown(auto_t("**Gas Readings (ppm) — leave blank if not tested**"))
             _gcol1, _gcol2 = st.columns(2)
             _gas_inputs = {}
             _gas_keys = list(DGA_CONDITION_THRESHOLDS.keys())
@@ -21627,11 +21958,11 @@ def page_transformer_health():
                 with (_gcol1 if i % 2 == 0 else _gcol2):
                     _val = st.number_input(DGA_GAS_LABELS[gas_key], min_value=0.0, value=0.0, step=1.0, key=f"dga_{gas_key}")
                     _gas_inputs[gas_key] = _val if _val > 0 else None
-            _dga_moisture = st.number_input("Moisture (ppm, optional)", min_value=0.0, value=0.0, step=1.0)
-            _dga_other_notes = st.text_area("Other Oil Test Results / Notes (optional)", max_chars=500)
-            if st.form_submit_button("💾 Log DGA Test"):
+            _dga_moisture = st.number_input(auto_t("Moisture (ppm, optional)"), min_value=0.0, value=0.0, step=1.0)
+            _dga_other_notes = st.text_area(auto_t("Other Oil Test Results / Notes (optional)"), max_chars=500)
+            if st.form_submit_button(auto_t("💾 Log DGA Test")):
                 if not _dga_tag.strip():
-                    st.error("Transformer Tag / ID is required.")
+                    st.error(auto_t("Transformer Tag / ID is required."))
                 else:
                     _dga_asset_id = None
                     if _dga_asset_choice != "None":
@@ -21641,71 +21972,75 @@ def page_transformer_health():
                                       moisture_ppm=_dga_moisture if _dga_moisture > 0 else None,
                                       other_oil_test_notes=_dga_other_notes.strip() or None,
                                       lab_name=_dga_lab.strip() or None):
-                        st.success(f"DGA test logged for {_dga_tag}.")
+                        st.success(auto_t("DGA test logged for {0}.").format(_dga_tag))
                         st.rerun()
                     else:
-                        st.error("Failed to log test — this is most likely Row Level Security "
+                        st.error(auto_t("Failed to log test — this is most likely Row Level Security "
                                 "blocking the write. Run the RLS fix in schema_additions.sql "
-                                "(Phase 35) against your Supabase database, then try again.")
+                                "(Phase 35) against your Supabase database, then try again."))
 
     if _transformer_tags:
         render_subheading("Test History by Transformer", level=4)
-        _dga_selected_tag = st.selectbox("Select transformer", _transformer_tags, key="dga_history_select")
+        _dga_selected_tag = st.selectbox(auto_t("Select transformer"), _transformer_tags, key="dga_history_select")
         _tests_for_tag = sorted([t for t in _all_dga_tests if t["transformer_tag"] == _dga_selected_tag],
                                 key=lambda t: t["test_date"], reverse=True)
         for test in _tests_for_tag:
             worst, _ = worst_dga_condition(test)
             _colour = {0: "#94a3b8", 1: "#16a34a", 2: "#f59e0b", 3: "#ea580c", 4: "#dc2626"}[worst]
-            with st.expander(f"{str(test['test_date'])[:10]} — Condition {worst if worst else 'N/A'}"):
+            with st.expander(auto_t("{0} — Condition {1}").format(str(test['test_date'])[:10], worst if worst else 'N/A')):
                 for gas_key in DGA_CONDITION_THRESHOLDS:
                     val = test.get(gas_key)
                     condition, label = classify_dga_reading(gas_key, val)
                     if val is not None:
-                        st.write(f"**{DGA_GAS_LABELS[gas_key]}**: {val} ppm — {label}")
+                        st.write(auto_t("**{0}**: {1} ppm — {2}").format(DGA_GAS_LABELS[gas_key], val, label))
                 if test.get("moisture_ppm"):
-                    st.write(f"**Moisture**: {test['moisture_ppm']} ppm")
+                    st.write(auto_t("**Moisture**: {0} ppm").format(test['moisture_ppm']))
                 if test.get("other_oil_test_notes"):
-                    st.write(f"**Notes**: {esc(test['other_oil_test_notes'])}")
+                    st.write(auto_t("**Notes**: {0}").format(esc(test['other_oil_test_notes'])))
                 if test.get("lab_name"):
-                    st.caption(f"Tested by {esc(test['lab_name'])}")
+                    st.caption(auto_t("Tested by {0}").format(esc(test['lab_name'])))
 
 
 def page_outage_commander():
     render_section_header("🚧 Emergency Response / Outage Commander")
-    st.caption("Tracks progress through YOUR site's own pre-written response procedure — this app "
+    st.caption(auto_t("Tracks progress through YOUR site's own pre-written response procedure — this app "
               "does not generate or suggest electrical engineering guidance. The steps below are "
-              "exactly what your own team wrote when the runbook was created.")
+              "exactly what your own team wrote when the runbook was created."))
 
     _active_outages = fetch_outage_events(active_only=True)
 
     if _active_outages:
-        st.error(f"🔴 {len(_active_outages)} active outage(s) in progress.")
+        st.error(auto_t("🔴 {0} active outage(s) in progress.").format(len(_active_outages)))
         for event in _active_outages:
             _templates_lookup = {t["id"]: t for t in fetch_outage_runbook_templates()}
             _template = _templates_lookup.get(event.get("template_id"))
             _steps = _template.get("steps", []) if _template else []
 
-            st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>{esc(event.get('location') or 'Location not specified')}</strong> <span class="status-badge" style="background:#dc2626;">ACTIVE</span> <p>Outage Commander: <strong>{esc(event['outage_commander'])}</strong></p> <p>{esc_multiline(event.get('description') or '')}</p> <p style="font-size: 0.8rem; color: var(--text-secondary);"> Started {_fmt_log_time(event.get('started_at'))} by {esc(event.get('started_by', ''))} </p> </div>""", unsafe_allow_html=True)
+            _oc_location = esc(event.get('location') or auto_t('Location not specified'))
+            _oc_active_label = auto_t("ACTIVE")
+            _oc_commander_label = auto_t("Outage Commander:")
+            _oc_started_line = auto_t("Started {0} by {1}").format(_fmt_log_time(event.get('started_at')), esc(event.get('started_by', '')))
+            st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>{_oc_location}</strong> <span class="status-badge" style="background:#dc2626;">{_oc_active_label}</span> <p>{_oc_commander_label} <strong>{esc(event['outage_commander'])}</strong></p> <p>{esc_multiline(event.get('description') or '')}</p> <p style="font-size: 0.8rem; color: var(--text-secondary);"> {_oc_started_line} </p> </div>""", unsafe_allow_html=True)
 
             _current_idx = event.get("current_step_index", 0)
             if _current_idx < len(_steps):
-                st.markdown(f"**Current step ({_current_idx + 1} of {len(_steps)}):** {esc(_steps[_current_idx])}")
+                st.markdown(auto_t("**Current step ({0} of {1}):** {2}").format(_current_idx + 1, len(_steps), esc(_steps[_current_idx])))
                 with st.form(f"advance_outage_{event['id']}"):
-                    _step_notes = st.text_input("Notes on completing this step (optional)", key=f"step_notes_{event['id']}")
-                    if st.form_submit_button("✅ Mark Step Complete & Advance"):
+                    _step_notes = st.text_input(auto_t("Notes on completing this step (optional)"), key=f"step_notes_{event['id']}")
+                    if st.form_submit_button(auto_t("✅ Mark Step Complete & Advance")):
                         if advance_outage_step(event["id"], _steps[_current_idx], full_name, notes=_step_notes or None):
                             st.rerun()
                         else:
-                            st.error("Failed to advance — please try again.")
+                            st.error(auto_t("Failed to advance — please try again."))
             else:
-                st.success("All runbook steps completed.")
-                if st.button("🏁 Resolve Outage", key=f"resolve_{event['id']}", type="primary"):
+                st.success(auto_t("All runbook steps completed."))
+                if st.button(auto_t("🏁 Resolve Outage"), key=f"resolve_{event['id']}", type="primary"):
                     if resolve_outage_event(event["id"], full_name):
-                        st.success("Outage marked resolved.")
+                        st.success(auto_t("Outage marked resolved."))
                         st.rerun()
 
             if event.get("step_log"):
-                with st.expander(f"📋 Timeline ({len(event['step_log'])} step(s) logged)"):
+                with st.expander(auto_t("📋 Timeline ({0} step(s) logged)").format(len(event['step_log']))):
                     for log_entry in event["step_log"]:
                         st.write(f"✓ {esc(log_entry['step_text'])} — "
                                 f"{_fmt_log_time(log_entry['completed_at'])} by {esc(log_entry['completed_by'])}"
@@ -21715,59 +22050,59 @@ def page_outage_commander():
     render_subheading("Start a New Outage Response", level=4)
     _templates = fetch_outage_runbook_templates()
     if not _templates:
-        st.warning("No runbook templates exist yet — create one below before starting a response.")
+        st.warning(auto_t("No runbook templates exist yet — create one below before starting a response."))
     else:
         with st.form("start_outage_form"):
-            _oc_template_choice = st.selectbox("Runbook Template", [t["template_name"] for t in _templates])
-            _oc_commander = st.text_input("Outage Commander *", value=full_name)
-            _oc_location = st.text_input("Location / Affected Area")
-            _oc_description = st.text_area("Description")
-            if st.form_submit_button("🚧 Start Outage Response", type="primary"):
+            _oc_template_choice = st.selectbox(auto_t("Runbook Template"), [t["template_name"] for t in _templates])
+            _oc_commander = st.text_input(auto_t("Outage Commander *"), value=full_name)
+            _oc_location = st.text_input(auto_t("Location / Affected Area"))
+            _oc_description = st.text_area(auto_t("Description"))
+            if st.form_submit_button(auto_t("🚧 Start Outage Response"), type="primary"):
                 if not _oc_commander.strip():
-                    st.error("Outage Commander is required.")
+                    st.error(auto_t("Outage Commander is required."))
                 else:
                     _selected_template = next(t for t in _templates if t["template_name"] == _oc_template_choice)
                     if start_outage_event(_selected_template["id"], _oc_commander.strip(),
                                          _oc_description.strip() or None, _oc_location.strip() or None, full_name):
-                        st.success("Outage response started.")
+                        st.success(auto_t("Outage response started."))
                         st.rerun()
                     else:
-                        st.error("Failed to start — this is most likely Row Level Security blocking "
-                                "the write. Run the RLS fix in schema_additions.sql (Phase 34).")
+                        st.error(auto_t("Failed to start — this is most likely Row Level Security blocking "
+                                "the write. Run the RLS fix in schema_additions.sql (Phase 34)."))
 
-    with st.expander("➕ Create a Runbook Template"):
-        st.caption("Write out YOUR site's own response steps, in order — these are what will "
+    with st.expander(auto_t("➕ Create a Runbook Template")):
+        st.caption(auto_t("Write out YOUR site's own response steps, in order — these are what will "
                   "guide the response during a real outage, so write them the way your own "
-                  "qualified team would actually want them followed.")
+                  "qualified team would actually want them followed."))
         with st.form("new_runbook_template_form", clear_on_submit=True):
-            _rb_name = st.text_input("Template Name *", placeholder="e.g. Main Substation Outage Response")
-            _rb_steps_raw = st.text_area("Steps (one per line, in order) *", height=200,
+            _rb_name = st.text_input(auto_t("Template Name *"), placeholder="e.g. Main Substation Outage Response")
+            _rb_steps_raw = st.text_area(auto_t("Steps (one per line, in order) *"), height=200,
                                         placeholder="Notify Duty Engineer\nConfirm isolation points\nIsolate faulted section\n...")
-            if st.form_submit_button("💾 Save Runbook Template"):
+            if st.form_submit_button(auto_t("💾 Save Runbook Template")):
                 _rb_steps = [s.strip() for s in _rb_steps_raw.split("\n") if s.strip()]
                 if not _rb_name.strip():
-                    st.error("Template Name is required.")
+                    st.error(auto_t("Template Name is required."))
                 elif not _rb_steps:
-                    st.error("At least one step is required.")
+                    st.error(auto_t("At least one step is required."))
                 else:
                     if create_outage_runbook_template(_rb_name.strip(), _rb_steps, full_name):
-                        st.success(f"Runbook '{_rb_name}' saved with {len(_rb_steps)} step(s).")
+                        st.success(auto_t("Runbook '{0}' saved with {1} step(s).").format(_rb_name, len(_rb_steps)))
                         st.rerun()
                     else:
-                        st.error("Failed to save template.")
+                        st.error(auto_t("Failed to save template."))
 
     if _templates:
         render_subheading("Existing Templates", level=4)
         for t in _templates:
-            with st.expander(f"📄 {t['template_name']} ({len(t.get('steps', []))} steps)"):
+            with st.expander(auto_t("📄 {0} ({1} steps)").format(t['template_name'], len(t.get('steps', [])))):
                 for i, step in enumerate(t.get("steps", []), 1):
                     st.write(f"{i}. {esc(step)}")
 
 
 def page_instrument_calibration():
     render_section_header("📏 Instrument Calibration Tracker")
-    st.caption("Pressure transmitters, level sensors, and weigh feeders — alerted 7 days before a "
-              "calibration expires, so a plant shutdown from a false reading never comes as a surprise.")
+    st.caption(auto_t("Pressure transmitters, level sensors, and weigh feeders — alerted 7 days before a "
+              "calibration expires, so a plant shutdown from a false reading never comes as a surprise."))
 
     _cals = fetch_instrument_calibrations()
     _due_soon = []
@@ -21786,26 +22121,26 @@ def page_instrument_calibration():
         st.warning(f"⚠️ **{len(_due_soon)} instrument(s) due within 7 days**: " +
                    ", ".join(f"{c['instrument_tag']} ({d}d)" for c, _, d in _due_soon))
 
-    with st.expander("➕ Log a calibration"):
+    with st.expander(auto_t("➕ Log a calibration")):
         with st.form("new_calibration_form", clear_on_submit=True):
-            _ic_tag = st.text_input("Instrument Tag / ID *", max_chars=100)
-            _ic_type = st.selectbox("Instrument Type", INSTRUMENT_TYPES)
-            _ic_location = st.text_input("Location (optional)", max_chars=150)
-            _ic_date = st.date_input("Last Calibrated Date", value=datetime.now().date())
-            _ic_interval = st.number_input("Calibration Interval (days)", min_value=1, value=90, step=1)
-            _ic_notes = st.text_area("Notes (optional)", max_chars=300)
-            if st.form_submit_button("📏 Log Calibration"):
+            _ic_tag = st.text_input(auto_t("Instrument Tag / ID *"), max_chars=100)
+            _ic_type = st.selectbox(auto_t("Instrument Type"), INSTRUMENT_TYPES)
+            _ic_location = st.text_input(auto_t("Location (optional)"), max_chars=150)
+            _ic_date = st.date_input(auto_t("Last Calibrated Date"), value=datetime.now().date())
+            _ic_interval = st.number_input(auto_t("Calibration Interval (days)"), min_value=1, value=90, step=1)
+            _ic_notes = st.text_area(auto_t("Notes (optional)"), max_chars=300)
+            if st.form_submit_button(auto_t("📏 Log Calibration")):
                 if not _ic_tag.strip():
-                    st.error("Instrument Tag / ID is required.")
+                    st.error(auto_t("Instrument Tag / ID is required."))
                 else:
                     if create_instrument_calibration(_ic_tag.strip(), _ic_type, _ic_location.strip() or None,
                                                      _ic_date, _ic_interval, full_name, notes=_ic_notes.strip() or None):
-                        st.success(f"Calibration logged for {_ic_tag}.")
+                        st.success(auto_t("Calibration logged for {0}.").format(_ic_tag))
                         st.rerun()
                     else:
-                        st.error("Failed to log calibration — this is most likely Row Level Security "
+                        st.error(auto_t("Failed to log calibration — this is most likely Row Level Security "
                                 "blocking the write on a new table. Run the RLS fix in "
-                                "schema_additions.sql (Phase 33) against your Supabase database, then try again.")
+                                "schema_additions.sql (Phase 33) against your Supabase database, then try again."))
 
     if not _cals:
         render_empty_state("fa-gauge", "No instruments tracked yet",
@@ -21815,37 +22150,39 @@ def page_instrument_calibration():
         for c in _cals:
             _next_due, _days_until, _status = instrument_calibration_status(c)
             _colour = {"overdue": "#dc2626", "due_soon": "#f59e0b", "ok": "#16a34a"}[_status]
-            _status_text = {"overdue": f"OVERDUE by {abs(_days_until)}d" if _days_until is not None else "OVERDUE (unreadable date)",
-                           "due_soon": f"Due in {_days_until}d", "ok": f"Due in {_days_until}d"}[_status]
-            st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour};"> <strong>{esc(c['instrument_tag'])}</strong> — {esc(c['instrument_type'])} <span class="status-badge" style="background:{_colour};">{_status_text}</span> <p>{esc(c.get('location') or '')} — last calibrated {esc(str(c.get('last_calibrated_date', ''))[:10])}, every {c.get('calibration_interval_days', 90)} days</p> </div>""", unsafe_allow_html=True)
+            _status_text = {"overdue": auto_t("OVERDUE by {0}d").format(abs(_days_until)) if _days_until is not None else auto_t("OVERDUE (unreadable date)"),
+                           "due_soon": auto_t("Due in {0}d").format(_days_until), "ok": auto_t("Due in {0}d").format(_days_until)}[_status]
+            _cal_detail_line = auto_t("{0} — last calibrated {1}, every {2} days").format(
+                esc(c.get('location') or ''), esc(str(c.get('last_calibrated_date', ''))[:10]), c.get('calibration_interval_days', 90))
+            st.markdown(f"""<div class="custom-card" style="border-left-color: {_colour};"> <strong>{esc(c['instrument_tag'])}</strong> — {esc(c['instrument_type'])} <span class="status-badge" style="background:{_colour};">{_status_text}</span> <p>{_cal_detail_line}</p> </div>""", unsafe_allow_html=True)
 
 
 def page_motor_rewinds():
     render_section_header("🔧 Motor Rewind Board")
-    st.caption("Tracks each motor through Stripping → Winding → Impregnating → Assembly → Testing → QC. "
-              "Built to make a stuck stage visible at a glance — no more \"where did that motor go?\"")
+    st.caption(auto_t("Tracks each motor through Stripping → Winding → Impregnating → Assembly → Testing → QC. "
+              "Built to make a stuck stage visible at a glance — no more \"where did that motor go?\""))
 
-    with st.expander("➕ Start a new rewind"):
+    with st.expander(auto_t("➕ Start a new rewind")):
         with st.form("new_motor_rewind_form", clear_on_submit=True):
-            _mr_tag = st.text_input("Motor Tag / ID *", max_chars=100)
-            _mr_desc = st.text_input("Description (optional)", max_chars=200,
+            _mr_tag = st.text_input(auto_t("Motor Tag / ID *"), max_chars=100)
+            _mr_desc = st.text_input(auto_t("Description (optional)"), max_chars=200,
                                      placeholder="e.g. 75kW conveyor drive motor, Plant 1")
             _mr_asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in st.session_state.get("assets", [])]
-            _mr_asset_choice = st.selectbox("Linked Asset (optional)", _mr_asset_options)
-            if st.form_submit_button("🔧 Start Rewind"):
+            _mr_asset_choice = st.selectbox(auto_t("Linked Asset (optional)"), _mr_asset_options)
+            if st.form_submit_button(auto_t("🔧 Start Rewind")):
                 if not _mr_tag.strip():
-                    st.error("Motor Tag / ID is required.")
+                    st.error(auto_t("Motor Tag / ID is required."))
                 else:
                     _mr_asset_id = None
                     if _mr_asset_choice != "None":
                         _mr_asset_id = int(_mr_asset_choice.split(" ")[0].replace("#", ""))
                     if create_motor_rewind(_mr_tag.strip(), _mr_desc.strip() or None, full_name, asset_id=_mr_asset_id):
-                        st.success(f"Rewind started for {_mr_tag}.")
+                        st.success(auto_t("Rewind started for {0}.").format(_mr_tag))
                         st.rerun()
                     else:
-                        st.error("Failed to start rewind — this is most likely Row Level Security "
+                        st.error(auto_t("Failed to start rewind — this is most likely Row Level Security "
                                "blocking the write on a new table. Run the RLS fix in "
-                               "schema_additions.sql (Phase 32) against your Supabase database, then try again.")
+                               "schema_additions.sql (Phase 32) against your Supabase database, then try again."))
 
     _rewinds = fetch_motor_rewinds()
     if not _rewinds:
@@ -21863,8 +22200,8 @@ def page_motor_rewinds():
                 _stage_counts[r["stage"]] += 1
         _busiest_stage = max(_stage_counts, key=_stage_counts.get)
         if _stage_counts[_busiest_stage] >= 5:
-            st.warning(f"⚠️ **Bottleneck**: {_stage_counts[_busiest_stage]} motors are stuck in "
-                      f"**{_busiest_stage}** — worth checking what's holding that stage up.")
+            st.warning(auto_t("⚠️ **Bottleneck**: {0} motors are stuck in **{1}** — worth checking what's holding that stage up.").format(_stage_counts[_busiest_stage], _busiest_stage)
+)
 
         _mr_cols = st.columns(len(MOTOR_REWIND_STAGES))
         for _i, _stage in enumerate(MOTOR_REWIND_STAGES):
@@ -21873,10 +22210,11 @@ def page_motor_rewinds():
                 for r in [x for x in _rewinds if x["stage"] == _stage]:
                     _days_in_stage = (datetime.now() - (_parse_dt(r.get("stage_updated_at")) or datetime.now())).days
                     _stall_flag = " 🔴" if _days_in_stage >= 3 else ""
-                    st.markdown(f"""<div class="custom-card" style="padding: 0.6rem; margin-bottom: 0.5rem;"> <strong>{esc(r['motor_tag'])}</strong>{_stall_flag} <p style="font-size: 0.8rem; margin: 0.2rem 0;">{esc_multiline(r.get('description') or '')}</p> <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0;"> {_days_in_stage}d in stage </p> </div>""", unsafe_allow_html=True)
+                    _days_in_stage_line = auto_t("{0}d in stage").format(_days_in_stage)
+                    st.markdown(f"""<div class="custom-card" style="padding: 0.6rem; margin-bottom: 0.5rem;"> <strong>{esc(r['motor_tag'])}</strong>{_stall_flag} <p style="font-size: 0.8rem; margin: 0.2rem 0;">{esc_multiline(r.get('description') or '')}</p> <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0;"> {_days_in_stage_line} </p> </div>""", unsafe_allow_html=True)
                     _bcol1, _bcol2 = st.columns(2)
                     with _bcol1:
-                        if _i > 0 and st.button("◀", key=f"mr_back_{r['id']}", help="Move back a stage"):
+                        if _i > 0 and st.button("◀", key=f"mr_back_{r['id']}", help=auto_t("Move back a stage")):
                             if move_motor_rewind_stage(r["id"], -1, full_name):
                                 st.rerun()
                     with _bcol2:
@@ -21889,24 +22227,24 @@ def page_motor_rewinds():
                             # punch-out, and for the same reason: the
                             # confirm step needs data that isn't available
                             # until this exact moment).
-                            if st.button("✅", key=f"mr_fwd_{r['id']}", help="Complete"):
+                            if st.button("✅", key=f"mr_fwd_{r['id']}", help=auto_t("Complete")):
                                 st.session_state["_pending_motor_completion"] = r["id"]
                                 st.rerun()
                         else:
-                            if st.button("▶", key=f"mr_fwd_{r['id']}", help="Advance to next stage"):
+                            if st.button("▶", key=f"mr_fwd_{r['id']}", help=auto_t("Advance to next stage")):
                                 if move_motor_rewind_stage(r["id"], 1, full_name):
                                     st.rerun()
 
                     if st.session_state.get("_pending_motor_completion") == r["id"]:
                         with st.form(f"mr_complete_form_{r['id']}"):
-                            st.markdown(f"**Complete {esc(r['motor_tag'])} — Test Certificate**")
-                            _t_noload = st.text_input("No-load Current", key=f"mr_noload_{r['id']}")
-                            _t_resist = st.text_input("Resistance", key=f"mr_resist_{r['id']}")
-                            _t_megger = st.text_input("Insulation Megger", key=f"mr_megger_{r['id']}")
-                            _t_hipot = st.text_input("Hi-Pot Result", key=f"mr_hipot_{r['id']}")
+                            st.markdown(auto_t("**Complete {0} — Test Certificate**").format(esc(r['motor_tag'])))
+                            _t_noload = st.text_input(auto_t("No-load Current"), key=f"mr_noload_{r['id']}")
+                            _t_resist = st.text_input(auto_t("Resistance"), key=f"mr_resist_{r['id']}")
+                            _t_megger = st.text_input(auto_t("Insulation Megger"), key=f"mr_megger_{r['id']}")
+                            _t_hipot = st.text_input(auto_t("Hi-Pot Result"), key=f"mr_hipot_{r['id']}")
                             _t_confirm, _t_cancel = st.columns(2)
                             with _t_confirm:
-                                if st.form_submit_button("✅ Complete & Generate Certificate"):
+                                if st.form_submit_button(auto_t("✅ Complete & Generate Certificate")):
                                     _test_values = {
                                         "test_no_load_current": _t_noload or None,
                                         "test_resistance": _t_resist or None,
@@ -21917,12 +22255,12 @@ def page_motor_rewinds():
                                     if move_motor_rewind_stage(r["id"], 1, full_name, test_values=_test_values):
                                         st.session_state.pop("_pending_motor_completion", None)
                                         st.session_state["_last_completed_rewind"] = r["id"]
-                                        st.success(f"{r['motor_tag']} completed.")
+                                        st.success(auto_t("{0} completed.").format(r['motor_tag']))
                                         st.rerun()
                                     else:
-                                        st.error("Failed to complete — please try again.")
+                                        st.error(auto_t("Failed to complete — please try again."))
                             with _t_cancel:
-                                if st.form_submit_button("Cancel"):
+                                if st.form_submit_button(auto_t("Cancel")):
                                     st.session_state.pop("_pending_motor_completion", None)
                                     st.rerun()
 
@@ -21939,10 +22277,10 @@ def page_motor_rewinds():
             _cert_pdf = generate_motor_test_certificate(_completed_rewind)
             if _cert_pdf:
                 st.download_button(
-                    f"📄 Download Test Certificate — {_completed_rewind['motor_tag']}",
+                    auto_t("📄 Download Test Certificate — {0}").format(_completed_rewind['motor_tag']),
                     _cert_pdf, f"test_certificate_{_completed_rewind['motor_tag']}.pdf",
                     "application/pdf", key="dl_motor_cert")
-        if st.button("Dismiss", key="dismiss_cert_download"):
+        if st.button(auto_t("Dismiss"), key="dismiss_cert_download"):
             st.session_state.pop("_last_completed_rewind", None)
             st.rerun()
 
@@ -22032,30 +22370,28 @@ def send_electrical_department_digest(triggered_by):
     data = gather_electrical_alerts()
     recipients = electrical_digest_recipients()
 
-    if not data["alerts"]:
-        body_rows = "<p style='color:#16a34a;'>✅ Nothing needs attention across the Electrical Department right now.</p>"
-    else:
-        _sev_color = {"error": "#dc2626", "warning": "#f59e0b"}
-        body_rows = "".join(
-            f"<li style='color:{_sev_color.get(a['severity'], '#0f3460')};'>{esc(a['text'])}</li>"
-            for a in data["alerts"]
-        )
-        body_rows = f"<ul>{body_rows}</ul>"
-
-    subject = f"⚡ Electrical Department Digest — {datetime.now().strftime('%B %d, %Y')}"
-    body_html = f"""
-    <h2>Electrical Department Digest</h2>
-    <p>{datetime.now().strftime('%B %d, %Y at %H:%M')}</p>
-    {body_rows}
-    <p style="color:#94a3b8; font-size: 0.85em;">
-        Sent because you're a supervisor, superintendent, or owner in MWDTS.
-        Full detail: open Electrical Overview in the app.
-    </p>
-    """
-
     sent = 0
     for r in recipients:
-        if send_email_notification(r["email"], subject, body_html):
+        _sev_color = {"error": "#dc2626", "warning": "#f59e0b"}
+        if not data["alerts"]:
+            body_rows = f"<p style='color:#16a34a;'>✅ {auto_t_for('Nothing needs attention across the Electrical Department right now.', r)}</p>"
+        else:
+            body_rows = "".join(
+                f"<li style='color:{_sev_color.get(a['severity'], '#0f3460')};'>{esc(a['text'])}</li>"
+                for a in data["alerts"]
+            )
+            body_rows = f"<ul>{body_rows}</ul>"
+        _subject = auto_t_for("⚡ Electrical Department Digest — {0}", r).format(datetime.now().strftime('%B %d, %Y'))
+        _sent_because_note = auto_t_for("Sent because you're a supervisor, superintendent, or owner in MWDTS. Full detail: open Electrical Overview in the app.", r)
+        _body_html = f"""
+        <h2>{auto_t_for('Electrical Department Digest', r)}</h2>
+        <p>{datetime.now().strftime('%B %d, %Y at %H:%M')}</p>
+        {body_rows}
+        <p style="color:#94a3b8; font-size: 0.85em;">
+            {_sent_because_note}
+        </p>
+        """
+        if send_email_notification(r["email"], _subject, _body_html):
             sent += 1
     log_audit(triggered_by, "electrical_digest_sent",
               {"recipient_count": len(recipients), "sent_count": sent, "alert_count": len(data["alerts"])})
@@ -22111,14 +22447,18 @@ def send_task_assigned_email(task_id, task_title, task_location, assigned_to_ful
     email = user_record["email"]
     if str(email).endswith("@mwdts.internal"):
         return False
-    subject = f"📋 Task Assigned to You — #{task_id}: {task_title}"
+    subject = auto_t_for("📋 Task Assigned to You — #{0}: {1}", user_record).format(task_id, task_title)
+    _tc_heading = auto_t_for("You've Been Assigned a Task", user_record)
+    _tc_location_label = auto_t_for("Location:", user_record)
+    _tc_assigned_by_label = auto_t_for("Assigned by:", user_record)
+    _tc_footer = auto_t_for("Open MWDTS → Task Dashboard to see full details, JSA/LOTO requirements, and to update status.", user_record)
     body_html = f"""
-    <h2>You've Been Assigned a Task</h2>
+    <h2>{_tc_heading}</h2>
     <p><strong>#{task_id}: {esc(task_title)}</strong></p>
-    <p>Location: {esc(task_location or '—')}</p>
-    <p>Assigned by: {esc(assigned_by)}</p>
+    <p>{_tc_location_label} {esc(task_location or '—')}</p>
+    <p>{_tc_assigned_by_label} {esc(assigned_by)}</p>
     <p style="color:#94a3b8; font-size:0.85em;">
-        Open MWDTS → Task Dashboard to see full details, JSA/LOTO requirements, and to update status.
+        {_tc_footer}
     </p>
     """
     return send_email_notification(email, subject, body_html)
@@ -22153,23 +22493,27 @@ def send_task_completion_email(task, completed_by):
         return False
 
     if user_record.get("phone_number"):
-        send_whatsapp_message(user_record["phone_number"],
-            f"✅ MWDTS: Job #{task.get('id')} \"{task.get('title', '')}\" completed by {completed_by}.")
+        _completion_wa_msg = auto_t_for("✅ MWDTS: Job #{0} \"{1}\" completed by {2}.", user_record).format(
+            task.get('id'), task.get('title', ''), completed_by)
+        send_whatsapp_message(user_record["phone_number"], _completion_wa_msg)
 
     if not user_record.get("email"):
         return False
     email = user_record["email"]
     if str(email).endswith("@mwdts.internal"):
         return False
-    subject = f"✅ Job Completed — #{task.get('id')}: {task.get('title', '')}"
+    subject = auto_t_for("✅ Job Completed — #{0}: {1}", user_record).format(task.get('id'), task.get('title', ''))
+    _jc_heading = auto_t_for("Job Completed", user_record)
+    _jc_location_label = auto_t_for("Location:", user_record)
+    _jc_completed_by_label = auto_t_for("Completed by:", user_record)
+    _jc_footer = auto_t_for("Full job details, activity log, and labour cost are in the attached PDF. Open MWDTS → Task Dashboard for the live record.", user_record)
     body_html = f"""
-    <h2>Job Completed</h2>
+    <h2>{_jc_heading}</h2>
     <p><strong>#{task.get('id')}: {esc(task.get('title', ''))}</strong></p>
-    <p>Location: {esc(task.get('location') or '—')}</p>
-    <p>Completed by: {esc(completed_by)}</p>
+    <p>{_jc_location_label} {esc(task.get('location') or '—')}</p>
+    <p>{_jc_completed_by_label} {esc(completed_by)}</p>
     <p style="color:#94a3b8; font-size:0.85em;">
-        Full job details, activity log, and labour cost are in the attached PDF.
-        Open MWDTS → Task Dashboard for the live record.
+        {_jc_footer}
     </p>
     """
     pdf_bytes = None
@@ -22303,10 +22647,14 @@ def set_task_team_members(task_id, task_title, task_location, full_names, update
             _member_record = next((u for u in all_users if u.get("full_name") == _member_name), None)
             _member_email = (_member_record or {}).get("email")
             if _member_email and not str(_member_email).endswith("@mwdts.internal"):
-                send_email_notification(_member_email, f"👥 Added to Task Team — #{task_id}: {task_title}",
-                    f"<p>You've been added to the team for <strong>#{task_id}: {esc(task_title)}</strong>.</p>"
-                    f"<p>Location: {esc(task_location or '—')}</p>"
-                    f"<p>Added by: {esc(updated_by)}</p>")
+                _team_subject = auto_t_for("👥 Added to Task Team — #{0}: {1}", _member_record).format(task_id, task_title)
+                _team_intro = auto_t_for("You've been added to the team for {0}.", _member_record).format(f"<strong>#{task_id}: {esc(task_title)}</strong>")
+                _team_location_label = auto_t_for("Location:", _member_record)
+                _team_added_by_label = auto_t_for("Added by:", _member_record)
+                send_email_notification(_member_email, _team_subject,
+                    f"<p>{_team_intro}</p>"
+                    f"<p>{_team_location_label} {esc(task_location or '—')}</p>"
+                    f"<p>{_team_added_by_label} {esc(updated_by)}</p>")
         except Exception as e:
             log_error(str(e), details={"member": _member_name}, endpoint="set_task_team_members:email")
     return True
@@ -22314,15 +22662,15 @@ def set_task_team_members(task_id, task_title, task_location, full_names, update
 
 def page_electrical_overview():
     render_section_header("⚡ Electrical Department Overview")
-    st.caption("One landing page pulling status from all 7 Electrical Department sections, "
-              "so you don't have to click through each one to know if anything needs attention.")
+    st.caption(auto_t("One landing page pulling status from all 7 Electrical Department sections, "
+              "so you don't have to click through each one to know if anything needs attention."))
 
     _eo_data = gather_electrical_alerts()
     _eo_severity_fn = {"error": st.error, "warning": st.warning}
     for _eo_alert in _eo_data["alerts"]:
         _eo_severity_fn.get(_eo_alert["severity"], st.info)(f"**{_eo_alert['text']}**")
     if not _eo_data["alerts"]:
-        st.success("✅ Nothing needs immediate attention across the Electrical Department right now.")
+        st.success(auto_t("✅ Nothing needs immediate attention across the Electrical Department right now."))
 
     st.markdown("---")
     render_subheading("At a Glance", level=4)
@@ -22343,7 +22691,7 @@ def page_chat():
         # what the floating AI button opens; reaching Chat normally
         # (via the sidebar) never sets this flag, so the full room
         # switcher is unaffected there.
-        st.markdown("""
+        st.markdown(auto_t("""
         <div style="text-align:center; padding: 0.5rem 0 1rem 0;">
             <i class="fas fa-robot" style="font-size: 2.4rem; color: var(--brand-gold);"></i>
             <h2 style="margin: 0.3rem 0 0.2rem 0;">AI Assistant</h2>
@@ -22351,18 +22699,18 @@ def page_chat():
                 Ask about this app, or anything else — general knowledge questions welcome too.
             </p>
         </div>
-        """, unsafe_allow_html=True)
-        if st.button("← Back to Chat Rooms"):
+        """), unsafe_allow_html=True)
+        if st.button(auto_t("← Back to Chat Rooms")):
             st.session_state["_focused_assistant_mode"] = False
             st.rerun()
         room = "ai_assistant"
     else:
-        st.markdown("""
+        st.markdown(auto_t("""
         <div style="text-align:center; padding: 0.3rem 0 1rem 0;">
             <i class="fas fa-comments" style="font-size: 2rem; color: var(--brand-gold);"></i>
             <h2 style="margin: 0.3rem 0 0;">Chat</h2>
         </div>
-        """, unsafe_allow_html=True)
+        """), unsafe_allow_html=True)
 
         room = st.session_state.chat_room
 
@@ -22393,30 +22741,30 @@ def page_chat():
 
     if room == "global":
         st.markdown(
-            '<div class="chat-room-header"><div class="chat-room-icon">'
+            auto_t('<div class="chat-room-header"><div class="chat-room-icon">'
             '<i class="fas fa-earth-americas"></i></div><div>'
             '<div class="chat-room-title">Global Chat</div>'
             '<div class="chat-room-sub">Visible to everyone with access to this app</div>'
-            '</div></div>', unsafe_allow_html=True)
+            '</div></div>'), unsafe_allow_html=True)
     elif room == "supervisor":
         if not can(role, "chat.supervisor_room"):
-            st.error("You don't have permission to view the Supervisor room.")
+            st.error(auto_t("You don't have permission to view the Supervisor room."))
             st.stop()
         st.markdown(
-            '<div class="chat-room-header"><div class="chat-room-icon">'
+            auto_t('<div class="chat-room-header"><div class="chat-room-icon">'
             '<i class="fas fa-user-shield"></i></div><div>'
             '<div class="chat-room-title">Supervisor Room</div>'
             '<div class="chat-room-sub">Supervisors and Superintendent only</div>'
-            '</div></div>', unsafe_allow_html=True)
+            '</div></div>'), unsafe_allow_html=True)
     elif room == "ai_assistant":
         if not _focused_mode:
             st.markdown(
-                '<div class="chat-room-header"><div class="chat-room-icon">'
+                auto_t('<div class="chat-room-header"><div class="chat-room-icon">'
                 '<i class="fas fa-robot"></i></div><div>'
                 '<div class="chat-room-title">AI Assistant</div>'
                 '<div class="chat-room-sub">Your own private conversation — answers about this app\'s '
                 'current data, and general knowledge questions too</div>'
-                '</div></div>', unsafe_allow_html=True)
+                '</div></div>'), unsafe_allow_html=True)
 
         # Provider picker — only shown if there's an actual choice to
         # make (2+ providers configured); with just one, showing a
@@ -22427,11 +22775,11 @@ def page_chat():
         if len(_configured_providers) > 1:
             _provider_options = ["Auto (default order)"] + _configured_providers
             _preferred = st.selectbox(
-                "AI Provider", _provider_options,
+                auto_t("AI Provider"), _provider_options,
                 index=_provider_options.index(st.session_state.get("_ai_preferred_provider", "Auto (default order)")),
                 key="_ai_provider_select",
-                help="\"Auto\" tries providers in order and falls back automatically if one fails. "
-                     "Picking one specifically tries it first, still falling back to the others if it fails.")
+                help=auto_t("\"Auto\" tries providers in order and falls back automatically if one fails. "
+                     "Picking one specifically tries it first, still falling back to the others if it fails."))
             st.session_state["_ai_preferred_provider"] = _preferred
 
         # Per-user, database-backed — replaces the old session_state
@@ -22447,12 +22795,12 @@ def page_chat():
             (i for i, m in enumerate(_ai_history) if m["role"] == "assistant"), default=None)
 
         if not _ai_history:
-            st.markdown("""
+            st.markdown(auto_t("""
             <div style="text-align:center; padding: 2rem 1rem; color: var(--text-secondary);">
                 <i class="fas fa-comment-dots" style="font-size: 2rem; opacity: 0.5;"></i>
                 <p style="margin-top: 0.5rem;">No messages yet — ask about this app, or anything else.</p>
             </div>
-            """, unsafe_allow_html=True)
+            """), unsafe_allow_html=True)
         else:
             for _i, _msg in enumerate(_ai_history):
                 with st.chat_message("user" if _msg["role"] == "user" else "assistant",
@@ -22549,13 +22897,13 @@ def page_chat():
         _web_search_on = False
         if GROQ_API_KEY:
             _web_search_on = st.checkbox(
-                "🌐 Search the web for this question",
+                auto_t("🌐 Search the web for this question"),
                 key="_ai_web_search_toggle",
-                help="Uses Groq's web search (Compound Mini) to look up current information "
+                help=auto_t("Uses Groq's web search (Compound Mini) to look up current information "
                      "online before answering. This is a paid feature (Groq's own pricing: "
                      "roughly $5-8 per 1,000 searches) — unlike the rest of this assistant, "
                      "which runs on free-tier usage. Only applies to the question you're about "
-                     "to send, not future ones.")
+                     "to send, not future ones."))
 
         _ai_question = st.chat_input("Ask about this app, or anything else...")
         # st.chat_input has no way to pre-fill text into the box itself
@@ -22605,9 +22953,9 @@ def page_chat():
                     _display_answer, _fresh_action = parse_assistant_action(_answer)
                     st.markdown(_display_answer)
                     if _fresh_action:
-                        st.caption("Review this proposed action on the message below once the page refreshes.")
+                        st.caption(auto_t("Review this proposed action on the message below once the page refreshes."))
                     if _web_sources:
-                        with st.expander(f"🔗 {len(_web_sources)} source(s)"):
+                        with st.expander(auto_t("🔗 {0} source(s)").format(len(_web_sources))):
                             for src in _web_sources[:8]:
                                 st.markdown(f"- [{esc(src['title'])}]({src['url']})")
                     # Only shown when it DIFFERS from what was picked —
@@ -22619,11 +22967,11 @@ def page_chat():
                     # failed preference is visible instead of invisible.
                     if (not _web_search_on and _preferred_provider and _actual_provider
                             and _actual_provider != _preferred_provider):
-                        st.caption(f"⚠️ {_preferred_provider} didn't respond — answered via {_actual_provider} instead.")
+                        st.caption(auto_t("⚠️ {0} didn't respond — answered via {1} instead.").format(_preferred_provider, _actual_provider))
                 elif _web_search_on:
-                    st.error("Web search failed — check the error log in Owner Console, or try without web search.")
+                    st.error(auto_t("Web search failed — check the error log in Owner Console, or try without web search."))
                 else:
-                    st.error("Couldn't get an answer right now — check the AI provider configuration in Owner Console.")
+                    st.error(auto_t("Couldn't get an answer right now — check the AI provider configuration in Owner Console."))
             if _answer:
                 # Both turns saved together — keeps stored history
                 # always holding complete pairs, never a dangling
@@ -22635,29 +22983,31 @@ def page_chat():
         # Matches the disclaimer wording pattern used by most AI
         # chat interfaces — states plainly that this can be wrong,
         # without hedging every single answer with a caveat inline.
-        st.caption("AI can make mistakes. Please double-check important answers.")
+        st.caption(auto_t("AI can make mistakes. Please double-check important answers."))
 
         if _ai_history:
-            if st.button("🗑️ New Chat", key="ai_assistant_clear"):
+            if st.button(auto_t("🗑️ New Chat"), key="ai_assistant_clear"):
                 clear_ai_chat_history(username)
                 st.rerun()
 
     elif room.startswith("private:"):
         partner = st.session_state.chat_partner
+        _private_title = auto_t("Private — {0}").format(esc(partner))
+        _private_sub = auto_t("Only visible to you and {0}").format(esc(partner))
         st.markdown(
             f'<div class="chat-room-header">{render_avatar_html(partner)}<div>'
-            f'<div class="chat-room-title">Private — {esc(partner)}</div>'
-            f'<div class="chat-room-sub">Only visible to you and {esc(partner)}</div>'
+            f'<div class="chat-room-title">{_private_title}</div>'
+            f'<div class="chat-room-sub">{_private_sub}</div>'
             f'</div></div>', unsafe_allow_html=True)
         st.warning(
-            "⚠️ **Not end-to-end encrypted.** Messages here are obfuscated, not securely encrypted: "
+            auto_t("⚠️ **Not end-to-end encrypted.** Messages here are obfuscated, not securely encrypted: "
             "the key is derived from the two usernames plus a fixed salt, so anyone who knows both "
             "usernames — or who can read the app's source — can decrypt them. Server administrators "
             "can also read them. **Do not use this channel for anything confidential** "
-            "(personnel matters, incident specifics, credentials)."
+            "(personnel matters, incident specifics, credentials).")
         )
     else:
-        st.warning("Unknown room. Switching to Global.")
+        st.warning(auto_t("Unknown room. Switching to Global."))
         st.session_state.chat_room = "global"
         st.rerun()
 
@@ -22689,7 +23039,7 @@ def page_chat():
 
     messages = [m for m in st.session_state.chat_messages_cache if m['room'] == room]
     if messages:
-        st.caption(f"{len(messages)} message{'s' if len(messages) != 1 else ''} in this room")
+        st.caption(auto_t("{0} message{1} in this room").format(len(messages), 's' if len(messages) != 1 else ''))
         _last_date = None
         for msg in reversed(messages):
             sender = msg['sender']
@@ -22742,31 +23092,31 @@ def page_chat():
                         unsafe_allow_html=True)
             with col_delete:
                 if sender == full_name:
-                    if st.button("🗑️ Delete", key=f"del_msg_{msg['id']}"):
+                    if st.button(auto_t("🗑️ Delete"), key=f"del_msg_{msg['id']}"):
                         if delete_message(msg['id'], full_name):
-                            st.success("Message deleted!")
+                            st.success(auto_t("Message deleted!"))
                             st.session_state.chat_messages_cache = [m for m in st.session_state.chat_messages_cache if m['id'] != msg['id']]
                             st.rerun()
                         else:
-                            st.error("Failed to delete message.")
+                            st.error(auto_t("Failed to delete message."))
     else:
         if room == "global":
-            st.info("💬 No messages yet — be the first to say something to everyone.")
+            st.info(auto_t("💬 No messages yet — be the first to say something to everyone."))
         elif room == "supervisor":
-            st.info("💬 No messages yet in the Supervisor room.")
+            st.info(auto_t("💬 No messages yet in the Supervisor room."))
         elif room.startswith("private:"):
-            st.info(f"💬 No messages yet with {st.session_state.chat_partner} — say hello.")
+            st.info(auto_t("💬 No messages yet with {0} — say hello.").format(st.session_state.chat_partner))
         else:
             render_empty_state("fa-comments", "No messages yet", "Start the conversation.")
 
     with st.container():
         st.markdown("---")
-        msg_input = st.text_area("Message", height=100, key="chat_input_text",
+        msg_input = st.text_area(auto_t("Message"), height=100, key="chat_input_text",
                                  value=st.session_state.chat_input_value,
                                  placeholder="Write a message…")
         col_send, col_clear = st.columns([1, 5])
         with col_send:
-            if st.button('📤 Send', use_container_width=True):
+            if st.button(auto_t('📤 Send'), use_container_width=True):
                 if msg_input.strip():
                     encrypted = False
                     final_msg = msg_input
@@ -22783,16 +23133,16 @@ def page_chat():
                         encrypted=encrypted
                     )
                     if success:
-                        st.success("Message sent!")
+                        st.success(auto_t("Message sent!"))
                         st.session_state.chat_input_value = ""
                         st.session_state.chat_messages_cache = fetch_messages(room=room, limit=200)
                         st.rerun()
                     else:
-                        st.error("Failed to send message. Check database or ensure table exists.")
+                        st.error(auto_t("Failed to send message. Check database or ensure table exists."))
                 else:
-                    st.warning("Message cannot be empty.")
+                    st.warning(auto_t("Message cannot be empty."))
         with col_clear:
-            if st.button('🧹 Clear input', use_container_width=True):
+            if st.button(auto_t('🧹 Clear input'), use_container_width=True):
                 st.session_state.chat_input_value = ""
                 st.rerun()
 
@@ -22803,17 +23153,17 @@ def page_owner_console():
     # HARD GATE. The menu item is hidden for non-owners, but hiding a
     # menu is not access control — this check is the actual barrier.
     if not is_owner(username):
-        st.error("🚫 This area is restricted to the account owner.")
+        st.error(auto_t("🚫 This area is restricted to the account owner."))
         log_audit(full_name, "owner_console_denied", {"username": username})
         st.stop()
 
     render_section_header("🔑 Owner Console")
-    st.caption(f"Signed in as the owner (`{esc(username)}`). Owner status is set by "
-               "`OWNER_USERNAME` in secrets.toml and cannot be granted from inside "
-               "the app.")
+    st.caption(auto_t("Signed in as the owner (`{0}`). Owner status is set by `OWNER_USERNAME` in secrets.toml and cannot be granted from inside the app.").format(esc(username))
+
+)
 
     if not SUPABASE_AVAILABLE:
-        st.warning("No database connected — access management is unavailable in demo mode.")
+        st.warning(auto_t("No database connected — access management is unavailable in demo mode."))
         st.stop()
 
     owner_sub = option_menu(
@@ -22840,39 +23190,42 @@ def page_owner_console():
         _m3.metric("Suspended / Denied", len(_blocked))
 
         if not _pending:
-            st.success("✅ No pending access requests.")
+            st.success(auto_t("✅ No pending access requests."))
         else:
-            st.markdown("### Requests awaiting your decision")
-            st.caption("You choose the role that is granted. What the applicant "
-                       "selected is only a request.")
+            st.markdown(auto_t("### Requests awaiting your decision"))
+            st.caption(auto_t("You choose the role that is granted. What the applicant "
+                       "selected is only a request."))
             for u in _pending:
                 with st.container(border=True):
                     _c1, _c2 = st.columns([3, 2])
                     with _c1:
                         st.markdown(f"**{esc(u.get('full_name'))}**  `{esc(u.get('username'))}`")
+                        _emp_id_label = auto_t("ID: {0}").format(u.get('employee_id')) if u.get('employee_id') else None
+                        _requested_label = auto_t("Requested {0}").format(_fmt_log_time(u['requested_at'])) if u.get('requested_at') else None
                         st.markdown(render_meta_chips([
                             ("fa-briefcase", u.get('job_title'), "neutral"),
                             ("fa-users", u.get('department'), "neutral"),
-                            ("fa-id-card", f"ID: {u['employee_id']}" if u.get('employee_id') else None, "neutral"),
+                            ("fa-id-card", _emp_id_label, "neutral"),
                             ("fa-envelope", u.get('email'), "neutral"),
-                            ("fa-clock", f"Requested {_fmt_log_time(u['requested_at'])}" if u.get('requested_at') else None, "info"),
+                            ("fa-clock", _requested_label, "info"),
                         ]), unsafe_allow_html=True)
                         _req = u.get('requested_role') or 'Worker'
-                        st.markdown(f"Requested access level: "
+                        _req_access_label = auto_t("Requested access level:")
+                        st.markdown(f"{_req_access_label} "
                                     f"<span class='priority-badge priority-"
                                     f"{'Critical' if _req == 'Superintendent' else 'Medium' if _req == 'Supervisor' else 'Low'}'>"
                                     f"{esc(_req)}</span>", unsafe_allow_html=True)
                         if _req == "Superintendent":
-                            st.warning("⚠️ Superintendent grants delete rights, user "
+                            st.warning(auto_t("⚠️ Superintendent grants delete rights, user "
                                        "management, and audit access. Verify this "
-                                       "person's identity before approving.")
+                                       "person's identity before approving."))
                     with _c2:
                         _grant = st.selectbox(
-                            "Grant role", ["Worker", "Supervisor", "Superintendent"],
+                            auto_t("Grant role"), ["Worker", "Supervisor", "Superintendent"],
                             index=["Worker", "Supervisor", "Superintendent"].index(_req)
                             if _req in ("Worker", "Supervisor", "Superintendent") else 0,
-                            key=f"grant_{u['username']}")
-                        _note = st.text_input("Note (optional)", key=f"note_{u['username']}",
+                            key=f"grant_{u['username']}", format_func=auto_t)
+                        _note = st.text_input(auto_t("Note (optional)"), key=f"note_{u['username']}",
                                               placeholder="e.g. verified with HR")
 
                         _has_email = bool(u.get("email"))
@@ -22880,16 +23233,16 @@ def page_owner_console():
                         if not _has_email:
                             if workspace_provisioning_configured():
                                 _provision = st.checkbox(
-                                    "📧 Create a real Workspace mailbox for them",
+                                    auto_t("📧 Create a real Workspace mailbox for them"),
                                     key=f"provision_{u['username']}",
-                                    help="Creates an actual, working mailbox via Google "
+                                    help=auto_t("Creates an actual, working mailbox via Google "
                                          "Workspace — not a placeholder value. Needed "
                                          "for self-service password reset to work; "
-                                         "without it they'll rely on admin reset.")
+                                         "without it they'll rely on admin reset."))
                             else:
-                                st.caption("No email on file. Workspace auto-provisioning "
+                                st.caption(auto_t("No email on file. Workspace auto-provisioning "
                                           "isn't configured — see GOOGLE_WORKSPACE_SETUP.md, "
-                                          "or leave this and use admin password reset later.")
+                                          "or leave this and use admin password reset later."))
 
                         _b1, _b2 = st.columns(2)
                         if _b1.button("✅ Approve", key=f"appr_{u['username']}",
@@ -22906,9 +23259,9 @@ def page_owner_console():
                                     _provisioned_email = _pemail
                                     st.session_state[f"_ws_created_{u['username']}"] = (_pemail, _ppass)
                                 else:
-                                    st.error(f"Mailbox creation failed: {_perr}. "
-                                            "Approving without email — you can retry "
-                                            "provisioning or use admin password reset later.")
+                                    st.error(auto_t("Mailbox creation failed: {0}. Approving without email — you can retry provisioning or use admin password reset later.").format(_perr)
+
+)
                                     log_error(_perr, details={"username": u['username']},
                                              endpoint="owner_console_provision")
 
@@ -22926,40 +23279,40 @@ def page_owner_console():
                                         # to save. Losing track of that is worse than most
                                         # instances of this bug class, since undoing it means
                                         # manually checking the Workspace Admin Console.
-                                        st.error(f"⚠️ A Workspace mailbox was created at "
-                                                f"{_provisioned_email}, but saving that address "
-                                                f"to their profile failed (Row Level Security?). "
-                                                f"Check Workspace Admin Console — the mailbox "
-                                                f"exists even though it's not recorded here.")
-                                st.success(f"{u.get('full_name')} approved as {_grant}.")
+                                        st.error(auto_t("⚠️ A Workspace mailbox was created at {0}, but saving that address to their profile failed (Row Level Security?). Check Workspace Admin Console — the mailbox exists even though it's not recorded here.").format(_provisioned_email)
+
+
+
+)
+                                st.success(auto_t("{0} approved as {1}.").format(u.get('full_name'), _grant))
                                 st.rerun()
                             else:
                                 st.error(friendly_db_error(err))
                         if _b2.button("🚫 Decline", key=f"deny_{u['username']}",
                                       use_container_width=True):
                             if not _note:
-                                st.error("Please give a reason before declining — it is "
-                                         "recorded and shown in the history.")
+                                st.error(auto_t("Please give a reason before declining — it is "
+                                         "recorded and shown in the history."))
                             else:
                                 ok, err = deny_access(u['username'], full_name, _note)
                                 if ok:
-                                    st.success("Request declined.")
+                                    st.success(auto_t("Request declined."))
                                     st.rerun()
                                 else:
                                     st.error(friendly_db_error(err))
 
     # ---------- ACCESS POLICIES ----------
     elif owner_sub == "Access Policies":
-        st.markdown("### 🛡️ Access Policies")
+        st.markdown(auto_t("### 🛡️ Access Policies"))
         st.caption(
-            "Different in kind from Feature Toggles — those hide UI sections and are "
+            auto_t("Different in kind from Feature Toggles — those hide UI sections and are "
             "easily reversible. These change actual security behavior: who gets into "
-            "the app at all, and whether a human ever looks at that decision."
+            "the app at all, and whether a human ever looks at that decision.")
         )
 
         if not SUPABASE_AVAILABLE:
-            st.warning("No database connected — changes here work for this session only "
-                      "and won't persist in demo mode.")
+            st.warning(auto_t("No database connected — changes here work for this session only "
+                      "and won't persist in demo mode."))
 
         _policies = fetch_access_policies()
         for _pol_key, (_pol_title, _pol_desc) in ACCESS_POLICIES.items():
@@ -22967,42 +23320,42 @@ def page_owner_console():
             st.markdown(f"#### {_pol_title}")
             st.markdown(_pol_desc)
             if _cur:
-                st.success("Currently **ON** — new sign-ups get immediate access, no review.")
+                st.success(auto_t("Currently **ON** — new sign-ups get immediate access, no review."))
             else:
-                st.info("Currently **OFF** (default) — every new sign-up waits in "
-                       "Access Requests until an Owner/Superintendent approves it.")
+                st.info(auto_t("Currently **OFF** (default) — every new sign-up waits in "
+                       "Access Requests until an Owner/Superintendent approves it."))
 
             if not _cur:
-                if st.button("Turn ON — allow sign-in without approval", key=f"pol_on_{_pol_key}"):
+                if st.button(auto_t("Turn ON — allow sign-in without approval"), key=f"pol_on_{_pol_key}"):
                     st.session_state[f"_confirm_pol_{_pol_key}"] = True
                 if st.session_state.get(f"_confirm_pol_{_pol_key}"):
-                    st.warning("Anyone who reaches your sign-up page will get Worker-level "
+                    st.warning(auto_t("Anyone who reaches your sign-up page will get Worker-level "
                              "access immediately, with nobody reviewing who they are first. "
-                             "Confirm you actually want this.")
+                             "Confirm you actually want this."))
                     _cc1, _cc2 = st.columns(2)
                     if _cc1.button("Yes, turn it on", key=f"pol_confirm_{_pol_key}", type="primary"):
                         if set_access_policy(_pol_key, True, full_name):
                             st.session_state.pop(f"_confirm_pol_{_pol_key}", None)
-                            st.success("Turned on.")
+                            st.success(auto_t("Turned on."))
                             st.rerun()
                         else:
-                            st.error("Failed to update — check Row Level Security on app_feature_flags.")
+                            st.error(auto_t("Failed to update — check Row Level Security on app_feature_flags."))
                     if _cc2.button("Cancel", key=f"pol_cancel_{_pol_key}"):
                         st.session_state.pop(f"_confirm_pol_{_pol_key}", None)
                         st.rerun()
             else:
-                if st.button("Turn OFF — require approval again", key=f"pol_off_{_pol_key}"):
+                if st.button(auto_t("Turn OFF — require approval again"), key=f"pol_off_{_pol_key}"):
                     if set_access_policy(_pol_key, False, full_name):
-                        st.success("Turned off. New sign-ups will wait for approval again.")
+                        st.success(auto_t("Turned off. New sign-ups will wait for approval again."))
                         st.rerun()
                     else:
-                        st.error("Failed to update — check Row Level Security on app_feature_flags.")
+                        st.error(auto_t("Failed to update — check Row Level Security on app_feature_flags."))
             st.markdown("---")
 
     # ---------- ACTIVE USERS ----------
     elif owner_sub == "Active Users":
-        st.markdown("### Who currently has access")
-        _q = st.text_input("🔍 Filter by name, username, or role", "")
+        st.markdown(auto_t("### Who currently has access"))
+        _q = st.text_input(auto_t("🔍 Filter by name, username, or role"), "")
         _rows = _active + _blocked
         if _q:
             _ql = _q.lower()
@@ -23011,51 +23364,57 @@ def page_owner_console():
                      or _ql in str(u.get('username', '')).lower()
                      or _ql in str(u.get('role', '')).lower()]
         if not _rows:
-            st.info("No users match.")
+            st.info(auto_t("No users match."))
         for u in _rows:
             _suspended = u.get("is_suspended", False)
             _owner_row = is_owner(u.get("username"))
             _colour = "#4b5563" if _suspended else "#15803d"
             with st.container(border=True):
-                _owner_badge = " <span class='verified-badge'>OWNER</span>" if _owner_row else ""
+                _owner_badge_text = auto_t("OWNER")
+                _owner_badge = f" <span class='verified-badge'>{_owner_badge_text}</span>" if _owner_row else ""
+                _suspended_label = auto_t("SUSPENDED")
                 st.markdown(
                     f"**{esc(u.get('full_name'))}** `{esc(u.get('username'))}` "
                     f"<span class='status-badge' style='background:{_colour};'>"
-                    f"{'SUSPENDED' if _suspended else esc(u.get('role', 'Worker'))}</span>"
+                    f"{_suspended_label if _suspended else esc(u.get('role', 'Worker'))}</span>"
                     f"{_owner_badge}",
                     unsafe_allow_html=True)
+                _no_email_label = auto_t("no email")
+                _approved_by_suffix = auto_t(" · approved by {0}").format(esc(u.get('decision_by'))) if u.get('decision_by') else ''
+                _login_suffix = (auto_t(" · last login {0}").format(esc(_fmt_log_time(u.get('last_login'))))
+                                if u.get('last_login') else auto_t(" · never logged in"))
                 st.markdown(
                     f"<small>{esc(u.get('job_title') or '—')} · "
                     f"{esc(u.get('department') or '—')} · "
-                    f"{esc(u.get('email') or 'no email')}"
-                    f"{' · approved by ' + esc(u.get('decision_by')) if u.get('decision_by') else ''}"
-                    f"{' · last login ' + esc(_fmt_log_time(u.get('last_login'))) if u.get('last_login') else ' · never logged in'}"
+                    f"{esc(u.get('email')) or _no_email_label}"
+                    f"{_approved_by_suffix}"
+                    f"{_login_suffix}"
                     f"</small>", unsafe_allow_html=True)
                 if u.get("denial_reason"):
-                    st.caption(f"Reason on file: {esc(u['denial_reason'])}")
+                    st.caption(auto_t("Reason on file: {0}").format(esc(u['denial_reason'])))
                 if u.get("email_auto_provisioned"):
-                    st.caption("📧 This mailbox was auto-created by the app.")
+                    st.caption(auto_t("📧 This mailbox was auto-created by the app."))
 
                 _ws_new = st.session_state.get(f"_ws_created_{u['username']}")
                 if _ws_new:
                     _ws_email, _ws_pass = _ws_new
-                    st.warning(f"⚠️ New Workspace mailbox created: **{esc(_ws_email)}** — "
-                              "credentials shown once below. Relay both to them in person "
-                              "along with their app password.")
+                    st.warning(auto_t("⚠️ New Workspace mailbox created: **{0}** — credentials shown once below. Relay both to them in person along with their app password.").format(esc(_ws_email))
+
+)
                     st.code(f"Email:    {_ws_email}\nPassword: {_ws_pass}", language="text")
-                    st.caption("They'll be asked to set a new Workspace password on first "
-                              "Gmail login — that's separate from their app password.")
-                    if st.button("I've recorded this — clear it from screen",
+                    st.caption(auto_t("They'll be asked to set a new Workspace password on first "
+                              "Gmail login — that's separate from their app password."))
+                    if st.button(auto_t("I've recorded this — clear it from screen"),
                                  key=f"clearws_{u['username']}"):
                         del st.session_state[f"_ws_created_{u['username']}"]
                         st.rerun()
 
                 if _owner_row:
-                    st.caption("🔒 The owner account cannot be modified from here. "
-                               "Change OWNER_USERNAME in secrets.toml to hand over.")
+                    st.caption(auto_t("🔒 The owner account cannot be modified from here. "
+                               "Change OWNER_USERNAME in secrets.toml to hand over."))
                     continue
 
-                with st.expander("Manage this user"):
+                with st.expander(auto_t("Manage this user")):
                     _mc1, _mc2, _mc3 = st.columns(3)
                     _newrole = _mc1.selectbox(
                         "Role", ["Worker", "Supervisor", "Superintendent"],
@@ -23066,7 +23425,7 @@ def page_owner_console():
                     if _mc3.button("💾 Change role", key=f"chrole_{u['username']}"):
                         ok, err = set_user_role(u['username'], _newrole, full_name, _reason or None)
                         if ok:
-                            st.success("Role updated.")
+                            st.success(auto_t("Role updated."))
                             st.rerun()
                         else:
                             st.error(friendly_db_error(err))
@@ -23077,7 +23436,7 @@ def page_owner_console():
                                        use_container_width=True):
                             ok, err = set_user_suspended(u['username'], False, full_name, _reason or None)
                             if ok:
-                                st.success("Reinstated.")
+                                st.success(auto_t("Reinstated."))
                                 st.rerun()
                             else:
                                 st.error(friendly_db_error(err))
@@ -23086,7 +23445,7 @@ def page_owner_console():
                                        use_container_width=True):
                             ok, err = set_user_suspended(u['username'], True, full_name, _reason or None)
                             if ok:
-                                st.success("Suspended. They can no longer sign in.")
+                                st.success(auto_t("Suspended. They can no longer sign in."))
                                 st.rerun()
                             else:
                                 st.error(friendly_db_error(err))
@@ -23094,12 +23453,12 @@ def page_owner_console():
                                              key=f"delok_{u['username']}")
 
                     st.markdown("---")
-                    st.markdown("**🔑 Password reset**")
-                    st.caption("Use this when self-service reset can't work — no email "
+                    st.markdown(auto_t("**🔑 Password reset**"))
+                    st.caption(auto_t("Use this when self-service reset can't work — no email "
                               "on file, or SMTP isn't set up. Shown once; write it down "
                               "or relay it in person. They'll be forced to set a real "
-                              "password on their next login.")
-                    if st.button("🔑 Generate temporary password",
+                              "password on their next login."))
+                    if st.button(auto_t("🔑 Generate temporary password"),
                                  key=f"pwreset_{u['username']}"):
                         ok, err, temp_pw = admin_reset_password(u['username'], full_name)
                         if ok:
@@ -23108,50 +23467,50 @@ def page_owner_console():
                             st.error(friendly_db_error(err))
                     _shown_pw = st.session_state.get(f"_temp_pw_{u['username']}")
                     if _shown_pw:
-                        st.warning("⚠️ Shown once. It will not be retrievable after you "
-                                  "leave this page.")
+                        st.warning(auto_t("⚠️ Shown once. It will not be retrievable after you "
+                                  "leave this page."))
                         st.code(_shown_pw, language="text")
-                        if st.button("I've recorded this — clear it from screen",
+                        if st.button(auto_t("I've recorded this — clear it from screen"),
                                      key=f"clearpw_{u['username']}"):
                             del st.session_state[f"_temp_pw_{u['username']}"]
                             st.rerun()
 
                     if u.get("totp_enabled"):
                         st.markdown("---")
-                        st.markdown("**🔐 Two-factor authentication**")
-                        st.caption("This account has 2FA turned on. Use this ONLY if they've "
+                        st.markdown(auto_t("**🔐 Two-factor authentication**"))
+                        st.caption(auto_t("This account has 2FA turned on. Use this ONLY if they've "
                                   "lost both their authenticator app and their backup codes — "
                                   "it removes the second factor entirely, so verify their "
-                                  "identity through another channel first.")
-                        if st.button("🔓 Force-disable their 2FA", key=f"force2fa_{u['username']}"):
+                                  "identity through another channel first."))
+                        if st.button(auto_t("🔓 Force-disable their 2FA"), key=f"force2fa_{u['username']}"):
                             if disable_totp(u['username'], full_name):
-                                st.success("2FA disabled for this account. They can log in "
-                                          "with just their password now.")
+                                st.success(auto_t("2FA disabled for this account. They can log in "
+                                          "with just their password now."))
                                 st.rerun()
                             else:
-                                st.error("Failed — try again.")
+                                st.error(auto_t("Failed — try again."))
 
                     st.markdown("---")
-                    if st.button("🗑️ Remove permanently", key=f"del_{u['username']}",
+                    if st.button(auto_t("🗑️ Remove permanently"), key=f"del_{u['username']}",
                                  use_container_width=True, disabled=not _confirm):
                         ok, err = remove_user(u['username'], full_name, _reason or None)
                         if ok:
-                            st.success("User removed.")
+                            st.success(auto_t("User removed."))
                             st.rerun()
                         else:
                             st.error(friendly_db_error(err))
-                    st.caption("Prefer **Suspend** over Remove. Suspension blocks sign-in "
+                    st.caption(auto_t("Prefer **Suspend** over Remove. Suspension blocks sign-in "
                                "but keeps the person's history attached to the work orders "
-                               "and incidents they touched.")
+                               "and incidents they touched."))
 
     # ---------- DECISION HISTORY ----------
     elif owner_sub == "Decision History":
-        st.markdown("### Every access decision ever made")
-        st.caption("Append-only. Records survive user deletion, so you can still show "
-                   "who granted access to whom after an incident.")
+        st.markdown(auto_t("### Every access decision ever made"))
+        st.caption(auto_t("Append-only. Records survive user deletion, so you can still show "
+                   "who granted access to whom after an incident."))
         _dec = fetch_access_decisions(200)
         if not _dec:
-            st.info("No decisions recorded yet.")
+            st.info(auto_t("No decisions recorded yet."))
         else:
             _icons = {"approved": "✅", "denied": "🚫", "suspended": "⏸️",
                       "reinstated": "♻️", "role_changed": "🔄", "removed": "🗑️",
@@ -23162,38 +23521,38 @@ def page_owner_console():
                 if d.get("action") == "role_changed":
                     _detail = f" ({esc(d.get('old_role'))} → {esc(d.get('new_role'))})"
                 elif d.get("new_role"):
-                    _detail = f" as {esc(d.get('new_role'))}"
+                    _detail = auto_t(" as {0}").format(esc(d.get('new_role')))
                 st.markdown(
                     f"{_ic} **{esc(d.get('target_full_name') or d.get('target_username'))}** "
-                    f"— {esc(d.get('action'))}{_detail} by **{esc(d.get('decided_by'))}** "
+                    f"— {esc(d.get('action'))}{_detail} " + auto_t("by {0}").format(f"**{esc(d.get('decided_by'))}**") + " "
                     f"<small>{_fmt_log_time(d.get('decided_at'))}</small>",
                     unsafe_allow_html=True)
                 if d.get("reason"):
                     st.caption(f"↳ {esc(d['reason'])}")
-            if PANDAS_AVAILABLE and st.button("📥 Export decision history"):
+            if PANDAS_AVAILABLE and st.button(auto_t("📥 Export decision history")):
                 _df = pd.DataFrame(_dec)
-                st.download_button("Download CSV", _df.to_csv(index=False),
+                st.download_button(auto_t("Download CSV"), _df.to_csv(index=False),
                                    "access_decisions.csv", "text/csv", key="dl_decisions")
-            if PDF_REPORT_AVAILABLE and st.button("📄 Export as PDF", key="dec_hist_pdf_btn"):
+            if PDF_REPORT_AVAILABLE and st.button(auto_t("📄 Export as PDF"), key="dec_hist_pdf_btn"):
                 _dec_pdf = generate_decision_history_pdf(_dec)
                 if _dec_pdf:
-                    st.download_button("Download PDF", _dec_pdf,
+                    st.download_button(auto_t("Download PDF"), _dec_pdf,
                                        "access_decisions.pdf", "application/pdf", key="dl_decisions_pdf")
 
     # ---------- AUTH MIGRATION ----------
     elif owner_sub == "Auth Migration":
-        st.markdown("### 🔐 Supabase Auth Migration — Step 1: Email Mapping")
+        st.markdown(auto_t("### 🔐 Supabase Auth Migration — Step 1: Email Mapping"))
         st.info(
-            "**This step is safe and non-disruptive.** It only computes and stores the "
+            auto_t("**This step is safe and non-disruptive.** It only computes and stores the "
             "email each account will use for Supabase Auth later — it does NOT change how "
             "anyone logs in today. Nothing here affects the live app until a later step "
-            "explicitly switches login over, which will be done separately and deliberately."
+            "explicitly switches login over, which will be done separately and deliberately.")
         )
         st.caption(
-            "Why this exists: Supabase Auth identifies people by email, not username, and "
+            auto_t("Why this exists: Supabase Auth identifies people by email, not username, and "
             "many workers here don't have one. Accounts without a real email get an internal "
             "placeholder — never shown or emailed to anyone, it exists only because Supabase "
-            "Auth requires *some* email per account."
+            "Auth requires *some* email per account.")
         )
 
         _all_users = fetch_all_users_from_db()
@@ -23203,7 +23562,7 @@ def page_owner_console():
         _mcol2.metric("Already mapped", _already)
         _mcol3.metric("Remaining", len(_all_users) - _already)
 
-        if st.button("🔍 Preview email mapping (computes nothing to the database)"):
+        if st.button(auto_t("🔍 Preview email mapping (computes nothing to the database)")):
             rows, duplicates = preview_auth_email_backfill()
             st.session_state["_auth_preview_rows"] = rows
             st.session_state["_auth_preview_duplicates"] = duplicates
@@ -23214,13 +23573,13 @@ def page_owner_console():
         if rows is not None:
             if duplicates:
                 st.error(
-                    f"⚠️ **{len(duplicates)} real email(s) are shared by more than one "
-                    f"account** — Supabase Auth requires unique emails, so these need "
-                    f"resolving manually before they can be migrated. These accounts are "
-                    f"excluded from the selection below until fixed."
+                    auto_t("⚠️ **{0} real email(s) are shared by more than one account** — Supabase Auth requires unique emails, so these need resolving manually before they can be migrated. These accounts are excluded from the selection below until fixed.").format(len(duplicates))
+
+
+
                 )
                 for email, usernames in duplicates.items():
-                    st.markdown(f"- `{esc(email)}` used by: {', '.join(f'`{esc(u)}`' for u in usernames)}")
+                    st.markdown(auto_t("- `{0}` used by: {1}").format(esc(email), ', '.join(f'`{esc(u)}`' for u in usernames)))
 
             if PANDAS_AVAILABLE:
                 _df = pd.DataFrame(rows)[["username", "full_name", "current_email",
@@ -23239,19 +23598,19 @@ def page_owner_console():
             if _eligible:
                 st.markdown("---")
                 _selected = st.multiselect(
-                    "Select accounts to migrate now",
+                    auto_t("Select accounts to migrate now"),
                     options=_eligible, default=_eligible,
-                    help="Defaults to everyone eligible. Remove anyone you want to hold back.",
+                    help=auto_t("Defaults to everyone eligible. Remove anyone you want to hold back."),
                 )
-                if st.button(f"✅ Write email mapping for {len(_selected)} account(s)", type="primary"):
+                if st.button(auto_t("✅ Write email mapping for {0} account(s)").format(len(_selected)), type="primary"):
                     if not _selected:
-                        st.warning("Nothing selected.")
+                        st.warning(auto_t("Nothing selected."))
                     else:
                         success, failures = run_auth_email_backfill(_selected, full_name)
                         if success:
-                            st.success(f"Mapped {success} account(s).")
+                            st.success(auto_t("Mapped {0} account(s).").format(success))
                         if failures:
-                            st.error(f"{len(failures)} failed:")
+                            st.error(auto_t("{0} failed:").format(len(failures)))
                             for uname, reason in failures:
                                 st.write(f"- `{uname}`: {reason}")
                         # Clear the stale preview so the numbers above reflect reality
@@ -23259,20 +23618,20 @@ def page_owner_console():
                         st.session_state.pop("_auth_preview_duplicates", None)
                         st.rerun()
             elif rows and not duplicates:
-                st.success("Every account is already mapped. Step 1 is complete.")
+                st.success(auto_t("Every account is already mapped. Step 1 is complete."))
 
         st.markdown("---")
-        st.markdown("### 🔐 Step 2: Provision Real Supabase Auth Accounts")
+        st.markdown(auto_t("### 🔐 Step 2: Provision Real Supabase Auth Accounts"))
         st.info(
-            "**Still non-disruptive.** This creates real Supabase Auth accounts in "
+            auto_t("**Still non-disruptive.** This creates real Supabase Auth accounts in "
             "parallel with the existing login — nobody is forced onto anything new "
             "yet, and today's username/password login keeps working exactly as it "
-            "does now. That switch is a separate, later, deliberate step (Phase 4)."
+            "does now. That switch is a separate, later, deliberate step (Phase 4).")
         )
 
         if not SUPABASE_ADMIN_AVAILABLE:
             st.warning(
-                "**Not available yet.** This step needs a second, more powerful "
+                auto_t("**Not available yet.** This step needs a second, more powerful "
                 "credential — your project's `service_role` key (called the "
                 "**secret key** in newer Supabase projects) — added to your app's "
                 "secrets as `SUPABASE_SERVICE_ROLE_KEY`. This is deliberately a "
@@ -23283,7 +23642,7 @@ def page_owner_console():
                 "anything client-facing.\n\n"
                 "Find it in Supabase Dashboard → Project Settings → API "
                 "(under **Project API keys** → `service_role`, or under **Secret "
-                "keys** on newer projects)."
+                "keys** on newer projects).")
             )
         else:
             _prov_candidates = preview_auth_provisioning()
@@ -23293,51 +23652,51 @@ def page_owner_console():
             _pc2.metric("Already provisioned", _already_provisioned)
 
             if not _prov_candidates:
-                st.caption("Nobody is waiting on this step — either everyone's already "
-                          "provisioned, or Step 1's email mapping hasn't run for them yet.")
+                st.caption(auto_t("Nobody is waiting on this step — either everyone's already "
+                          "provisioned, or Step 1's email mapping hasn't run for them yet."))
             else:
                 _prov_email_by_username = {u["username"]: u["auth_email"] for u in _prov_candidates}
                 _prov_selected = st.multiselect(
-                    "Select accounts to provision now",
+                    auto_t("Select accounts to provision now"),
                     options=[u["username"] for u in _prov_candidates],
                     default=[u["username"] for u in _prov_candidates],
-                    help="Defaults to everyone eligible. Remove anyone you want to hold back.",
+                    help=auto_t("Defaults to everyone eligible. Remove anyone you want to hold back."),
                     format_func=lambda uname: f"{uname} → {_prov_email_by_username.get(uname, '?')}",
                 )
-                if st.button(f"🔑 Create {len(_prov_selected)} Supabase Auth account(s)", type="primary"):
+                if st.button(auto_t("🔑 Create {0} Supabase Auth account(s)").format(len(_prov_selected)), type="primary"):
                     if not _prov_selected:
-                        st.warning("Nothing selected.")
+                        st.warning(auto_t("Nothing selected."))
                     else:
                         with st.spinner("Creating accounts via the Supabase Admin API..."):
                             p_success, p_failures = provision_auth_accounts(_prov_selected, full_name)
                         if p_success:
-                            st.success(f"Provisioned {p_success} account(s). Each is set to force a "
-                                      f"password change on first sign-in, once Phase 4 is live.")
+                            st.success(auto_t("Provisioned {0} account(s). Each is set to force a password change on first sign-in, once Phase 4 is live.").format(p_success)
+)
                         if p_failures:
-                            st.error(f"{len(p_failures)} did not complete:")
+                            st.error(auto_t("{0} did not complete:").format(len(p_failures)))
                             for uname, reason in p_failures:
                                 st.write(f"- `{uname}`: {reason}")
                         st.rerun()
 
     # ---------- FEATURE TOGGLES ----------
     elif owner_sub == "Feature Toggles":
-        st.markdown("### 🎛️ Feature Toggles")
+        st.markdown(auto_t("### 🎛️ Feature Toggles"))
         st.caption(
-            "Turn whole sections of the app on or off for everyone, instantly — no code "
+            auto_t("Turn whole sections of the app on or off for everyone, instantly — no code "
             "change, no redeploy, no waiting on a fix. A toggle takes effect the moment "
             "you flip it; anyone currently on a section you turn off will find it gone "
-            "from their navigation the next time the app reruns (their next click)."
+            "from their navigation the next time the app reruns (their next click).")
         )
         st.info(
-            "Task Dashboard, Admin, and Profile are deliberately not toggleable here — "
+            auto_t("Task Dashboard, Admin, and Profile are deliberately not toggleable here — "
             "Task Dashboard is the core reason this app exists, and Admin is where this "
             "screen itself lives, so disabling it could lock out the only way to turn "
-            "things back on."
+            "things back on.")
         )
 
         if not SUPABASE_AVAILABLE:
-            st.warning("No database connected — toggles work for this session only and "
-                      "won't persist in demo mode.")
+            st.warning(auto_t("No database connected — toggles work for this session only and "
+                      "won't persist in demo mode."))
 
         _current_flags = fetch_feature_flags()  # fresh read, not the cached one, so this
                                                   # screen always shows true current state
@@ -23347,52 +23706,68 @@ def page_owner_console():
                 st.markdown(f"**{_mod_name}**")
                 st.caption(_mod_desc)
             with _tcol2:
-                _new_val = st.toggle("Enabled", value=_current_flags[_mod_name],
+                _new_val = st.toggle(auto_t("Enabled"), value=_current_flags[_mod_name],
                                      key=f"flag_toggle_{_mod_name}", label_visibility="collapsed")
             if _new_val != _current_flags[_mod_name]:
                 if set_feature_flag(_mod_name, _new_val, full_name):
                     st.rerun()
                 else:
-                    st.error(f"Failed to update — check Row Level Security on app_feature_flags.")
+                    st.error(auto_t("Failed to update — check Row Level Security on app_feature_flags.").format())
             st.markdown("---")
 
     # ---------- AUTOMATION ----------
     elif owner_sub == "Automation":
-        st.markdown("### 🤖 Escalations")
+        st.markdown(auto_t("### 🤖 Escalations"))
         st.caption(
-            "Checks for overdue tasks and permits expiring within the hour, and notifies "
+            auto_t("Checks for overdue tasks and permits expiring within the hour, and notifies "
             "every Superintendent (for overdue tasks) or the issuing supervisor (for expiring "
             "permits). Runs automatically once per session when a Superintendent or Owner "
             "opens Task Dashboard, AND on an hourly schedule via GitHub Actions "
             "(automation/mwdts_automation.py in the repo) — the button below is for an "
-            "on-demand check between those, not the only way this runs."
+            "on-demand check between those, not the only way this runs.")
         )
-        if st.button("▶️ Run escalation check now"):
+        if st.button(auto_t("▶️ Run escalation check now")):
             _esc_result = run_escalations(st.session_state.tasks, fetch_permits(), full_name)
-            st.success(f"Checked. {_esc_result['overdue_notified']} overdue task(s) and "
-                      f"{_esc_result['permits_notified']} soon-expiring permit(s) triggered a notification.")
+            st.success(auto_t("Checked. {0} overdue task(s) and {1} soon-expiring permit(s) triggered a notification.").format(_esc_result['overdue_notified'], _esc_result['permits_notified'])
+)
         st.caption(
-            "Checks assets approaching their predicted failure window (MTBF-based — Equipment "
+            auto_t("Checks assets approaching their predicted failure window (MTBF-based — Equipment "
             "Health has the full detail) and notifies site leadership, with a 24h cooldown per "
             "asset. Unlike the escalation check above, this does **not** yet run on the hourly "
             "GitHub Actions schedule — the prediction itself needs the app's own Python "
             "environment (pandas/scikit-learn), which the lightweight standalone automation "
             "script deliberately doesn't carry. For now this runs once per session (same as "
-            "escalations used to, before that got automated) or on demand here."
+            "escalations used to, before that got automated) or on demand here.")
         )
-        if st.button("🔧 Run predictive downtime check now"):
+        if st.button(auto_t("🔧 Run predictive downtime check now")):
             _pred_result = send_predictive_downtime_alerts(st.session_state.tasks, st.session_state.assets, full_name)
             if _pred_result.get("alerted"):
-                st.success(f"Checked. {_pred_result['alerted']} asset(s) alerted: "
-                          f"{', '.join(_pred_result['assets'])}.")
+                st.success(auto_t("Checked. {0} asset(s) alerted: {1}.").format(_pred_result['alerted'], ', '.join(_pred_result['assets']))
+)
             else:
-                st.info("Checked. Nothing due — either no assets crossing their failure "
-                       "threshold, or all within the 24h per-asset cooldown.")
+                st.info(auto_t("Checked. Nothing due — either no assets crossing their failure "
+                       "threshold, or all within the 24h per-asset cooldown."))
+
+        st.caption(
+            auto_t("Checks each asset's last recorded position against defined geofence zones "
+            "and notifies site leadership, with a 24h cooldown per asset-zone pair. Same scope "
+            "limitation as predictive downtime above — needs the app's own data already loaded, "
+            "so this doesn't run on the hourly GitHub Actions schedule either. Runs once per "
+            "session or on demand here.")
+        )
+        if st.button(auto_t("🚧 Run geofence check now")):
+            _geo_result = send_geofence_violation_alerts(st.session_state.assets, fetch_geofence_zones(), full_name)
+            if _geo_result.get("alerted"):
+                st.success(auto_t("Checked. {0} asset(s) alerted: {1}.").format(_geo_result['alerted'], ', '.join(_geo_result['assets']))
+)
+            else:
+                st.info(auto_t("Checked. Nothing due — either no assets inside a defined zone, "
+                       "or all within the 24h per-pair cooldown."))
 
         st.markdown("---")
-        st.markdown("### 🧹 Duplicate Recurring Tasks")
+        st.markdown(auto_t("### 🧹 Duplicate Recurring Tasks"))
         st.caption(
-            "Recurring tasks used to be able to duplicate — every different person "
+            auto_t("Recurring tasks used to be able to duplicate — every different person "
             "logging in during the day could independently re-trigger the same due task, "
             "because the old 15-minute throttle was tracked per browser session instead "
             "of globally. That's fixed now (a real, database-backed lock), but it doesn't "
@@ -23400,35 +23775,35 @@ def page_owner_console():
             "recurring tasks with the same title and location, created on the same "
             "calendar day — genuinely recurring tasks that happen to share a title (a "
             "weekly inspection, say) are NOT flagged unless several landed on the exact "
-            "same day, which is the actual signature of the bug."
+            "same day, which is the actual signature of the bug.")
         )
-        if st.button("🔍 Scan for duplicates"):
+        if st.button(auto_t("🔍 Scan for duplicates")):
             st.session_state["_dup_clusters"] = find_duplicate_recurring_tasks(st.session_state.tasks)
             st.rerun()
         _dup_clusters = st.session_state.get("_dup_clusters")
         if _dup_clusters is not None:
             if not _dup_clusters:
-                st.success("No duplicate clusters found.")
+                st.success(auto_t("No duplicate clusters found."))
             else:
                 _total_extra = sum(len(c["tasks"]) - 1 for c in _dup_clusters)
-                st.warning(f"{len(_dup_clusters)} cluster(s) found, {_total_extra} likely-duplicate "
-                          "task(s) total (one per cluster is kept automatically — the most "
-                          "recently created — the rest are what would be removed).")
+                st.warning(auto_t("{0} cluster(s) found, {1} likely-duplicate task(s) total (one per cluster is kept automatically — the most recently created — the rest are what would be removed).").format(len(_dup_clusters), _total_extra)
+
+)
                 for _ci, c in enumerate(_dup_clusters):
-                    with st.expander(f"{c['title']} — {c['location']} — {c['date']} "
-                                    f"({len(c['tasks'])} copies)"):
+                    with st.expander(auto_t("{0} — {1} — {2} ({3} copies)").format(c['title'], c['location'], c['date'], len(c['tasks']))
+):
                         _keep = c["tasks"][0]
-                        st.caption(f"Would KEEP #{_keep['id']} (most recently created, "
-                                  f"{_fmt_log_time(_keep.get('created_at'))}) and delete the rest below.")
+                        st.caption(auto_t("Would KEEP #{0} (most recently created, {1}) and delete the rest below.").format(_keep['id'], _fmt_log_time(_keep.get('created_at')))
+)
                         for t2 in c["tasks"][1:]:
-                            st.write(f"#{t2['id']} — created {_fmt_log_time(t2.get('created_at'))} — "
-                                    f"status: {t2.get('status')}")
+                            st.write(auto_t("#{0} — created {1} — status: {2}").format(t2['id'], _fmt_log_time(t2.get('created_at')), t2.get('status'))
+)
                         if any(t2.get("status") not in ("Unassigned", "Complete") for t2 in c["tasks"][1:]):
-                            st.info("At least one of the tasks that would be deleted here isn't "
+                            st.info(auto_t("At least one of the tasks that would be deleted here isn't "
                                    "in its default Unassigned state — worth a manual look before "
                                    "deleting this specific cluster, in case real work already "
-                                   "happened on it.")
-                        if st.button(f"🗑️ Delete {len(c['tasks']) - 1} duplicate(s) from this cluster",
+                                   "happened on it."))
+                        if st.button(auto_t("🗑️ Delete {0} duplicate(s) from this cluster").format(len(c['tasks']) - 1),
                                     key=f"dup_delete_{_ci}"):
                             _deleted = 0
                             for t2 in c["tasks"][1:]:
@@ -23437,78 +23812,78 @@ def page_owner_console():
                             log_audit(full_name, "duplicate_tasks_cleanup",
                                       {"title": c["title"], "location": c["location"],
                                        "date": str(c["date"]), "deleted": _deleted})
-                            st.success(f"Deleted {_deleted} duplicate(s).")
+                            st.success(auto_t("Deleted {0} duplicate(s).").format(_deleted))
                             st.session_state.pop("_dup_clusters", None)
                             fetch_all_tasks.clear()
                             st.rerun()
 
         st.markdown("---")
-        st.markdown("### ⚡ Electrical Department Digest")
+        st.markdown(auto_t("### ⚡ Electrical Department Digest"))
         st.caption(
-            "Emails every supervisor, superintendent, and owner a summary of everything "
+            auto_t("Emails every supervisor, superintendent, and owner a summary of everything "
             "Electrical Overview currently flags — outages, calibrations, transformer "
             "condition, low stock, motor rewind bottlenecks, and fault trends. Same "
             "scheduling limitation as above: this sends the moment you click it, not on "
             "a real daily cadence. For that, point an external scheduled job (a GitHub "
             "Action or Supabase Edge Function running once a day) at a small dedicated "
-            "trigger for this — this button is the manual equivalent of that trigger."
+            "trigger for this — this button is the manual equivalent of that trigger.")
         )
         _digest_recipients_preview = electrical_digest_recipients()
-        st.caption(f"Would send to {len(_digest_recipients_preview)} recipient(s) with a "
-                  f"real email on file right now.")
-        if st.button("📧 Send Electrical Department digest now"):
+        st.caption(auto_t("Would send to {0} recipient(s) with a real email on file right now.").format(len(_digest_recipients_preview))
+)
+        if st.button(auto_t("📧 Send Electrical Department digest now")):
             _sent, _digest_data = send_electrical_department_digest(full_name)
-            st.success(f"Sent to {_sent} recipient(s). {len(_digest_data['alerts'])} alert(s) included.")
+            st.success(auto_t("Sent to {0} recipient(s). {1} alert(s) included.").format(_sent, len(_digest_data['alerts'])))
 
         st.markdown("---")
-        st.markdown("### 🌦️ Weather Alert Emails")
+        st.markdown(auto_t("### 🌦️ Weather Alert Emails"))
         if not WEATHER_CONFIGURED:
-            st.info("Set `MINE_LATITUDE`/`MINE_LONGITUDE` in secrets to enable weather alerts.")
+            st.info(auto_t("Set `MINE_LATITUDE`/`MINE_LONGITUDE` in secrets to enable weather alerts."))
         else:
             st.caption(
-                f"Two email types to site leadership (supervisors, superintendents, owner): "
-                f"a **hazardous weather alert** (high rain probability, damaging wind, or severe "
-                f"conditions — cooldown {WEATHER_BAD_ALERT_COOLDOWN_HOURS}h) whenever the forecast "
-                f"crosses a hazard threshold, and a **routine status email** regardless of "
-                f"conditions every {WEATHER_ROUTINE_COOLDOWN_HOURS}h. Same scheduling limitation as "
-                f"above: clicking below sends immediately (respecting cooldowns) rather than on a "
-                f"true recurring schedule. For genuine unattended delivery, point an external "
-                f"scheduled job at:"
+                auto_t("Two email types to site leadership (supervisors, superintendents, owner): a **hazardous weather alert** (high rain probability, damaging wind, or severe conditions — cooldown {0}h) whenever the forecast crosses a hazard threshold, and a **routine status email** regardless of conditions every {1}h. Same scheduling limitation as above: clicking below sends immediately (respecting cooldowns) rather than on a true recurring schedule. For genuine unattended delivery, point an external scheduled job at:").format(WEATHER_BAD_ALERT_COOLDOWN_HOURS, WEATHER_ROUTINE_COOLDOWN_HOURS)
+
+
+
+
+
+
+
             )
             st.code(f"{APP_URL or '<your-app-url>'}/?weather_check=1&token=<AUTOMATION_TRIGGER_TOKEN>",
                    language="text")
             if not _secret_get("AUTOMATION_TRIGGER_TOKEN"):
-                st.warning("`AUTOMATION_TRIGGER_TOKEN` isn't set in secrets yet — the endpoint "
-                          "above won't work until you add one (any random string).")
+                st.warning(auto_t("`AUTOMATION_TRIGGER_TOKEN` isn't set in secrets yet — the endpoint "
+                          "above won't work until you add one (any random string)."))
             _weather_recipients_preview = site_leadership_recipients()
-            st.caption(f"Would notify {len(_weather_recipients_preview)} recipient(s) with a "
-                      f"real email on file right now.")
+            st.caption(auto_t("Would notify {0} recipient(s) with a real email on file right now.").format(len(_weather_recipients_preview))
+)
             _wcol1, _wcol2 = st.columns(2)
             if _wcol1.button("▶️ Check weather now (respects cooldowns)"):
                 _wc_res = run_weather_email_check(triggered_by=full_name)
                 if not _wc_res.get("sent") and "reason" in _wc_res:
                     st.info(_wc_res["reason"])
                 else:
-                    st.success(f"Bad-weather alert sent: {_wc_res.get('bad_weather_sent', False)} "
-                              f"({_wc_res.get('bad_weather_sent_count', 0)} recipient(s)). "
-                              f"Routine status sent: {_wc_res.get('routine_sent', False)} "
-                              f"({_wc_res.get('routine_sent_count', 0)} recipient(s)).")
+                    st.success(auto_t("Bad-weather alert sent: {0} ({1} recipient(s)). Routine status sent: {2} ({3} recipient(s)).").format(_wc_res.get('bad_weather_sent', False), _wc_res.get('bad_weather_sent_count', 0), _wc_res.get('routine_sent', False), _wc_res.get('routine_sent_count', 0))
+
+
+)
             if _wcol2.button("🧪 Force-send test email now (ignores cooldowns)"):
                 _wc_res = run_weather_email_check(triggered_by=full_name, force=True)
-                st.success(f"Sent — bad-weather: {_wc_res.get('bad_weather_sent_count', 0)}, "
-                          f"routine: {_wc_res.get('routine_sent_count', 0)} recipient(s).")
+                st.success(auto_t("Sent — bad-weather: {0}, routine: {1} recipient(s).").format(_wc_res.get('bad_weather_sent_count', 0), _wc_res.get('routine_sent_count', 0))
+)
 
         st.markdown("---")
-        st.markdown("### 🤖 AI Assistant — Reinforcement Learning")
+        st.markdown(auto_t("### 🤖 AI Assistant — Reinforcement Learning"))
         st.caption(
-            "The Assistant's answer style (concise / detailed / structured) is chosen by a "
+            auto_t("The Assistant's answer style (concise / detailed / structured) is chosen by a "
             "Thompson Sampling bandit — a real reinforcement-learning algorithm — based on "
             "which style has earned the most 👍 vs 👎 feedback so far. This is the app "
             "learning which of its OWN prompt choices works better, not retraining the "
             "underlying AI model itself (no API-calling app can do that). Every style keeps "
             "identical grounding/anti-fabrication rules — only the closing formatting "
             "instruction differs — so this can only learn towards better-FORMATTED answers, "
-            "never less accurate ones."
+            "never less accurate ones.")
         )
         _variant_counts = get_variant_feedback_counts()
         _rl_cols = st.columns(len(AI_PROMPT_VARIANTS))
@@ -23521,9 +23896,9 @@ def page_owner_console():
                     f"{_rate:.0f}% 👍" if _rate is not None else "No data yet",
                     help=f"{_vcounts['up']} up / {_vcounts['down']} down ({_total} rated)")
         st.caption(
-            "A variant with little or no feedback yet still gets picked occasionally by "
+            auto_t("A variant with little or no feedback yet still gets picked occasionally by "
             "design — that's the 'exploration' half of the algorithm, not a bug. Ratings "
-            "come from the 👍/👎 buttons under each Assistant answer in Chat."
+            "come from the 👍/👎 buttons under each Assistant answer in Chat.")
         )
 
     # ---------- ERP SYNC ----------
@@ -23532,13 +23907,13 @@ def page_owner_console():
 
     # ---------- BULK IMPORT ----------
     elif owner_sub == "Bulk Import":
-        st.markdown("### 📥 Bulk Data Import")
-        st.caption("Upload a .csv or .xlsx file to create many Assets, Parts, or Users at once. "
+        st.markdown(auto_t("### 📥 Bulk Data Import"))
+        st.caption(auto_t("Upload a .csv or .xlsx file to create many Assets, Parts, or Users at once. "
                   "Each row goes through the exact same validation as adding one by hand — "
                   "a bad row is skipped and reported, not silently dropped or allowed to break "
-                  "the rest of the batch.")
-        _bulk_import_type = st.selectbox("What are you importing?", ["Assets", "Inventory Parts", "Users"],
-                                         key="bulk_import_type")
+                  "the rest of the batch."))
+        _bulk_import_type = st.selectbox(auto_t("What are you importing?"), ["Assets", "Inventory Parts", "Users"],
+                                         key="bulk_import_type", format_func=auto_t)
         _bulk_required_cols = {
             "Assets": "name (required); optional: asset_tag, category, location, manufacturer, "
                      "model_number, serial_number, install_date, status, criticality, current_meter, "
@@ -23550,16 +23925,16 @@ def page_owner_console():
                     "phone_number. Users are created AND approved immediately — this is standing in "
                     "for manual approval, not creating pending requests.",
         }
-        st.caption(f"Expected columns — {_bulk_required_cols[_bulk_import_type]}")
-        _bulk_file = st.file_uploader("Upload file", type=["csv", "xlsx", "xls"], key="bulk_import_file")
+        st.caption(auto_t("Expected columns — {0}").format(_bulk_required_cols[_bulk_import_type]))
+        _bulk_file = st.file_uploader(auto_t("Upload file"), type=["csv", "xlsx", "xls"], key="bulk_import_file")
         if _bulk_file is not None:
             _bulk_df, _bulk_read_err = _read_uploaded_table(_bulk_file)
             if _bulk_read_err:
                 st.error(_bulk_read_err)
             else:
-                st.write(f"**Preview** — {len(_bulk_df)} row(s) found. First 5 shown:")
+                st.write(auto_t("**Preview** — {0} row(s) found. First 5 shown:").format(len(_bulk_df)))
                 st.dataframe(_bulk_df.head(5), use_container_width=True)
-                if st.button(f"⬆️ Import {len(_bulk_df)} row(s)", key="bulk_import_go"):
+                if st.button(auto_t("⬆️ Import {0} row(s)").format(len(_bulk_df)), key="bulk_import_go"):
                     with st.spinner("Importing..."):
                         if _bulk_import_type == "Assets":
                             _bulk_success, _bulk_errors = bulk_import_assets(_bulk_df, full_name)
@@ -23568,120 +23943,120 @@ def page_owner_console():
                         else:
                             _bulk_success, _bulk_errors = bulk_import_users(_bulk_df, full_name)
                     if _bulk_success:
-                        st.success(f"Imported {_bulk_success} row(s) successfully.")
+                        st.success(auto_t("Imported {0} row(s) successfully.").format(_bulk_success))
                     if _bulk_errors:
-                        st.warning(f"{len(_bulk_errors)} row(s) failed:")
+                        st.warning(auto_t("{0} row(s) failed:").format(len(_bulk_errors)))
                         for _row_num, _err_msg in _bulk_errors[:20]:
-                            st.write(f"- Row {_row_num}: {esc(_err_msg)}")
+                            st.write(auto_t("- Row {0}: {1}").format(_row_num, esc(_err_msg)))
                         if len(_bulk_errors) > 20:
-                            st.caption(f"+ {len(_bulk_errors) - 20} more errors not shown.")
+                            st.caption(auto_t("+ {0} more errors not shown.").format(len(_bulk_errors) - 20))
                     if not _bulk_success and not _bulk_errors:
-                        st.info("Nothing to import — the file appears to be empty.")
+                        st.info(auto_t("Nothing to import — the file appears to be empty."))
 
     # ---------- DATA BACKUP ----------
     elif owner_sub == "Data Backup":
-        st.markdown("### 💾 Full Database Backup")
-        st.caption("One-click export of every major table as JSON, zipped into a single file. "
+        st.markdown(auto_t("### 💾 Full Database Backup"))
+        st.caption(auto_t("One-click export of every major table as JSON, zipped into a single file. "
                   "This is a point-in-time snapshot for disaster recovery / offline archive — "
                   "not a live, continuously-updated backup, and restoring from it is a manual "
                   "process (re-inserting the JSON via the Supabase SQL editor or API), not a "
-                  "one-click restore button.")
-        if st.button("📦 Generate Full Backup"):
+                  "one-click restore button."))
+        if st.button(auto_t("📦 Generate Full Backup")):
             with st.spinner("Pulling every table..."):
                 _backup_bytes, _backup_table_counts = generate_full_backup_zip()
             if _backup_bytes:
-                st.success(f"Backup ready — {sum(_backup_table_counts.values())} total row(s) "
-                          f"across {len(_backup_table_counts)} table(s).")
+                st.success(auto_t("Backup ready — {0} total row(s) across {1} table(s).").format(sum(_backup_table_counts.values()), len(_backup_table_counts))
+)
                 for _tname, _tcount in _backup_table_counts.items():
-                    st.caption(f"- {_tname}: {_tcount} row(s)")
+                    st.caption(auto_t("- {0}: {1} row(s)").format(_tname, _tcount))
                 st.download_button(
-                    "Download backup (.zip)", _backup_bytes,
+                    auto_t("Download backup (.zip)"), _backup_bytes,
                     f"mwdts_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
                     "application/zip", key="dl_full_backup")
             else:
-                st.error("Backup failed — check the app's error log.")
+                st.error(auto_t("Backup failed — check the app's error log."))
 
     # ---------- SETTINGS ----------
     elif owner_sub == "Settings":
-        st.markdown("### 🔍 Secrets Diagnostics")
-        st.caption("Shows which secret NAMES this app can actually see right now — never the "
+        st.markdown(auto_t("### 🔍 Secrets Diagnostics"))
+        st.caption(auto_t("Shows which secret NAMES this app can actually see right now — never the "
                   "values themselves. Useful for confirming a key you just added in Streamlit "
-                  "Cloud's Secrets settings is actually being read, without exposing it here.")
+                  "Cloud's Secrets settings is actually being read, without exposing it here."))
         if _diag.get("secrets_readable"):
-            st.success("✅ secrets.toml is readable.")
+            st.success(auto_t("✅ secrets.toml is readable."))
             _found_keys = _diag.get("secret_keys_found", [])
             if _found_keys:
-                st.write("**Detected secret names:**")
+                st.write(auto_t("**Detected secret names:**"))
                 for k in _found_keys:
                     st.write(f"- `{k}`")
             else:
-                st.warning("No secrets are configured at all yet.")
+                st.warning(auto_t("No secrets are configured at all yet."))
             st.markdown("---")
-            st.write("**AI provider keys specifically:**")
+            st.write(auto_t("**AI provider keys specifically:**"))
             for _key_name, _key_val in [("ANTHROPIC_API_KEY", ANTHROPIC_API_KEY),
                                         ("OPENAI_API_KEY", OPENAI_API_KEY),
                                         ("GEMINI_API_KEY", GEMINI_API_KEY),
                                         ("GROQ_API_KEY", GROQ_API_KEY),
                                         ("OPENROUTER_API_KEY", OPENROUTER_API_KEY)]:
                 if _key_val:
-                    st.success(f"✅ `{_key_name}` is set ({len(_key_val)} characters).")
+                    st.success(auto_t("✅ `{0}` is set ({1} characters).").format(_key_name, len(_key_val)))
                 else:
-                    st.info(f"⬜ `{_key_name}` is not set.")
-            st.caption(f"AI features currently: {'✅ enabled' if AI_FEATURES_AVAILABLE else '❌ disabled'} "
-                      "— this must show enabled for the Assistant room to appear in Chat.")
+                    st.info(auto_t("⬜ `{0}` is not set.").format(_key_name))
+            st.caption(auto_t("AI features currently: {0} — this must show enabled for the Assistant room to appear in Chat.").format('✅ enabled' if AI_FEATURES_AVAILABLE else '❌ disabled')
+)
             if not AI_FEATURES_AVAILABLE:
                 st.warning(
-                    "If you just added a key and it's still showing as not set above: on "
+                    auto_t("If you just added a key and it's still showing as not set above: on "
                     "**Streamlit Community Cloud**, newly added or edited secrets don't take "
                     "effect until the app is manually **rebooted** from the app's \"Manage app\" "
                     "menu — a normal page refresh or rerun is not enough. Also double-check the "
                     "key is at the TOP LEVEL of secrets.toml (not nested under a `[section]` "
-                    "table) and named exactly `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / etc."
+                    "table) and named exactly `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / etc.")
                 )
         else:
-            st.error(f"❌ secrets.toml could not be read: {_diag.get('secrets_error', 'unknown error')}")
+            st.error(auto_t("❌ secrets.toml could not be read: {0}").format(_diag.get('secrets_error', 'unknown error')))
 
         st.markdown("---")
-        st.markdown("### 🔑 Login Methods Diagnostics")
-        st.caption("Google, WhatsApp, and SMS all depend on a Python package being installed "
+        st.markdown(auto_t("### 🔑 Login Methods Diagnostics"))
+        st.caption(auto_t("Google, WhatsApp, and SMS all depend on a Python package being installed "
                   "AND secrets being set — either one missing hides the login button "
                   "completely with NO error shown anywhere, which is exactly what makes this "
-                  "silent to debug without a dedicated check like this one.")
-        st.markdown("**Google Login**")
+                  "silent to debug without a dedicated check like this one."))
+        st.markdown(auto_t("**Google Login**"))
         st.write(("✅" if hasattr(st, "login") else "❌") + " `st.login()` exists on this Streamlit version"
                  + ("" if hasattr(st, "login") else " — needs Streamlit 1.42 or newer."))
         try:
             import authlib as _authlib_check
-            st.write(f"✅ `Authlib` is installed (version {getattr(_authlib_check, '__version__', 'unknown')}).")
+            st.write(auto_t("✅ `Authlib` is installed (version {0}).").format(getattr(_authlib_check, '__version__', 'unknown')))
         except ImportError:
-            st.write("❌ `Authlib` is NOT installed — add `Authlib>=1.3.2` to requirements.txt "
+            st.write(auto_t("❌ `Authlib` is NOT installed — add `Authlib>=1.3.2` to requirements.txt "
                     "and reboot the app. This is the #1 reason the Google button silently "
-                    "disappears with no error.")
+                    "disappears with no error."))
         st.write(("✅" if GOOGLE_CLIENT_ID else "⬜") + " `GOOGLE_CLIENT_ID` is "
                  + ("set." if GOOGLE_CLIENT_ID else "not set."))
         st.write(("✅" if st.secrets.get("auth") else "❌") + " `[auth]` section is "
                  + ("readable in secrets." if st.secrets.get("auth") else
                     "NOT found — check it's a real `[auth]` TOML table (lowercase), not "
                     "flat top-level keys."))
-        st.caption(f"Google login button will show: "
-                  f"{'✅ yes' if (AUTH_AVAILABLE and GOOGLE_CLIENT_ID) else '❌ no'}")
+        st.caption(auto_t("Google login button will show: {0}").format('✅ yes' if (AUTH_AVAILABLE and GOOGLE_CLIENT_ID) else '❌ no')
+)
 
-        st.markdown("**WhatsApp Login / SMS**")
+        st.markdown(auto_t("**WhatsApp Login / SMS**"))
         try:
             import twilio as _twilio_check
-            st.write(f"✅ `twilio` is installed (version {getattr(_twilio_check, '__version__', 'unknown')}).")
+            st.write(auto_t("✅ `twilio` is installed (version {0}).").format(getattr(_twilio_check, '__version__', 'unknown')))
         except ImportError:
-            st.write("❌ `twilio` is NOT installed — add `twilio` to requirements.txt and "
-                    "reboot the app. This is the #1 reason WhatsApp login silently disappears.")
+            st.write(auto_t("❌ `twilio` is NOT installed — add `twilio` to requirements.txt and "
+                    "reboot the app. This is the #1 reason WhatsApp login silently disappears."))
         for _tw_key, _tw_val in [("TWILIO_ACCOUNT_SID", TWILIO_ACCOUNT_SID),
                                  ("TWILIO_AUTH_TOKEN", TWILIO_AUTH_TOKEN),
                                  ("TWILIO_VERIFY_SERVICE_SID", TWILIO_VERIFY_SERVICE_SID),
                                  ("TWILIO_SMS_FROM_NUMBER", TWILIO_SMS_FROM_NUMBER)]:
             st.write(("✅" if _tw_val else "⬜") + f" `{_tw_key}` is " + ("set." if _tw_val else "not set."))
-        st.caption(f"WhatsApp login button will show: {'✅ yes' if WHATSAPP_LOGIN_CONFIGURED else '❌ no'} — "
-                  f"SMS sending will work: {'✅ yes' if SMS_CONFIGURED else '❌ no'}")
+        st.caption(auto_t("WhatsApp login button will show: {0} — SMS sending will work: {1}").format('✅ yes' if WHATSAPP_LOGIN_CONFIGURED else '❌ no', '✅ yes' if SMS_CONFIGURED else '❌ no')
+)
 
-        st.markdown("**Push Notifications**")
+        st.markdown(auto_t("**Push Notifications**"))
         st.write(("✅" if PUSH_AVAILABLE else "❌") + " `pywebpush` is "
                  + ("installed." if PUSH_AVAILABLE else
                     "NOT installed — add `pywebpush` to requirements.txt and reboot."))
@@ -23691,29 +24066,29 @@ def page_owner_console():
         try:
             _sw_check = requests.get(f"{APP_URL.rstrip('/')}/app/static/sw.js", timeout=5) if APP_URL else None
             if _sw_check is None:
-                st.write("⬜ Can't check `sw.js` is reachable — `APP_URL` isn't set in secrets.")
+                st.write(auto_t("⬜ Can't check `sw.js` is reachable — `APP_URL` isn't set in secrets."))
             elif _sw_check.status_code == 200 and "addEventListener" in _sw_check.text:
-                st.write("✅ `sw.js` is reachable at `/app/static/sw.js` and looks like a real service worker.")
+                st.write(auto_t("✅ `sw.js` is reachable at `/app/static/sw.js` and looks like a real service worker."))
             else:
-                st.write(f"❌ `sw.js` returned HTTP {_sw_check.status_code} at `/app/static/sw.js` — "
-                        "check the file is at `static/sw.js` next to app.py, and that "
-                        "`enableStaticServing = true` (NOT `enableStaticFileServing` — that name "
-                        "was renamed in a recent Streamlit release, and the old name is silently "
-                        "rejected rather than erroring loudly, which cost a very long debugging "
-                        "session to actually track down) is set under `[server]` in "
-                        "`.streamlit/config.toml`. This is the single most common reason "
-                        "subscribing hangs forever: the browser can't find a service worker to "
-                        "register, so `navigator.serviceWorker.ready` never resolves.")
+                st.write(auto_t("❌ `sw.js` returned HTTP {0} at `/app/static/sw.js` — check the file is at `static/sw.js` next to app.py, and that `enableStaticServing = true` (NOT `enableStaticFileServing` — that name was renamed in a recent Streamlit release, and the old name is silently rejected rather than erroring loudly, which cost a very long debugging session to actually track down) is set under `[server]` in `.streamlit/config.toml`. This is the single most common reason subscribing hangs forever: the browser can't find a service worker to register, so `navigator.serviceWorker.ready` never resolves.").format(_sw_check.status_code)
+
+
+
+
+
+
+
+)
         except Exception as _sw_err:
-            st.write(f"⬜ Couldn't reach `sw.js` to check it: {_sw_err}")
+            st.write(auto_t("⬜ Couldn't reach `sw.js` to check it: {0}").format(_sw_err))
         try:
             _push_sub_count = len(supabase.table("push_subscriptions").select("id").execute().data or [])
-            st.write(f"📱 {_push_sub_count} device(s) currently subscribed across all users.")
+            st.write(auto_t("📱 {0} device(s) currently subscribed across all users.").format(_push_sub_count))
         except Exception:
             pass
-        st.caption(f"Push notifications will work: {'✅ yes' if PUSH_CONFIGURED else '❌ no'}")
+        st.caption(auto_t("Push notifications will work: {0}").format('✅ yes' if PUSH_CONFIGURED else '❌ no'))
         if PUSH_CONFIGURED:
-            if st.button("🔔 Send myself a test push", key="push_selftest_btn"):
+            if st.button(auto_t("🔔 Send myself a test push"), key="push_selftest_btn"):
                 # Checks BOTH subscription mechanisms — this used to only
                 # check push_subscriptions (Web Push/browser), which
                 # incorrectly told native-app users "not subscribed" even
@@ -23732,10 +24107,10 @@ def page_owner_console():
                 except Exception:
                     _my_fcm_tokens = []
                 if not _my_web_subs and not _my_fcm_tokens:
-                    st.warning("You aren't subscribed on any device yet. On the native Android app, "
+                    st.warning(auto_t("You aren't subscribed on any device yet. On the native Android app, "
                               "this should have happened automatically at login — check for the "
                               "\"Push notifications ready\" toast. In a browser, go to Profile → "
-                              "Enable Push Notifications first, then try this again.")
+                              "Enable Push Notifications first, then try this again."))
                 else:
                     _fcm_sent = send_fcm_push_to_user(username, "Test push",
                                                       "If you see this, push notifications are fully working end to end.")
@@ -23743,16 +24118,16 @@ def page_owner_console():
                         send_push_to_user(username, "Test push",
                                           "If you see this, push notifications are fully working end to end.")
                     _via = "native app (FCM)" if _fcm_sent else "browser (Web Push)"
-                    st.success(f"Sent via {_via} to {len(_my_web_subs) + len(_my_fcm_tokens)} subscribed "
-                              f"device(s) — check for it within a few seconds.")
+                    st.success(auto_t("Sent via {0} to {1} subscribed device(s) — check for it within a few seconds.").format(_via, len(_my_web_subs) + len(_my_fcm_tokens))
+)
 
         st.markdown("---")
-        st.markdown("### 🐞 Recent Error Log")
-        st.caption("The specific exception behind a generic failure message elsewhere in the app "
-                  "— e.g. why an AI call actually failed, not just that it did.")
+        st.markdown(auto_t("### 🐞 Recent Error Log"))
+        st.caption(auto_t("The specific exception behind a generic failure message elsewhere in the app "
+                  "— e.g. why an AI call actually failed, not just that it did."))
         if SUPABASE_AVAILABLE:
             try:
-                _ai_only = st.checkbox("Show AI-related errors only", value=False, key="err_log_ai_filter")
+                _ai_only = st.checkbox(auto_t("Show AI-related errors only"), value=False, key="err_log_ai_filter")
                 _err_query = supabase.table("app_errors").select("*").order("created_at", desc=True).limit(30)
                 if _ai_only:
                     _err_query = _err_query.like("endpoint", "generate_smart_text%")
@@ -23765,49 +24140,49 @@ def page_owner_console():
                         with st.expander(f"{err.get('endpoint', 'unknown')} — {_fmt_log_time(err.get('created_at'))}"):
                             st.code(err.get("error_message", ""), language=None)
                             if err.get("error_details"):
-                                st.caption(f"Details: {err['error_details']}")
+                                st.caption(auto_t("Details: {0}").format(err['error_details']))
             except Exception as e:
-                st.error(f"Couldn't load error log: {e}")
-        st.markdown("### 🏢 Company Logo")
-        st.caption("Shown as a bar above the header on every screen, including the login page. "
-                  "Leave empty and nothing extra is shown — the app looks exactly as it does now.")
+                st.error(auto_t("Couldn't load error log: {0}").format(e))
+        st.markdown(auto_t("### 🏢 Company Logo"))
+        st.caption(auto_t("Shown as a bar above the header on every screen, including the login page. "
+                  "Leave empty and nothing extra is shown — the app looks exactly as it does now."))
 
         if not SUPABASE_AVAILABLE:
-            st.warning("No database connected — a logo can be uploaded here but won't actually "
-                      "persist or display, since there's nowhere real to store the file in demo mode.")
+            st.warning(auto_t("No database connected — a logo can be uploaded here but won't actually "
+                      "persist or display, since there's nowhere real to store the file in demo mode."))
 
         _current_logo = fetch_branding()
         if _current_logo and not _current_logo.startswith("memory://"):
             st.image(_current_logo, width=240, caption="Current logo")
-            if st.button("🗑️ Remove logo"):
+            if st.button(auto_t("🗑️ Remove logo")):
                 if remove_logo(full_name):
-                    st.success("Logo removed.")
+                    st.success(auto_t("Logo removed."))
                     st.rerun()
                 else:
-                    st.error("Failed to remove logo. Check Row Level Security on app_branding.")
+                    st.error(auto_t("Failed to remove logo. Check Row Level Security on app_branding."))
         else:
-            st.caption("No logo set yet.")
+            st.caption(auto_t("No logo set yet."))
 
-        _logo_file = st.file_uploader("Upload a logo", type=["jpg", "jpeg", "png", "gif", "webp"],
+        _logo_file = st.file_uploader(auto_t("Upload a logo"), type=["jpg", "jpeg", "png", "gif", "webp"],
                                       key="logo_uploader")
         if _logo_file is not None:
-            if st.button("📤 Set as company logo"):
+            if st.button(auto_t("📤 Set as company logo")):
                 _bytes = _logo_file.getvalue()
                 if upload_logo(_bytes, _logo_file.name, full_name):
-                    st.success("Logo updated.")
+                    st.success(auto_t("Logo updated."))
                     st.rerun()
                 else:
-                    st.error("Upload failed.")
+                    st.error(auto_t("Upload failed."))
 
         st.markdown("---")
-        st.markdown("### 📢 Announcement Ticker")
-        st.caption("A scrolling strip between the logo and the header, shown on every screen. "
+        st.markdown(auto_t("### 📢 Announcement Ticker"))
+        st.caption(auto_t("A scrolling strip between the logo and the header, shown on every screen. "
                   "Multiple active announcements join into one continuous strip. Leave none "
-                  "active and nothing extra is shown.")
+                  "active and nothing extra is shown."))
 
         if not SUPABASE_AVAILABLE:
-            st.warning("No database connected — announcements can be added here but won't "
-                      "persist in demo mode.")
+            st.warning(auto_t("No database connected — announcements can be added here but won't "
+                      "persist in demo mode."))
 
         _all_announcements = fetch_all_announcements()
         if _all_announcements:
@@ -23819,40 +24194,40 @@ def page_owner_console():
                     if set_announcement_active(_a['id'], not _a.get("is_active"), full_name):
                         st.rerun()
                     else:
-                        st.error("Update failed — check Row Level Security on app_announcements.")
+                        st.error(auto_t("Update failed — check Row Level Security on app_announcements."))
                 if _acol3.button("🗑️ Delete", key=f"ann_del_{_a['id']}"):
                     if delete_announcement(_a['id'], full_name):
                         st.rerun()
                     else:
-                        st.error("Delete failed.")
+                        st.error(auto_t("Delete failed."))
         else:
-            st.caption("No announcements yet.")
+            st.caption(auto_t("No announcements yet."))
 
         with st.form("new_announcement_form", clear_on_submit=True):
-            _new_ann = st.text_input("New announcement", max_chars=200,
+            _new_ann = st.text_input(auto_t("New announcement"), max_chars=200,
                                      placeholder="e.g. 'Toolbox talk today at 2pm — Workshop B'")
-            if st.form_submit_button("➕ Add announcement"):
+            if st.form_submit_button(auto_t("➕ Add announcement")):
                 ok, err = create_announcement(_new_ann, full_name)
                 if ok:
-                    st.success("Added.")
+                    st.success(auto_t("Added."))
                     st.rerun()
                 else:
                     st.error(err or "Failed to add announcement.")
 
         st.markdown("---")
-        st.markdown("### 🖼️ Poster Slideshow")
+        st.markdown(auto_t("### 🖼️ Poster Slideshow"))
         st.caption(
-            "A large auto-advancing image banner between the logo and the ticker, shown "
+            auto_t("A large auto-advancing image banner between the logo and the ticker, shown "
             "on every screen. No hard limit on how many you can add — each one gets an "
             "equal slot in the rotation, 5 seconds by default, so more posters means a "
             "longer full cycle before it repeats. 3–6 tends to feel right; a couple dozen "
             "would still work correctly, just take a while to loop back around. One poster "
-            "shows as a static image with no rotation at all."
+            "shows as a static image with no rotation at all.")
         )
 
         if not SUPABASE_AVAILABLE:
-            st.warning("No database connected — posters can be uploaded here but won't "
-                      "actually persist or display in demo mode.")
+            st.warning(auto_t("No database connected — posters can be uploaded here but won't "
+                      "actually persist or display in demo mode."))
 
         _all_posters = fetch_all_posters()
         if _all_posters:
@@ -23866,34 +24241,34 @@ def page_owner_console():
                     if set_poster_active(_p['id'], not _p.get("is_active"), full_name):
                         st.rerun()
                     else:
-                        st.error("Update failed — check Row Level Security on app_posters.")
+                        st.error(auto_t("Update failed — check Row Level Security on app_posters."))
                 if _pcol3.button("🗑️ Delete", key=f"poster_del_{_p['id']}"):
                     if delete_poster(_p['id'], full_name):
                         st.rerun()
                     else:
-                        st.error("Delete failed.")
+                        st.error(auto_t("Delete failed."))
         else:
-            st.caption("No posters yet.")
+            st.caption(auto_t("No posters yet."))
 
-        _poster_file = st.file_uploader("Upload a poster", type=["jpg", "jpeg", "png", "webp"],
+        _poster_file = st.file_uploader(auto_t("Upload a poster"), type=["jpg", "jpeg", "png", "webp"],
                                         key="poster_uploader")
         if _poster_file is not None:
-            if st.button("📤 Add poster"):
+            if st.button(auto_t("📤 Add poster")):
                 if upload_poster(_poster_file.getvalue(), _poster_file.name, full_name):
-                    st.success("Added.")
+                    st.success(auto_t("Added."))
                     st.rerun()
                 else:
-                    st.error("Failed to add poster.")
+                    st.error(auto_t("Failed to add poster."))
 
         st.markdown("---")
-        st.markdown("### Ownership")
-        st.info(f"Owner account: **`{esc(OWNER_USERNAME)}`**\n\n"
-                "This is read from `OWNER_USERNAME` in `.streamlit/secrets.toml`. "
-                "It is deliberately **not** editable here — if it were, anyone who "
-                "reached this screen could take ownership. To hand over, edit "
-                "secrets.toml and restart the app.")
+        st.markdown(auto_t("### Ownership"))
+        st.info(auto_t("Owner account: **`{0}`**\n\nThis is read from `OWNER_USERNAME` in `.streamlit/secrets.toml`. It is deliberately **not** editable here — if it were, anyone who reached this screen could take ownership. To hand over, edit secrets.toml and restart the app.").format(esc(OWNER_USERNAME))
 
-        st.markdown("### Access summary")
+
+
+)
+
+        st.markdown(auto_t("### Access summary"))
         _s1, _s2, _s3, _s4 = st.columns(4)
         _s1.metric("Total accounts", len(_all))
         _s2.metric("Active", len(_active))
@@ -23901,126 +24276,125 @@ def page_owner_console():
         _s4.metric("Suspended", len(_blocked))
 
         _supers = [u for u in _active if str(u.get('role', '')).lower() == 'superintendent']
-        st.markdown(f"**Superintendents ({len(_supers)})** — these accounts can delete "
-                    "records and read the audit log:")
+        st.markdown(auto_t("**Superintendents ({0})** — these accounts can delete records and read the audit log:").format(len(_supers))
+)
         for u in _supers:
             st.write(f"- {esc(u.get('full_name'))} (`{esc(u.get('username'))}`)"
                      f"{' — owner' if is_owner(u.get('username')) else ''}")
         if len(_supers) > 3:
-            st.warning("More Superintendents than most sites need. Each one can delete "
+            st.warning(auto_t("More Superintendents than most sites need. Each one can delete "
                        "work orders and view the audit log — worth reviewing whether "
-                       "they all still require that level.")
+                       "they all still require that level."))
 
         st.markdown("---")
-        st.markdown("### 📧 Email delivery health")
+        st.markdown(auto_t("### 📧 Email delivery health"))
         _smtp_configured = bool(_secret_get("SMTP_SERVER") and _secret_get("SMTP_USER")
                                 and _secret_get("SMTP_PASSWORD"))
         if not _smtp_configured:
-            st.warning("SMTP is not configured. Password resets, task assignment emails, "
+            st.warning(auto_t("SMTP is not configured. Password resets, task assignment emails, "
                       "and broadcast emails are all silently skipped — nothing errors, "
                       "they just never send. Add SMTP_SERVER / SMTP_USER / SMTP_PASSWORD "
-                      "to secrets.toml to enable them.")
+                      "to secrets.toml to enable them."))
         else:
-            st.success(f"SMTP configured: `{esc(_secret_get('SMTP_SERVER'))}` as "
-                      f"`{esc(_secret_get('SMTP_USER'))}`.")
+            st.success(auto_t("SMTP configured: `{0}` as `{1}`.").format(esc(_secret_get('SMTP_SERVER')), esc(_secret_get('SMTP_USER')))
+)
             with st.form("email_health_check", clear_on_submit=True):
-                _test_to = st.text_input("Send a test email to",
+                _test_to = st.text_input(auto_t("Send a test email to"),
                                         value=_secret_get("SMTP_FROM", ""))
-                _test_go = st.form_submit_button("📤 Send test email")
+                _test_go = st.form_submit_button(auto_t("📤 Send test email"))
                 if _test_go:
                     if not _test_to or "@" not in _test_to:
-                        st.error("Enter a valid email address.")
+                        st.error(auto_t("Enter a valid email address."))
                     else:
                         _ok, _err = send_email_notification(
-                            _test_to, "Mine & Workshop Tracker — test email",
-                            "<p>This confirms SMTP delivery is working from your "
-                            "Mine & Workshop Tracker deployment.</p>"
-                            f"<p>Sent by {esc(full_name)} via the Owner Console.</p>",
+                            _test_to, auto_t("Mine & Workshop Tracker — test email"),
+                            f"<p>{auto_t('This confirms SMTP delivery is working from your Mine & Workshop Tracker deployment.')}</p>"
+                            f"<p>{auto_t('Sent by {0} via the Owner Console.').format(esc(full_name))}</p>",
                             _return_error=True)
                         if _ok:
-                            st.success("Sent. Check the inbox (and spam folder).")
+                            st.success(auto_t("Sent. Check the inbox (and spam folder)."))
                         else:
-                            st.error(f"Failed: {_err}")
+                            st.error(auto_t("Failed: {0}").format(_err))
 
         st.markdown("---")
-        st.markdown("### 💬 Slack / Teams Notifications")
-        st.caption("Automatically sent on task status changes, task deletion, incident reports, "
-                  "and shift handover safety concerns.")
+        st.markdown(auto_t("### 💬 Slack / Teams Notifications"))
+        st.caption(auto_t("Automatically sent on task status changes, task deletion, incident reports, "
+                  "and shift handover safety concerns."))
         if not SLACK_WEBHOOK and not TEAMS_WEBHOOK:
-            st.info("Neither is configured. Add `SLACK_WEBHOOK` and/or `TEAMS_WEBHOOK` to secrets.toml "
-                   "(each is independent — configure one, both, or neither).")
+            st.info(auto_t("Neither is configured. Add `SLACK_WEBHOOK` and/or `TEAMS_WEBHOOK` to secrets.toml "
+                   "(each is independent — configure one, both, or neither)."))
         else:
             if SLACK_WEBHOOK:
-                st.success("Slack webhook configured.")
+                st.success(auto_t("Slack webhook configured."))
             if TEAMS_WEBHOOK:
-                st.success("Teams webhook configured.")
-                st.caption("⚠️ If this webhook URL was set up before mid-2026, it may be using Microsoft's "
+                st.success(auto_t("Teams webhook configured."))
+                st.caption(auto_t("⚠️ If this webhook URL was set up before mid-2026, it may be using Microsoft's "
                           "old \"Office 365 Connector\" style, which was retired in a rollout completing "
                           "May 22, 2026. If test messages below fail, the fix is generating a NEW webhook "
                           "URL via Teams' Workflows app (search \"Workflows\" in Teams → \"When a Teams "
                           "webhook request is received\" template) — the message format this app sends "
-                          "hasn't changed, only how that URL is obtained has.")
-            if st.button("📤 Send test notification"):
+                          "hasn't changed, only how that URL is obtained has."))
+            if st.button(auto_t("📤 Send test notification")):
                 _test_msg = f"Test notification from Mine & Workshop Tracker, sent by {full_name} via Owner Console."
                 if SLACK_WEBHOOK:
                     _s_ok, _s_err = send_slack_notification(_test_msg, _return_error=True)
                     if _s_ok:
-                        st.success("Slack: sent.")
+                        st.success(auto_t("Slack: sent."))
                     else:
-                        st.error(f"Slack failed: {_s_err}")
+                        st.error(auto_t("Slack failed: {0}").format(_s_err))
                 if TEAMS_WEBHOOK:
                     _t_ok, _t_err = send_teams_notification(_test_msg, _return_error=True)
                     if _t_ok:
-                        st.success("Teams: sent.")
+                        st.success(auto_t("Teams: sent."))
                     else:
-                        st.error(f"Teams failed: {_t_err}")
+                        st.error(auto_t("Teams failed: {0}").format(_t_err))
 
         st.markdown("---")
         st.markdown("---")
-        st.markdown("### 📧 Google Workspace mailbox provisioning")
+        st.markdown(auto_t("### 📧 Google Workspace mailbox provisioning"))
         if not GOOGLE_WORKSPACE_LIB_AVAILABLE:
-            st.warning("`google-api-python-client` and `google-auth` are not installed. "
+            st.warning(auto_t("`google-api-python-client` and `google-auth` are not installed. "
                       "Add them to requirements.txt: `pip install google-api-python-client "
                       "google-auth`. Until then, mailbox auto-creation is unavailable and "
-                      "the checkbox won't appear on access requests.")
+                      "the checkbox won't appear on access requests."))
         elif not workspace_provisioning_configured():
-            st.info("Not configured. Applicants without email fall back to admin password "
+            st.info(auto_t("Not configured. Applicants without email fall back to admin password "
                     "reset. See **GOOGLE_WORKSPACE_SETUP.md** to enable real mailbox "
-                    "creation via Google Workspace.")
+                    "creation via Google Workspace."))
         else:
-            st.success(f"Configured. New mailboxes are created on "
-                      f"`{esc(_secret_get('GOOGLE_WORKSPACE_DOMAIN', 'gmc.com'))}`, "
-                      f"impersonating `{esc(_secret_get('GOOGLE_WORKSPACE_ADMIN_EMAIL'))}`.")
+            st.success(auto_t("Configured. New mailboxes are created on `{0}`, impersonating `{1}`.").format(esc(_secret_get('GOOGLE_WORKSPACE_DOMAIN', 'gmc.com')), esc(_secret_get('GOOGLE_WORKSPACE_ADMIN_EMAIL')))
+
+)
             _provisioned_count = sum(1 for u in _all if u.get("email_auto_provisioned"))
-            st.metric("Mailboxes auto-created by this app", _provisioned_count)
+            st.metric(auto_t("Mailboxes auto-created by this app"), _provisioned_count)
             with st.form("workspace_health_check", clear_on_submit=True):
-                st.caption("Verifies the service account can authenticate and call the "
-                          "Directory API — does NOT create a test mailbox.")
-                _wc_go = st.form_submit_button("🔎 Test Workspace connection")
+                st.caption(auto_t("Verifies the service account can authenticate and call the "
+                          "Directory API — does NOT create a test mailbox."))
+                _wc_go = st.form_submit_button(auto_t("🔎 Test Workspace connection"))
                 if _wc_go:
                     _svc, _svcerr = _get_workspace_directory_service()
                     if _svc:
                         try:
                             _svc.users().list(customer="my_customer", maxResults=1).execute()
-                            st.success("Connected. The service account can reach the "
-                                      "Directory API with the configured delegation.")
+                            st.success(auto_t("Connected. The service account can reach the "
+                                      "Directory API with the configured delegation."))
                         except Exception as _e:
-                            st.error(f"Authenticated, but the API call failed: "
-                                    f"{type(_e).__name__}: {_e}")
+                            st.error(auto_t("Authenticated, but the API call failed: {0}: {1}").format(type(_e).__name__, _e)
+)
                     else:
-                        st.error(f"Could not authenticate: {_svcerr}")
+                        st.error(auto_t("Could not authenticate: {0}").format(_svcerr))
 
 
-        st.caption("Session-based lockout — resets if the app restarts or the "
+        st.caption(auto_t("Session-based lockout — resets if the app restarts or the "
                   "attacker opens a new session. It slows casual attempts, not a "
-                  "determined one. Treat it as a speed bump, not a control.")
+                  "determined one. Treat it as a speed bump, not a control."))
         _lockstate = st.session_state.get("login_attempts", {})
         _locked_now = [k for k in _lockstate
                       if is_login_locked(k)[0] and not k.startswith("reset:")]
         if _locked_now:
-            st.warning(f"Currently locked out: {', '.join(_locked_now)}")
+            st.warning(auto_t("Currently locked out: {0}").format(', '.join(_locked_now)))
         else:
-            st.info("No accounts currently locked out (this session).")
+            st.info(auto_t("No accounts currently locked out (this session)."))
 
 
 def page_analytics():
@@ -24041,20 +24415,22 @@ def page_analytics():
 
         if analytics_sub == "Overview":
             render_subheading("At a Glance", level=4)
-            st.caption("A simpler summary, built for a quick check rather than a deep dive — the "
+            st.caption(auto_t("A simpler summary, built for a quick check rather than a deep dive — the "
                       "detailed operational metrics (MTTR, MTBF, cost breakdowns) live in the tabs "
-                      "next to this one.")
+                      "next to this one."))
 
             render_subheading("⚡ Electrical Department Workload", level=5)
-            st.caption("Open, overdue, and recently completed work across the three subsections — "
+            st.caption(auto_t("Open, overdue, and recently completed work across the three subsections — "
                       "built to make workload distribution visible at a glance, not something you "
-                      "have to dig through the full task list to piece together.")
+                      "have to dig through the full task list to piece together."))
             _elec_workload = get_electrical_subsection_workload(tasks)
             _elec_cols = st.columns(3)
             for _i, (_sub, _counts) in enumerate(_elec_workload.items()):
                 with _elec_cols[_i]:
                     _tone_colour = "#dc2626" if _counts["overdue"] > 0 else "#0f3460"
-                    st.markdown(f"""<div class="custom-card" style="border-left-color: {_tone_colour};"> <strong>{esc(_sub)}</strong> <p>Open: {_counts['open']} &nbsp;|&nbsp; Overdue: {_counts['overdue']} &nbsp;|&nbsp; Completed (30d): {_counts['completed_last_30d']}</p> </div>""", unsafe_allow_html=True)
+                    _workload_line = auto_t("Open: {0} &nbsp;|&nbsp; Overdue: {1} &nbsp;|&nbsp; Completed (30d): {2}").format(
+                        _counts['open'], _counts['overdue'], _counts['completed_last_30d'])
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: {_tone_colour};"> <strong>{esc(_sub)}</strong> <p>{_workload_line}</p> </div>""", unsafe_allow_html=True)
 
             _now = datetime.now()
             _this_month_incidents = [i for i in incidents if i.get("created_at") and
@@ -24150,8 +24526,8 @@ def page_analytics():
                 {"icon": "fa-truck", "label": "Haulage Delay (recent)", "value": _delay_label, "tone": _delay_tone},
             ]), unsafe_allow_html=True)
             if assets and _util_total > _util_counted:
-                st.caption(f"Fleet utilization based on {_util_counted} of {_util_total} assets — "
-                          f"the rest have no status history logged yet.")
+                st.caption(auto_t("Fleet utilization based on {0} of {1} assets — the rest have no status history logged yet.").format(_util_counted, _util_total)
+)
 
             st.markdown("---")
             render_subheading("🎯 KPI Targets", level=4)
@@ -24166,46 +24542,46 @@ def page_analytics():
             with _kcol1:
                 if _ore_this_month is not None:
                     _monthly_pct = _ore_this_month / KPI_MONTHLY_PRODUCTION_TONNES * 100
-                    st.metric("Monthly Production vs Target", f"{_monthly_pct:.0f}%",
+                    st.metric(auto_t("Monthly Production vs Target"), f"{_monthly_pct:.0f}%",
                              f"{_ore_this_month:,.0f} / {KPI_MONTHLY_PRODUCTION_TONNES:,.0f} t")
                 else:
-                    st.metric("Monthly Production vs Target", "No ore data")
+                    st.metric(auto_t("Monthly Production vs Target"), "No ore data")
                 if _ore_ytd is not None:
                     _annual_pct = _ore_ytd / KPI_ANNUAL_PRODUCTION_TONNES * 100
-                    st.caption(f"Year to date: {_ore_ytd:,.0f} / {KPI_ANNUAL_PRODUCTION_TONNES:,.0f} t "
-                              f"({_annual_pct:.0f}% of annual target)")
+                    st.caption(auto_t("Year to date: {0:,.0f} / {1:,.0f} t ({2:.0f}% of annual target)").format(_ore_ytd, KPI_ANNUAL_PRODUCTION_TONNES, _annual_pct)
+)
             with _kcol2:
                 if _fleet_util is not None:
                     _avail_delta = _fleet_util - KPI_EQUIPMENT_AVAILABILITY_PCT
-                    st.metric("Equipment Availability", f"{_fleet_util:.0f}%",
+                    st.metric(auto_t("Equipment Availability"), f"{_fleet_util:.0f}%",
                              f"{_avail_delta:+.0f} pts vs {KPI_EQUIPMENT_AVAILABILITY_PCT}% target")
                 else:
-                    st.metric("Equipment Availability", "No data")
+                    st.metric(auto_t("Equipment Availability"), "No data")
             with _kcol3:
                 _mttr_this, _mttr_this_n, _mttr_last, _mttr_last_n = mttr_trend(tasks, now=_now)
                 if _mttr_this is not None:
                     if _mttr_last is not None:
                         _mttr_delta = _mttr_this - _mttr_last
-                        st.metric("MTTR This Month", f"{_mttr_this:.1f}h",
+                        st.metric(auto_t("MTTR This Month"), f"{_mttr_this:.1f}h",
                                  f"{_mttr_delta:+.1f}h vs last month", delta_color="inverse")
                     else:
-                        st.metric("MTTR This Month", f"{_mttr_this:.1f}h", "No prior month to compare")
+                        st.metric(auto_t("MTTR This Month"), f"{_mttr_this:.1f}h", "No prior month to compare")
                 else:
-                    st.metric("MTTR This Month", "No data")
+                    st.metric(auto_t("MTTR This Month"), "No data")
 
             _grade_this_month, _grade_n = average_ore_grade(_prod_this_month)
             if _grade_this_month is not None:
                 _grade_progress = (_grade_this_month - KPI_ORE_GRADE_BASELINE_PCT) / \
                                   (KPI_ORE_GRADE_TARGET_PCT - KPI_ORE_GRADE_BASELINE_PCT) * 100
-                st.metric(f"Average Ore Grade ({_grade_n} shift(s) logged)",
+                st.metric(auto_t("Average Ore Grade ({0} shift(s) logged)").format(_grade_n),
                          f"{_grade_this_month:.1f}%",
                          f"{_grade_progress:.0f}% of the way from {KPI_ORE_GRADE_BASELINE_PCT}% "
                          f"baseline to {KPI_ORE_GRADE_TARGET_PCT}% refinery target")
             else:
-                st.caption(f"Ore grade — no shifts have logged a grade yet this month. It's an "
-                          f"optional field on Production → Log Production (leave at 0 to skip); "
-                          f"the {KPI_ORE_GRADE_BASELINE_PCT}%→{KPI_ORE_GRADE_TARGET_PCT}% refinery "
-                          f"upgrade target needs that data to track progress against.")
+                st.caption(auto_t("Ore grade — no shifts have logged a grade yet this month. It's an optional field on Production → Log Production (leave at 0 to skip); the {0}%→{1}% refinery upgrade target needs that data to track progress against.").format(KPI_ORE_GRADE_BASELINE_PCT, KPI_ORE_GRADE_TARGET_PCT)
+
+
+)
 
             if WEATHER_CONFIGURED:
                 # 90-day lookback, minus a 6-day buffer for ERA5's
@@ -24218,27 +24594,27 @@ def page_analytics():
                 _historical = fetch_historical_weather(_hist_start, _hist_end)
                 _rain_comparison = rainy_vs_dry_production(fetch_production_records(limit=2000), _historical)
                 if _rain_comparison["pct_loss_on_rainy_days"] is not None:
-                    st.metric("Rainy-Day Production Loss (90d)",
+                    st.metric(auto_t("Rainy-Day Production Loss (90d)"),
                              f"{_rain_comparison['pct_loss_on_rainy_days']:.0f}%",
                              f"{_rain_comparison['rainy_avg_tonnes']:,.0f} t/day rainy vs "
                              f"{_rain_comparison['dry_avg_tonnes']:,.0f} t/day dry "
                              f"({_rain_comparison['rainy_days']} rainy, {_rain_comparison['dry_days']} dry days)")
                 else:
-                    st.caption("Rainy-vs-dry-season comparison — not enough overlapping production and "
-                              "weather data yet in the last 90 days to compute this honestly.")
+                    st.caption(auto_t("Rainy-vs-dry-season comparison — not enough overlapping production and "
+                              "weather data yet in the last 90 days to compute this honestly."))
             else:
-                st.caption("Rainy-vs-dry-season production loss needs site coordinates configured "
-                          "(same MINE_LATITUDE/MINE_LONGITUDE setup as the weather planning warnings).")
+                st.caption(auto_t("Rainy-vs-dry-season production loss needs site coordinates configured "
+                          "(same MINE_LATITUDE/MINE_LONGITUDE setup as the weather planning warnings)."))
 
             if _incident_trend > 0:
-                st.caption(f"📈 {_incident_trend} more incident(s) reported than the same point last "
-                          "month — worth noting this could reflect either more hazards or better "
-                          "reporting; it isn't possible to tell which from the count alone.")
+                st.caption(auto_t("📈 {0} more incident(s) reported than the same point last month — worth noting this could reflect either more hazards or better reporting; it isn't possible to tell which from the count alone.").format(_incident_trend)
+
+)
             if _expired_permits > 0:
-                st.warning(f"⚠️ {_expired_permits} permit(s) show as active but past their valid-until "
-                          "date — worth a direct check with whoever's holding them.")
+                st.warning(auto_t("⚠️ {0} permit(s) show as active but past their valid-until date — worth a direct check with whoever's holding them.").format(_expired_permits)
+)
             if _overdue_tasks > 0:
-                st.caption(f"{_overdue_tasks} task(s) are currently past their due date and not yet complete.")
+                st.caption(auto_t("{0} task(s) are currently past their due date and not yet complete.").format(_overdue_tasks))
 
         elif analytics_sub == "Reliability":
             render_subheading("Reliability Metrics", level=4)
@@ -24253,26 +24629,29 @@ def page_analytics():
             c2.caption(f"Based on {mtbf_n} failure interval(s).")
 
             if (mttr_n and mttr_n < 10) or (mtbf_n and mtbf_n < 10):
-                st.warning("⚠️ **Small sample.** These figures are computed from very few data points and will "
+                st.warning(auto_t("⚠️ **Small sample.** These figures are computed from very few data points and will "
                            "swing widely as more work is completed. Treat them as indicative only until you have "
-                           "a few months of history — don't set targets or report them upward yet.")
+                           "a few months of history — don't set targets or report them upward yet."))
             if mttr is None and mtbf is None:
-                st.info("No reliability data yet. These metrics populate as tasks are completed with "
-                        "recorded completion timestamps and work types.")
+                st.info(auto_t("No reliability data yet. These metrics populate as tasks are completed with "
+                        "recorded completion timestamps and work types."))
 
             render_subheading("🔧 Predictive Failure Alerts", level=4)
-            st.caption("Assets nearing their typical time-between-failures, based on their own history — "
+            st.caption(auto_t("Assets nearing their typical time-between-failures, based on their own history — "
                       "flagged before the failure, not after. Needs at least 3 past failures on an asset "
-                      "before its average is trusted enough to alert on.")
+                      "before its average is trusted enough to alert on."))
             _all_failure_alerts = get_predictive_failure_alerts(tasks, assets)
             if not _all_failure_alerts:
-                st.info("No assets currently approaching their typical failure window.")
+                st.info(auto_t("No assets currently approaching their typical failure window."))
             else:
                 for _fa in _all_failure_alerts:
                     _severity_colour = "#dc2626" if _fa["pct_of_window"] >= 1.0 else "#f59e0b"
-                    st.markdown(f"""<div class="custom-card" style="border-left-color: {_severity_colour};"> <strong>{esc(_fa['asset_name'])}</strong> <span class="status-badge" style="background:{_severity_colour};"> {_fa['pct_of_window']:.0%} of typical interval </span> <p>Last failure {_fa['hours_since_last_failure']/24:.0f} days ago — typically fails every {_fa['mtbf_hours']/24:.0f} days, based on {_fa['num_failures']} recorded failures.</p> </div>""", unsafe_allow_html=True)
+                    _pd_pct_label = auto_t("{0} of typical interval").format(f"{_fa['pct_of_window']:.0%}")
+                    _pd_history_line = auto_t("Last failure {0} days ago — typically fails every {1} days, based on {2} recorded failures.").format(
+                        f"{_fa['hours_since_last_failure']/24:.0f}", f"{_fa['mtbf_hours']/24:.0f}", _fa['num_failures'])
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: {_severity_colour};"> <strong>{esc(_fa['asset_name'])}</strong> <span class="status-badge" style="background:{_severity_colour};"> {_pd_pct_label} </span> <p>{_pd_history_line}</p> </div>""", unsafe_allow_html=True)
                     if can(role, "task.create") and st.button(
-                            f"➕ Create preventive task for {_fa['asset_name']}",
+                            auto_t("➕ Create preventive task for {0}").format(_fa['asset_name']),
                             key=f"predictive_task_{_fa['asset_id']}"):
                         _pm_asset = next((a for a in assets if a["id"] == _fa["asset_id"]), None)
                         _new_pm_task = create_task(
@@ -24286,33 +24665,37 @@ def page_analytics():
                                         f"failures, based on {_fa['num_failures']} recorded failures."),
                         )
                         if _new_pm_task:
-                            st.success(f"Created task #{_new_pm_task['id']}.")
+                            st.success(auto_t("Created task #{0}.").format(_new_pm_task['id']))
                             st.rerun()
                         else:
-                            st.error("Failed to create task.")
+                            st.error(auto_t("Failed to create task."))
 
             if SKLEARN_AVAILABLE:
                 render_subheading("🤖 ML-Based Failure Risk (RandomForest)", level=4)
                 _ml_predictions = get_ml_failure_predictions(tasks, assets)
                 if not _ml_predictions:
                     st.caption(
-                        f"Not enough pooled failure history yet to train a model "
-                        f"(needs at least {PM_MIN_TRAINING_ROWS} historical failure gaps across "
-                        f"all assets combined). The MTBF alert above still works with far less "
-                        f"data — this becomes available as more failures get logged over time."
+                        auto_t("Not enough pooled failure history yet to train a model (needs at least {0} historical failure gaps across all assets combined). The MTBF alert above still works with far less data — this becomes available as more failures get logged over time.").format(PM_MIN_TRAINING_ROWS)
+
+
+
                     )
                 else:
                     st.caption(
-                        "A RandomForestRegressor trained on this site's own failure history — "
+                        auto_t("A RandomForestRegressor trained on this site's own failure history — "
                         "predicts each asset's next failure gap from how many failures it's had, "
                         "the trend in its gap lengths, and its criticality tier. With this little "
                         "training data it won't out-predict the MTBF average above by much yet; "
-                        "it improves as more failure history accumulates."
+                        "it improves as more failure history accumulates.")
                     )
                     for _mp in _ml_predictions[:10]:
                         _overdue = _mp["predicted_days_remaining"] <= 0
                         _ml_colour = "#dc2626" if _overdue else "#f59e0b" if _mp["predicted_days_remaining"] < 14 else "#0f3460"
-                        st.markdown(f"""<div class="custom-card" style="border-left-color: {_ml_colour};"> <strong>{esc(_mp['asset_name'])}</strong> <span class="status-badge" style="background:{_ml_colour};"> {'Overdue by model estimate' if _overdue else f"~{_mp['predicted_days_remaining']:.0f} days to predicted failure"} </span> <p>Predicted around {_mp['predicted_failure_date'].strftime('%b %d, %Y')}, based on {_mp['num_failures']} recorded failures.</p> </div>""", unsafe_allow_html=True)
+                        _ml_status_label = (auto_t("Overdue by model estimate") if _overdue
+                                           else auto_t("~{0} days to predicted failure").format(f"{_mp['predicted_days_remaining']:.0f}"))
+                        _ml_detail_line = auto_t("Predicted around {0}, based on {1} recorded failures.").format(
+                            _mp['predicted_failure_date'].strftime('%b %d, %Y'), _mp['num_failures'])
+                        st.markdown(f"""<div class="custom-card" style="border-left-color: {_ml_colour};"> <strong>{esc(_mp['asset_name'])}</strong> <span class="status-badge" style="background:{_ml_colour};"> {_ml_status_label} </span> <p>{_ml_detail_line}</p> </div>""", unsafe_allow_html=True)
 
             render_subheading("Asset Task Frequency", level=4)
             ranking = compute_asset_downtime_ranking(tasks, assets)
@@ -24326,22 +24709,22 @@ def page_analytics():
                 for name, cnt in ranking[:15]:
                     st.write(f"- **{esc(name)}**: {cnt}")
             else:
-                st.caption("No tasks linked to assets yet.")
+                st.caption(auto_t("No tasks linked to assets yet."))
 
         elif analytics_sub == "Utilization":
             render_subheading("Equipment Utilization & Downtime", level=4)
             st.caption(
-                "Computed from actual logged status changes, not estimated. This is genuinely "
+                auto_t("Computed from actual logged status changes, not estimated. This is genuinely "
                 "new data — it only captures transitions from when this feature was deployed "
                 "onward, so there's no way to reconstruct downtime that happened before that. "
                 "The more days that pass with status changes being logged, the more complete "
-                "this picture becomes."
+                "this picture becomes.")
             )
             if not assets:
-                st.info("No assets registered yet.")
+                st.info(auto_t("No assets registered yet."))
             else:
                 _util_asset_choices = {a["name"]: a["id"] for a in assets}
-                _util_asset_label = st.selectbox("Asset", list(_util_asset_choices.keys()))
+                _util_asset_label = st.selectbox(auto_t("Asset"), list(_util_asset_choices.keys()))
                 _util_asset_id = _util_asset_choices[_util_asset_label]
                 _util_days = st.select_slider("Look back", options=[7, 14, 30, 60, 90], value=30)
                 _window_end = datetime.now()
@@ -24353,9 +24736,9 @@ def page_analytics():
                 _downtime_cost = compute_asset_downtime_cost(_asset_obj, _downtime_hrs)
 
                 if _utilization is None:
-                    st.info("No status changes logged yet for this asset in this window — nothing "
+                    st.info(auto_t("No status changes logged yet for this asset in this window — nothing "
                             "to compute. Changing an asset's status (Assets → Manage) will start "
-                            "building this history.")
+                            "building this history."))
                 else:
                     _ucol1, _ucol2, _ucol3 = st.columns(3)
                     _ucol1.metric("Utilization", f"{_utilization:.1f}%")
@@ -24366,9 +24749,9 @@ def page_analytics():
                         _ucol3.caption("Set a $/hr rate on this asset (Assets → Manage) "
                                       "to see downtime cost here.")
                     if _coverage_start and _coverage_start > _window_start:
-                        st.caption(f"Data available from {_fmt_log_time(_coverage_start.isoformat())} "
-                                  f"onward — earlier than that within this window isn't covered yet, "
-                                  f"so this reflects a shorter period than the full {_util_days} days requested.")
+                        st.caption(auto_t("Data available from {0} onward — earlier than that within this window isn't covered yet, so this reflects a shorter period than the full {1} days requested.").format(_fmt_log_time(_coverage_start.isoformat()), _util_days)
+
+)
 
         elif analytics_sub == "Backlog & Compliance":
             pm_pct, pm_n = compute_pm_compliance_v2(tasks)
@@ -24380,20 +24763,20 @@ def page_analytics():
             c2.metric("Planned Work", f"{planned_pct}%" if planned_pct is not None else "No data")
             c3.metric("Reactive Work", f"{reactive_pct}%" if reactive_pct is not None else "No data")
             if planned_pct is not None:
-                st.caption("A commonly cited maintenance benchmark is roughly 80% planned / 20% reactive, though the "
-                           "right target varies by operation and equipment age — treat it as a direction, not a rule.")
+                st.caption(auto_t("A commonly cited maintenance benchmark is roughly 80% planned / 20% reactive, though the "
+                           "right target varies by operation and equipment age — treat it as a direction, not a rule."))
 
             render_subheading("Backlog Aging", level=4)
             buckets = backlog_aging(tasks)
             if sum(buckets.values()) == 0:
-                st.success("No open backlog.")
+                st.success(auto_t("No open backlog."))
             else:
                 bcols = st.columns(len(buckets))
                 for i, (label, count) in enumerate(buckets.items()):
                     bcols[i].metric(label, count)
                 if buckets["90+ days"] > 0:
-                    st.warning(f"⚠️ {buckets['90+ days']} task(s) have been open over 90 days. "
-                               "Long-aged backlog usually means the work is either not resourced or no longer valid — worth reviewing.")
+                    st.warning(auto_t("⚠️ {0} task(s) have been open over 90 days. Long-aged backlog usually means the work is either not resourced or no longer valid — worth reviewing.").format(buckets['90+ days'])
+)
                 if PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                     dfb = pd.DataFrame(list(buckets.items()), columns=["Age", "Open tasks"])
                     st.plotly_chart(px.bar(dfb, x="Age", y="Open tasks", title="Open work by age",
@@ -24404,8 +24787,8 @@ def page_analytics():
             render_subheading("Failure Modes (Pareto)", level=4)
             pareto = failure_pareto(tasks)
             if not pareto:
-                st.info("No failure codes recorded yet. Assign a failure code when closing reactive work "
-                        "and this becomes your root-cause priority list.")
+                st.info(auto_t("No failure codes recorded yet. Assign a failure code when closing reactive work "
+                        "and this becomes your root-cause priority list."))
             else:
                 total = sum(n for _, _, n in pareto)
                 cumulative = 0
@@ -24424,19 +24807,19 @@ def page_analytics():
                                         use_container_width=True)
                 else:
                     for r in rows:
-                        st.write(f"- **{r['Failure Mode']}** ({r['Code']}): {r['Count']} — cumulative {r['Cumulative %']}%")
-                st.caption("The Pareto principle suggests a small number of failure modes usually drive most of your "
-                           "downtime. Focus root-cause work at the top of this list.")
+                        st.write(auto_t("- **{0}** ({1}): {2} — cumulative {3}%").format(r['Failure Mode'], r['Code'], r['Count'], r['Cumulative %']))
+                st.caption(auto_t("The Pareto principle suggests a small number of failure modes usually drive most of your "
+                           "downtime. Focus root-cause work at the top of this list."))
 
         elif analytics_sub == "Cost":
             render_subheading("Maintenance Cost by Asset", level=4)
             costs = cost_by_asset(tasks, assets, parts_lookup)
             if not costs or all(v == 0 for _, v in costs):
-                st.info("No cost data yet. Cost accumulates from labour hours × rate on each task, "
-                        "plus the unit cost of parts recorded against it.")
+                st.info(auto_t("No cost data yet. Cost accumulates from labour hours × rate on each task, "
+                        "plus the unit cost of parts recorded against it."))
             else:
                 total_cost = sum(v for _, v in costs)
-                st.metric("Total recorded maintenance cost", f"{total_cost:,.2f}")
+                st.metric(auto_t("Total recorded maintenance cost"), f"{total_cost:,.2f}")
                 if PANDAS_AVAILABLE:
                     dfc = pd.DataFrame(costs, columns=["Asset", "Cost"])
                     st.dataframe(dfc, use_container_width=True)
@@ -24444,15 +24827,15 @@ def page_analytics():
                         st.plotly_chart(px.bar(dfc.head(15), x="Asset", y="Cost",
                                                 title="Cost by asset", color_discrete_sequence=GMC_CHART_COLORS),
                                         use_container_width=True)
-                st.caption("Currency is whatever you enter — the app does not assume or convert units.")
+                st.caption(auto_t("Currency is whatever you enter — the app does not assume or convert units."))
 
             st.markdown("---")
             render_subheading("Cost Breakdown by Category", level=4)
-            st.caption("Same underlying cost data, split by work type instead of by asset — shows what "
-                      "KIND of work is driving spend, not just which asset.")
+            st.caption(auto_t("Same underlying cost data, split by work type instead of by asset — shows what "
+                      "KIND of work is driving spend, not just which asset."))
             category_costs = cost_by_category(tasks, parts_lookup)
             if not category_costs or all(c["total_cost"] == 0 for c in category_costs):
-                st.info("No cost data yet.")
+                st.info(auto_t("No cost data yet."))
             else:
                 if PANDAS_AVAILABLE:
                     dfcat = pd.DataFrame(category_costs)
@@ -24472,27 +24855,29 @@ def page_analytics():
                             use_container_width=True)
                 else:
                     for c in category_costs:
-                        st.write(f"**{c['category']}**: {c['total_cost']:,.2f} "
-                                f"(Parts: {c['parts_cost']:,.2f}, Labour: {c['labour_cost']:,.2f})")
+                        st.write(auto_t("**{0}**: {1:,.2f} (Parts: {2:,.2f}, Labour: {3:,.2f})").format(c['category'], c['total_cost'], c['parts_cost'], c['labour_cost'])
+)
 
             st.markdown("---")
             render_subheading("⚠️ Cost Anomaly Detection", level=4)
-            st.caption("Completed tasks whose cost is more than 2 standard deviations from the typical "
+            st.caption(auto_t("Completed tasks whose cost is more than 2 standard deviations from the typical "
                       "cost for their work type — a simple statistical check, not a trained model, so "
                       "it's inspectable and its false-positive rate is predictable. Needs at least 6 "
-                      "completed tasks in a category before flagging anything in it.")
+                      "completed tasks in a category before flagging anything in it."))
             _cost_anomalies = detect_cost_anomalies(tasks, parts_lookup)
             if not _cost_anomalies:
-                st.info("No cost anomalies detected.")
+                st.info(auto_t("No cost anomalies detected."))
             else:
                 for a in _cost_anomalies:
-                    st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>#{a['task_id']}: {esc(a['title'])}</strong> <span class="status-badge" style="background:#dc2626;">{esc(a['work_type'])}</span> <p>Cost: {a['cost']:,.2f} — typical for {esc(a['work_type'])} tasks is around {a['category_mean']:,.2f}</p> </div>""", unsafe_allow_html=True)
+                    _cost_line = auto_t("Cost: {0} — typical for {1} tasks is around {2}").format(
+                        f"{a['cost']:,.2f}", esc(a['work_type']), f"{a['category_mean']:,.2f}")
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>#{a['task_id']}: {esc(a['title'])}</strong> <span class="status-badge" style="background:#dc2626;">{esc(a['work_type'])}</span> <p>{_cost_line}</p> </div>""", unsafe_allow_html=True)
 
             st.markdown("---")
             render_subheading("💰 Budget Center", level=4)
             _budgets = fetch_budgets()
             if not _budgets:
-                st.caption("No budgets set yet.")
+                st.caption(auto_t("No budgets set yet."))
             else:
                 for _b in _budgets:
                     _b_asset_name = (_b.get("assets") or {}).get("name", "Unknown asset")
@@ -24511,28 +24896,28 @@ def page_analytics():
                                 + (" — **over budget**" if _over else "")
                             )
                         with _bcol2:
-                            if st.button("🗑️ Delete", key=f"del_budget_{_b['id']}"):
+                            if st.button(auto_t("🗑️ Delete"), key=f"del_budget_{_b['id']}"):
                                 if delete_budget(_b["id"], full_name):
                                     st.rerun()
 
-            with st.expander("➕ Set a new budget"):
+            with st.expander(auto_t("➕ Set a new budget")):
                 if not assets:
-                    st.caption("Add an asset first.")
+                    st.caption(auto_t("Add an asset first."))
                 else:
                     with st.form("new_budget_form", clear_on_submit=True):
                         _budget_asset_choices = {a["name"]: a["id"] for a in assets}
-                        _budget_asset_label = st.selectbox("Asset", list(_budget_asset_choices.keys()))
-                        _budget_period = st.text_input("Period label", placeholder="e.g. 2026 Q3, FY2026")
-                        _budget_amount = st.number_input("Allocated amount", min_value=0.0, value=0.0, step=100.0)
-                        if st.form_submit_button("Set budget"):
+                        _budget_asset_label = st.selectbox(auto_t("Asset"), list(_budget_asset_choices.keys()))
+                        _budget_period = st.text_input(auto_t("Period label"), placeholder="e.g. 2026 Q3, FY2026")
+                        _budget_amount = st.number_input(auto_t("Allocated amount"), min_value=0.0, value=0.0, step=100.0)
+                        if st.form_submit_button(auto_t("Set budget")):
                             if not _budget_period.strip():
-                                st.error("Period label is required.")
+                                st.error(auto_t("Period label is required."))
                             elif create_budget(_budget_asset_choices[_budget_asset_label],
                                               _budget_period.strip(), _budget_amount, full_name):
-                                st.success("Budget set.")
+                                st.success(auto_t("Budget set."))
                                 st.rerun()
                             else:
-                                st.error("Failed to set budget — check the error log.")
+                                st.error(auto_t("Failed to set budget — check the error log."))
 
         elif analytics_sub == "Safety":
             render_subheading("Safety Indicators", level=4)
@@ -24549,12 +24934,12 @@ def page_analytics():
             c6.metric("Open, no corrective action", si["open_without_action"])
 
             if si["open_without_action"] > 0:
-                st.warning(f"⚠️ {si['open_without_action']} open incident(s) have no corrective action recorded. "
-                           "Unclosed corrective actions are a common audit finding.")
-            st.info("**Reading these correctly matters.** A *rising* near-miss and hazard-report count usually means "
+                st.warning(auto_t("⚠️ {0} open incident(s) have no corrective action recorded. Unclosed corrective actions are a common audit finding.").format(si['open_without_action'])
+)
+            st.info(auto_t("**Reading these correctly matters.** A *rising* near-miss and hazard-report count usually means "
                     "reporting culture is improving, not that the site became more dangerous. The metric to worry about "
                     "is proactive reports falling while injuries hold steady — that pattern suggests under-reporting. "
-                    "Don't set targets that reward fewer reports.")
+                    "Don't set targets that reward fewer reports."))
 
             if incidents and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 dfi = pd.DataFrame(incidents)
@@ -24571,135 +24956,139 @@ def page_analytics():
         if can(role, "analytics.export"):
             st.markdown("---")
             render_subheading("Exports", level=4)
-            _export_format = st.radio("Format", ["CSV", "Excel (.xlsx)"], horizontal=True, key="an_export_format")
+            _export_format = st.radio(auto_t("Format"), ["CSV", "Excel (.xlsx)"], horizontal=True, key="an_export_format", format_func=auto_t)
             if _export_format == "Excel (.xlsx)" and not OPENPYXL_AVAILABLE:
-                st.warning("Excel export needs `openpyxl` in requirements.txt — falling back to CSV "
-                          "until that's added and the app is rebooted.")
+                st.warning(auto_t("Excel export needs `openpyxl` in requirements.txt — falling back to CSV "
+                          "until that's added and the app is rebooted."))
                 _export_format = "CSV"
             ecols = st.columns(5 if PDF_REPORT_AVAILABLE else 4)
             if ecols[0].button("📥 Tasks"):
                 if _export_format == "Excel (.xlsx)":
                     c = export_tasks_xlsx(tasks)
                     if c:
-                        st.download_button("Download", c, "tasks_export.xlsx",
+                        st.download_button(auto_t("Download"), c, "tasks_export.xlsx",
                                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                           key="an_dl_tasks_xlsx")
                 else:
                     c = export_tasks_csv(tasks)
                     if c:
-                        st.download_button("Download", c, "tasks_export.csv", "text/csv", key="an_dl_tasks")
+                        st.download_button(auto_t("Download"), c, "tasks_export.csv", "text/csv", key="an_dl_tasks")
             if ecols[1].button("📥 Assets"):
                 if _export_format == "Excel (.xlsx)":
                     c = export_assets_xlsx(assets)
                     if c:
-                        st.download_button("Download", c, "assets_export.xlsx",
+                        st.download_button(auto_t("Download"), c, "assets_export.xlsx",
                                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                           key="an_dl_assets_xlsx")
                 else:
                     c = export_assets_csv(assets)
                     if c:
-                        st.download_button("Download", c, "assets_export.csv", "text/csv", key="an_dl_assets")
+                        st.download_button(auto_t("Download"), c, "assets_export.csv", "text/csv", key="an_dl_assets")
             if ecols[2].button("📥 Inventory"):
                 if _export_format == "Excel (.xlsx)":
                     c = export_inventory_xlsx(parts)
                     if c:
-                        st.download_button("Download", c, "inventory_export.xlsx",
+                        st.download_button(auto_t("Download"), c, "inventory_export.xlsx",
                                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                           key="an_dl_inv_xlsx")
                 else:
                     c = export_inventory_csv(parts)
                     if c:
-                        st.download_button("Download", c, "inventory_export.csv", "text/csv", key="an_dl_inv")
+                        st.download_button(auto_t("Download"), c, "inventory_export.csv", "text/csv", key="an_dl_inv")
             if ecols[3].button("📥 Incidents"):
                 if _export_format == "Excel (.xlsx)":
                     c = export_incidents_xlsx(incidents)
                     if c:
-                        st.download_button("Download", c, "incidents_export.xlsx",
+                        st.download_button(auto_t("Download"), c, "incidents_export.xlsx",
                                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                           key="an_dl_inc_xlsx")
                 else:
                     c = export_incidents_csv(incidents)
                     if c:
-                        st.download_button("Download", c, "incidents_export.csv", "text/csv", key="an_dl_inc")
+                        st.download_button(auto_t("Download"), c, "incidents_export.csv", "text/csv", key="an_dl_inc")
             if PDF_REPORT_AVAILABLE and ecols[4].button("📄 PDF Report"):
                 pdf_bytes = generate_pdf_report(tasks, assets, incidents)
                 if pdf_bytes:
-                    st.download_button("Download", pdf_bytes,
+                    st.download_button(auto_t("Download"), pdf_bytes,
                                       f"mwdts_safety_report_{datetime.now().strftime('%Y%m%d')}.pdf",
                                       "application/pdf", key="an_dl_pdf")
                 else:
-                    st.error("Report generation failed — check the app's error log.")
+                    st.error(auto_t("Report generation failed — check the app's error log."))
 
-            if OPENPYXL_AVAILABLE and st.button("📊 Full Workbook (all data, one file)"):
+            if OPENPYXL_AVAILABLE and st.button(auto_t("📊 Full Workbook (all data, one file)")):
                 wb_bytes = export_full_workbook_xlsx(tasks, assets, parts, incidents)
                 if wb_bytes:
                     st.download_button(
-                        "Download", wb_bytes,
+                        auto_t("Download"), wb_bytes,
                         f"mwdts_full_export_{datetime.now().strftime('%Y%m%d')}.xlsx",
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         key="an_dl_full_xlsx")
                 else:
-                    st.info("Nothing to export yet.")
+                    st.info(auto_t("Nothing to export yet."))
 
-            if st.button("📅 All Task Due Dates (.ics)"):
+            if st.button(auto_t("📅 All Task Due Dates (.ics)")):
                 _ics_bytes = generate_ics_for_tasks(tasks)
                 if _ics_bytes:
                     st.download_button(
-                        "Download", _ics_bytes, "mwdts_all_tasks.ics", "text/calendar",
+                        auto_t("Download"), _ics_bytes, "mwdts_all_tasks.ics", "text/calendar",
                         key="an_dl_all_tasks_ics",
-                        help="Opens directly in Google Calendar, Outlook, or Apple Calendar via Import.")
+                        help=auto_t("Opens directly in Google Calendar, Outlook, or Apple Calendar via Import."))
                 else:
-                    st.info("No tasks with a due date to export.")
+                    st.info(auto_t("No tasks with a due date to export."))
 
             if PDF_REPORT_AVAILABLE and (role in ("supervisor", "superintendent") or is_owner(username)):
                 st.markdown("---")
                 render_subheading("📊 Executive Monthly Report", level=4)
-                st.caption("Board-ready summary: Safety (TRIFR), Production vs Target, Top 5 Cost Drivers. "
-                          "Generated on demand — see the note below about automatic monthly emailing.")
-                if st.button("📄 Generate Executive Report"):
+                st.caption(auto_t("Board-ready summary: Safety (TRIFR), Production vs Target, Top 5 Cost Drivers. "
+                          "Generated on demand — see the note below about automatic monthly emailing."))
+                if st.button(auto_t("📄 Generate Executive Report")):
                     exec_pdf = generate_executive_monthly_report(tasks, assets, incidents, parts_lookup)
                     if exec_pdf:
-                        st.download_button("Download", exec_pdf,
+                        st.download_button(auto_t("Download"), exec_pdf,
                                           f"mwdts_executive_report_{datetime.now().strftime('%Y%m')}.pdf",
                                           "application/pdf", key="an_dl_exec_pdf")
                     else:
-                        st.error("Report generation failed — check the app's error log.")
-                st.caption("ℹ️ Automatically emailing this on the 1st of every month isn't something this app "
+                        st.error(auto_t("Report generation failed — check the app's error log."))
+                st.caption(auto_t("ℹ️ Automatically emailing this on the 1st of every month isn't something this app "
                           "can do on its own — Streamlit has no built-in background scheduler, only code that "
                           "runs while someone has the app open. Reaching that would need an external scheduler "
-                          "(e.g. a scheduled script) calling this same report generator and emailing the result.")
+                          "(e.g. a scheduled script) calling this same report generator and emailing the result."))
 
         elif analytics_sub == "Electrical Health":
             render_subheading("⚡ Heavy Equipment Electrical Health", level=4)
-            st.caption("Alternator, starter, and battery failures by machine — built to enable a "
+            st.caption(auto_t("Alternator, starter, and battery failures by machine — built to enable a "
                       "targeted preventative swap before a haul truck dies in the pit, not just a "
-                      "record of what already broke.")
+                      "record of what already broke."))
 
             _elec_health = get_heavy_equipment_electrical_health(tasks, assets)
             if not _elec_health:
-                st.info("No alternator, starter, or battery failures recorded yet. These are tracked "
+                st.info(auto_t("No alternator, starter, or battery failures recorded yet. These are tracked "
                        "via the specific failure code selected when closing out a task — the general "
                        "\"Electrical fault\" code doesn't count here, since it doesn't say which "
-                       "component actually failed.")
+                       "component actually failed."))
             else:
                 render_subheading("Top Breakdown Liabilities", level=5)
+                _alt_word = auto_t("alternator")
+                _starter_word = auto_t("starter")
+                _batt_word = auto_t("battery")
                 for r in _elec_health:
                     _parts_list = []
-                    if r["alt"]: _parts_list.append(f"{r['alt']} alternator")
-                    if r["starter"]: _parts_list.append(f"{r['starter']} starter")
-                    if r["batt"]: _parts_list.append(f"{r['batt']} battery")
-                    st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>{esc(r['asset_name'])}</strong> <span class="status-badge" style="background:#dc2626;">{r['total']} failure(s)</span> <p>{', '.join(_parts_list)}</p> </div>""", unsafe_allow_html=True)
+                    if r["alt"]: _parts_list.append(f"{r['alt']} {_alt_word}")
+                    if r["starter"]: _parts_list.append(f"{r['starter']} {_starter_word}")
+                    if r["batt"]: _parts_list.append(f"{r['batt']} {_batt_word}")
+                    _failure_count_label = auto_t("{0} failure(s)").format(r['total'])
+                    st.markdown(f"""<div class="custom-card" style="border-left-color: #dc2626;"> <strong>{esc(r['asset_name'])}</strong> <span class="status-badge" style="background:#dc2626;">{_failure_count_label}</span> <p>{', '.join(_parts_list)}</p> </div>""", unsafe_allow_html=True)
 
                 render_subheading("Trends by Equipment Category", level=5)
-                st.caption("Spots patterns a per-machine view can't — e.g. a failure type endemic to "
-                          "one equipment class, not just one unlucky machine.")
+                st.caption(auto_t("Spots patterns a per-machine view can't — e.g. a failure type endemic to "
+                          "one equipment class, not just one unlucky machine."))
                 _trends = get_electrical_failure_trends_by_category(tasks, assets)
                 if not _trends:
-                    st.info("Not enough data yet to show category trends.")
+                    st.info(auto_t("Not enough data yet to show category trends."))
                 else:
                     _trend_rows = sorted(_trends.items(), key=lambda x: x[1], reverse=True)
                     for (category, component), count in _trend_rows:
-                        st.write(f"**{esc(category)}** — {component}: {count} failure(s)")
+                        st.write(auto_t("**{0}** — {1}: {2} failure(s)").format(esc(category), component, count))
 
 
 def page_permits():
@@ -24757,12 +25146,21 @@ def page_permits():
             _permit_step_map.get(status, 0),
             cancelled=(status == "Cancelled"),
         )
-        st.markdown(f"""<div class="custom-card" style="border-left-color: {colour};"> <strong>Permit #{p['id']} — {esc(p.get('permit_type'))}</strong> <span class="status-badge" style="background:{colour};">{esc(status)}</span>{f'<span class="overdue-badge">{esc(t("permits.expired_badge"))}</span>' if expired else ''} {_permit_steps_html} {_permit_chips} {_permit_fields} </div>""", unsafe_allow_html=True)
+        _permit_title = auto_t("Permit #{0} — {1}").format(p['id'], esc(p.get('permit_type')))
+        st.markdown(f"""<div class="custom-card" style="border-left-color: {colour};"> <strong>{_permit_title}</strong> <span class="status-badge" style="background:{colour};">{esc(status)}</span>{f'<span class="overdue-badge">{esc(t("permits.expired_badge"))}</span>' if expired else ''} {_permit_steps_html} {_permit_chips} {_permit_fields} </div>""", unsafe_allow_html=True)
 
         if not allow_actions:
             return
+        # A permit with no resolvable linked task has no "assigned
+        # worker" to restrict by — falls back to the existing
+        # role-only check for that edge case rather than blocking
+        # everyone. The normal case (a real linked task) restricts to
+        # that task's assignee/team, on top of the role check that
+        # already applied — supervisors/superintendents are unaffected
+        # either way (see user_is_assigned_to_task's own docstring).
+        _permit_authorized = user_is_assigned_to_task(linked, full_name, role) if linked else True
         acols = st.columns(3)
-        if status == "Issued" and can(role, "permit.accept"):
+        if status == "Issued" and can(role, "permit.accept") and _permit_authorized:
             if acols[0].button(t("permits.accept_btn"), key=f"permit_acc_{p['id']}"):
                 if accept_permit(p['id'], full_name):
                     st.success(t("permits.accept_success"))
@@ -24771,7 +25169,9 @@ def page_permits():
                     st.error(friendly_db_error("connection timeout"))
                 else:
                     st.error(t("permits.accept_failed"))
-        if status == "Active" and can(role, "permit.sign_back"):
+        elif status == "Issued" and can(role, "permit.accept") and not _permit_authorized:
+            acols[0].caption(auto_t("🔒 Only {0} or their team can accept this.").format(esc(linked.get("assigned_to") or "the assigned worker")))
+        if status == "Active" and can(role, "permit.sign_back") and _permit_authorized:
             if acols[1].button(t("permits.signback_btn"), key=f"permit_sb_{p['id']}"):
                 if sign_back_permit(p['id'], full_name):
                     st.success(t("permits.signback_success"))
@@ -24780,6 +25180,8 @@ def page_permits():
                     st.error(friendly_db_error("connection timeout"))
                 else:
                     st.error(t("permits.signback_failed"))
+        elif status == "Active" and can(role, "permit.sign_back") and not _permit_authorized:
+            acols[1].caption(auto_t("🔒 Only {0} or their team can sign this back.").format(esc(linked.get("assigned_to") or "the assigned worker")))
         if status in ("Issued", "Active") and can(role, "permit.cancel"):
             if acols[2].button(t("permits.cancel_btn"), key=f"permit_can_{p['id']}"):
                 if cancel_permit(p['id'], full_name):
@@ -24797,55 +25199,55 @@ def page_permits():
         if _ext_status == "Pending":
             _req_until = _parse_dt(p.get("extension_requested_until"))
             st.warning(
-                f"⏳ Extension requested by **{esc(p.get('extension_requested_by') or '—')}** until "
-                f"**{_fmt_log_time(p.get('extension_requested_until'))}** — "
-                f"reason: {esc(p.get('extension_reason') or '—')}")
+                auto_t("⏳ Extension requested by **{0}** until **{1}** — reason: {2}").format(esc(p.get('extension_requested_by') or '—'), _fmt_log_time(p.get('extension_requested_until')), esc(p.get('extension_reason') or '—'))
+
+)
             if can(role, "permit.issue"):
                 _dcols = st.columns(2)
                 if _dcols[0].button("✅ Approve extension", key=f"permit_ext_ok_{p['id']}"):
                     if decide_permit_extension(p['id'], True, full_name):
-                        st.success("Extension approved — permit validity updated.")
+                        st.success(auto_t("Extension approved — permit validity updated."))
                         st.rerun()
                     else:
-                        st.error("Couldn't record the decision.")
+                        st.error(auto_t("Couldn't record the decision."))
                 if _dcols[1].button("❌ Reject extension", key=f"permit_ext_no_{p['id']}"):
                     if decide_permit_extension(p['id'], False, full_name):
-                        st.info("Rejected — the original expiry still applies.")
+                        st.info(auto_t("Rejected — the original expiry still applies."))
                         st.rerun()
                     else:
-                        st.error("Couldn't record the decision.")
+                        st.error(auto_t("Couldn't record the decision."))
             else:
-                st.caption("Waiting on a Supervisor or Superintendent to decide.")
+                st.caption(auto_t("Waiting on a Supervisor or Superintendent to decide."))
         elif status in ("Issued", "Active"):
             if _ext_status == "Rejected":
-                st.caption(f"A previous extension request was rejected by "
-                          f"{esc(p.get('extension_decided_by') or '—')}.")
-            with st.expander("⏱️ Request an extension"):
-                st.caption("This does not extend the permit by itself — an authorised person "
+                st.caption(auto_t("A previous extension request was rejected by {0}.").format(esc(p.get('extension_decided_by') or '—'))
+)
+            with st.expander(auto_t("⏱️ Request an extension")):
+                st.caption(auto_t("This does not extend the permit by itself — an authorised person "
                           "reviews and decides, because the expiry exists to force a re-check "
-                          "that the isolation is still valid.")
-                _ext_hours = st.number_input("Extend by (hours)", min_value=1, max_value=24, value=4,
+                          "that the isolation is still valid."))
+                _ext_hours = st.number_input(auto_t("Extend by (hours)"), min_value=1, max_value=24, value=4,
                                              key=f"permit_ext_hrs_{p['id']}")
-                _ext_reason = st.text_input("Reason", key=f"permit_ext_why_{p['id']}",
+                _ext_reason = st.text_input(auto_t("Reason"), key=f"permit_ext_why_{p['id']}",
                                             placeholder="e.g. job running long, isolation unchanged")
-                if st.button("📨 Send extension request", key=f"permit_ext_send_{p['id']}"):
+                if st.button(auto_t("📨 Send extension request"), key=f"permit_ext_send_{p['id']}"):
                     if not _ext_reason.strip():
-                        st.error("A reason is required — whoever decides needs to know why.")
+                        st.error(auto_t("A reason is required — whoever decides needs to know why."))
                     else:
                         _base = _parse_dt(p.get("valid_until")) or datetime.now()
                         _new_until = max(_base, datetime.now()) + timedelta(hours=int(_ext_hours))
                         if request_permit_extension(p['id'], _new_until, _ext_reason.strip(), full_name):
-                            st.success("Requested — Supervisors and Superintendents notified.")
+                            st.success(auto_t("Requested — Supervisors and Superintendents notified."))
                             st.rerun()
                         else:
-                            st.error("Couldn't send the request.")
+                            st.error(auto_t("Couldn't send the request."))
 
             if status in ("Issued", "Active") and QR_GENERATION_AVAILABLE:
-                with st.expander("📱 QR Code"):
-                    st.caption("Print this on the permit-to-work slip — scanning it at the "
+                with st.expander(auto_t("📱 QR Code")):
+                    st.caption(auto_t("Print this on the permit-to-work slip — scanning it at the "
                               "isolation point via Scan Hub pulls up this exact record instantly, "
                               "including whether it's still active, without anyone needing to "
-                              "search for it by number.")
+                              "search for it by number."))
                     _permit_qr_img = generate_entity_qr("PERMIT", p["id"])
                     if _permit_qr_img:
                         st.image(_permit_qr_img, width=180)
@@ -24971,7 +25373,7 @@ def page_incidents():
             # full history one click away" avoids that entirely while
             # still fixing the same unbounded-render performance
             # problem found across the rest of the app tonight.
-            _inc_show_all_time = st.checkbox("Show full history (not just the last 90 days)",
+            _inc_show_all_time = st.checkbox(auto_t("Show full history (not just the last 90 days)"),
                                              value=False, key="inc_show_all_time")
             if not _inc_show_all_time:
                 _inc_cutoff = datetime.now() - timedelta(days=90)
@@ -25012,7 +25414,7 @@ def page_incidents():
                 with st.expander(t("incidents.investigate_expander").format(id=inc['id'])):
                     new_status = st.selectbox(t("incidents.status_label"), ["Open", "Investigating", "Resolved", "Closed"],
                                                index=["Open", "Investigating", "Resolved", "Closed"].index(inc.get('status', 'Open')) if inc.get('status') in ["Open", "Investigating", "Resolved", "Closed"] else 0,
-                                               key=f"inc_stat_{inc['id']}")
+                                               key=f"inc_stat_{inc['id']}", format_func=auto_t)
                     root_cause = st.text_area(t("incidents.root_cause_label"), value=inc.get('root_cause') or '', key=f"inc_root_{inc['id']}")
                     corrective_action = st.text_area(t("incidents.corrective_action_label"), value=inc.get('corrective_action') or '', key=f"inc_corr_{inc['id']}")
                     if st.button(t("incidents.save_investigation"), key=f"inc_save_{inc['id']}"):
@@ -25039,27 +25441,27 @@ def page_incidents():
         # reporter still confirms or overrides it there — never
         # auto-applied without their review.
         if AI_FEATURES_AVAILABLE:
-            with st.expander("🔮 AI Severity Helper (optional)"):
-                st.caption("Briefly describe what happened — AI will suggest a severity level "
-                          "below, which you can confirm or change in the form.")
-                _severity_summary = st.text_input("What happened?", key="severity_helper_summary")
+            with st.expander(auto_t("🔮 AI Severity Helper (optional)")):
+                st.caption(auto_t("Briefly describe what happened — AI will suggest a severity level "
+                          "below, which you can confirm or change in the form."))
+                _severity_summary = st.text_input(auto_t("What happened?"), key="severity_helper_summary")
                 _severity_type_hint = st.selectbox(
-                    "Incident type", ["Near Miss", "Injury", "Property Damage", "Equipment Failure",
-                                     "Environmental", "Hazard Observation"], key="severity_helper_type")
-                if st.button("🔮 Suggest Severity", key="severity_suggest_btn"):
+                    auto_t("Incident type"), ["Near Miss", "Injury", "Property Damage", "Equipment Failure",
+                                     "Environmental", "Hazard Observation"], key="severity_helper_type", format_func=auto_t)
+                if st.button(auto_t("🔮 Suggest Severity"), key="severity_suggest_btn"):
                     if _severity_summary.strip():
                         with st.spinner("Analyzing..."):
                             _suggested = predict_incident_severity(_severity_type_hint, _severity_summary)
                         if _suggested:
                             st.session_state["_severity_suggestion"] = _suggested
-                            st.success(f"Suggested severity: **{_suggested}** — pre-selected below, "
-                                      "review and adjust if needed.")
+                            st.success(auto_t("Suggested severity: **{0}** — pre-selected below, review and adjust if needed.").format(_suggested)
+)
                             st.rerun()
                         else:
-                            st.warning("Couldn't generate a suggestion right now — please select "
-                                      "severity directly in the form below.")
+                            st.warning(auto_t("Couldn't generate a suggestion right now — please select "
+                                      "severity directly in the form below."))
                     else:
-                        st.warning("Describe what happened first.")
+                        st.warning(auto_t("Describe what happened first."))
 
         # Prefill department/employee ID from the reporter's own profile
         # (set at registration — see Owner Console access requests) so
@@ -25090,7 +25492,7 @@ def page_incidents():
                 department = st.text_input(t("incidents.department_label"), value=_my_profile.get("department") or "",
                                            max_chars=100)
                 shift = st.selectbox(t("incidents.shift_label"), ["Day Shift", "Night Shift", "Swing Shift",
-                                               "Weekend Day", "Weekend Night"])
+                                               "Weekend Day", "Weekend Night"], format_func=auto_t)
             with _rc2:
                 reporter_id_no = st.text_input(t("incidents.your_id_label"), value=_my_profile.get("employee_id") or "",
                                                max_chars=50)
@@ -25170,24 +25572,24 @@ def page_inventory():
     if inv_sub == "Stock Levels":
         low_stock = [p for p in parts if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0)]
         if low_stock:
-            st.warning(f"⚠️ {len(low_stock)} part(s) at or below reorder point.")
-        if can_manage_inventory and parts and st.button("📥 Export Inventory as CSV"):
+            st.warning(auto_t("⚠️ {0} part(s) at or below reorder point.").format(len(low_stock)))
+        if can_manage_inventory and parts and st.button(auto_t("📥 Export Inventory as CSV")):
             csv = export_inventory_csv(parts)
             if csv:
-                st.download_button("Download CSV", data=csv, file_name="inventory_export.csv", mime="text/csv", key="dl_inventory_csv")
+                st.download_button(auto_t("Download CSV"), data=csv, file_name="inventory_export.csv", mime="text/csv", key="dl_inventory_csv")
         if not parts:
             render_empty_state("fa-boxes-stacked", "No parts in inventory yet", "Add spare parts to track stock levels and set reorder points.")
         else:
-            _inv_search = st.text_input("🔍 Search by part name, number, or bin location", "", key="inv_search")
+            _inv_search = st.text_input(auto_t("🔍 Search by part name, number, or bin location"), "", key="inv_search")
             parts = quick_filter(parts, _inv_search, ["part_name", "part_number", "bin_location"])
         if can_manage_inventory and parts:
-            with st.expander(f"☑️ Bulk actions ({len(parts)} part(s) in current view)"):
+            with st.expander(auto_t("☑️ Bulk actions ({0} part(s) in current view)").format(len(parts))):
                 _bulk_part_labels = {f"{p['part_name']} ({p.get('part_number', 'N/A')})": p['id'] for p in parts}
                 _bulk_part_selected = st.multiselect(
-                    "Select parts", list(_bulk_part_labels.keys()), key="bulk_part_select")
+                    auto_t("Select parts"), list(_bulk_part_labels.keys()), key="bulk_part_select")
                 _bulk_part_ids = [_bulk_part_labels[l] for l in _bulk_part_selected]
                 if _bulk_part_ids:
-                    st.caption(f"{len(_bulk_part_ids)} part(s) selected.")
+                    st.caption(auto_t("{0} part(s) selected.").format(len(_bulk_part_ids)))
                     _bpcol1, _bpcol2, _bpcol3, _bpcol4 = st.columns(4)
                     _bulk_restock_qty = _bpcol1.number_input(
                         "Add this qty to each", min_value=0, value=0, key="bulk_part_restock_qty")
@@ -25195,24 +25597,24 @@ def page_inventory():
                         if _bulk_restock_qty > 0:
                             for _pid in _bulk_part_ids:
                                 adjust_part_quantity(_pid, _bulk_restock_qty, full_name, reason="bulk restock")
-                            st.success(f"Restocked {len(_bulk_part_ids)} part(s) by {_bulk_restock_qty} each.")
+                            st.success(auto_t("Restocked {0} part(s) by {1} each.").format(len(_bulk_part_ids), _bulk_restock_qty))
                             st.rerun()
                         else:
-                            st.warning("Enter a quantity greater than 0 first.")
+                            st.warning(auto_t("Enter a quantity greater than 0 first."))
                     _bulk_reorder_point = _bpcol3.number_input(
                         "New reorder point", min_value=0, value=0, key="bulk_part_reorder_point")
                     if _bpcol4.button("Set reorder point", key="bulk_part_reorder_apply"):
                         for _pid in _bulk_part_ids:
                             update_part(_pid, {"reorder_point": _bulk_reorder_point}, full_name)
-                        st.success(f"Set reorder point to {_bulk_reorder_point} for {len(_bulk_part_ids)} part(s).")
+                        st.success(auto_t("Set reorder point to {0} for {1} part(s).").format(_bulk_reorder_point, len(_bulk_part_ids)))
                         st.rerun()
-                    if can(role, "inventory.delete") and st.button("🗑️ Delete selected parts", key="bulk_part_delete"):
+                    if can(role, "inventory.delete") and st.button(auto_t("🗑️ Delete selected parts"), key="bulk_part_delete"):
                         for _pid in _bulk_part_ids:
                             delete_part(_pid, full_name)
-                        st.success(f"Deleted {len(_bulk_part_ids)} part(s).")
+                        st.success(auto_t("Deleted {0} part(s).").format(len(_bulk_part_ids)))
                         st.rerun()
                 else:
-                    st.caption("Select one or more parts above to restock, update reorder points, or delete them together.")
+                    st.caption(auto_t("Select one or more parts above to restock, update reorder points, or delete them together."))
 
         for p in parts:
             is_low = p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0)
@@ -25232,74 +25634,74 @@ def page_inventory():
                 if cols[1].button("📥 Restock", key=f"restock_btn_{p['id']}"):
                     if restock_qty > 0:
                         adjust_part_quantity(p['id'], restock_qty, full_name, reason="restock")
-                        st.success("Stock updated.")
+                        st.success(auto_t("Stock updated."))
                         st.rerun()
                 if can(role, "inventory.delete") and cols[2].button("🗑️ Delete", key=f"part_del_{p['id']}"):
                     delete_part(p['id'], full_name)
                     st.rerun()
 
     elif inv_sub == "Add Part":
-        st.markdown("### Add New Part to Inventory")
+        st.markdown(auto_t("### Add New Part to Inventory"))
         with st.form("new_part_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
-                part_name = st.text_input("Part Name *", max_chars=100)
-                part_number = st.text_input("Part Number", max_chars=50)
+                part_name = st.text_input(auto_t("Part Name *"), max_chars=100)
+                part_number = st.text_input(auto_t("Part Number"), max_chars=50)
                 category = selectbox_with_other("Category",
                     ["Bearings", "Belts", "Filters", "Hydraulic", "Electrical",
                      "Fasteners", "Seals", "Lubricants"], key_prefix="part_category")
-                supplier = st.text_input("Supplier", max_chars=100)
+                supplier = st.text_input(auto_t("Supplier"), max_chars=100)
             with c2:
-                quantity_on_hand = st.number_input("Starting Quantity", min_value=0, value=0)
-                reorder_point = st.number_input("Reorder Point", min_value=0, value=5)
-                reorder_qty = st.number_input("Reorder Quantity", min_value=0, value=10)
-                unit_cost = st.number_input("Unit Cost", min_value=0.0, value=0.0, format="%.2f")
-            bin_location = st.text_input("Bin / Shelf Location", max_chars=50)
-            submitted = st.form_submit_button("➕ Add Part")
+                quantity_on_hand = st.number_input(auto_t("Starting Quantity"), min_value=0, value=0)
+                reorder_point = st.number_input(auto_t("Reorder Point"), min_value=0, value=5)
+                reorder_qty = st.number_input(auto_t("Reorder Quantity"), min_value=0, value=10)
+                unit_cost = st.number_input(auto_t("Unit Cost"), min_value=0.0, value=0.0, format="%.2f")
+            bin_location = st.text_input(auto_t("Bin / Shelf Location"), max_chars=50)
+            submitted = st.form_submit_button(auto_t("➕ Add Part"))
             if submitted:
                 if part_name:
                     new_part = create_part(part_name, part_number, category, quantity_on_hand, reorder_point,
                                             reorder_qty, unit_cost, supplier, bin_location, full_name)
                     if new_part:
-                        st.success(f"Part '{part_name}' added to inventory!")
+                        st.success(auto_t("Part '{0}' added to inventory!").format(part_name))
                         st.rerun()
                     else:
-                        st.error("Failed to add part.")
+                        st.error(auto_t("Failed to add part."))
                 else:
-                    st.error("Part Name is required.")
+                    st.error(auto_t("Part Name is required."))
 
     elif inv_sub == "Record Usage":
-        st.markdown("### Record Parts Used on a Task")
+        st.markdown(auto_t("### Record Parts Used on a Task"))
         if not parts:
-            st.info("No parts available. Add parts to inventory first.")
+            st.info(auto_t("No parts available. Add parts to inventory first."))
         elif not st.session_state.tasks:
-            st.info("No tasks available to link parts to.")
+            st.info(auto_t("No tasks available to link parts to."))
         else:
             with st.form("use_part_form", clear_on_submit=True):
                 part_names = {f"{p['part_name']} ({p.get('part_number', 'N/A')}) - {p.get('quantity_on_hand', 0)} in stock": p['id'] for p in parts}
                 task_titles = {f"#{t['id']} {t['title']}": t['id'] for t in st.session_state.tasks}
-                selected_part_label = st.selectbox("Part", list(part_names.keys()))
-                selected_task_label = st.selectbox("Task / Work Order", list(task_titles.keys()))
-                qty_used = st.number_input("Quantity Used", min_value=1, value=1)
-                submitted = st.form_submit_button("✅ Record Usage")
+                selected_part_label = st.selectbox(auto_t("Part"), list(part_names.keys()))
+                selected_task_label = st.selectbox(auto_t("Task / Work Order"), list(task_titles.keys()))
+                qty_used = st.number_input(auto_t("Quantity Used"), min_value=1, value=1)
+                submitted = st.form_submit_button(auto_t("✅ Record Usage"))
                 if submitted:
                     part_id = part_names[selected_part_label]
                     task_id = task_titles[selected_task_label]
                     if link_part_to_task(task_id, part_id, qty_used, full_name):
-                        st.success("Parts usage recorded and stock updated.")
+                        st.success(auto_t("Parts usage recorded and stock updated."))
                         st.rerun()
                     else:
-                        st.error("Failed to record usage.")
+                        st.error(auto_t("Failed to record usage."))
 
     elif inv_sub == "Purchase Orders":
-        st.markdown("### 📑 Purchase Orders")
+        st.markdown(auto_t("### 📑 Purchase Orders"))
         suppliers = fetch_suppliers()
 
         _low_elec = get_low_stock_electrical_parts(st.session_state.get("parts", []))
         if _low_elec:
             st.warning(f"⚡ **{len(_low_elec)} electrical critical spare(s) at or below reorder point**: " +
                       ", ".join(p["part_name"] for p in _low_elec))
-            if suppliers and st.button("🛒 Pre-fill PO with these parts"):
+            if suppliers and st.button(auto_t("🛒 Pre-fill PO with these parts")):
                 # Populates the SAME line-item mechanism the manual form
                 # below already uses — not a separate, parallel PO
                 # creation path — so this always goes through the same
@@ -25325,34 +25727,34 @@ def page_inventory():
                         st.session_state["po_supplier_select"] = next(
                             s["company_name"] for s in suppliers
                             if s["company_name"].strip().lower() == _part_supplier)
-                st.success(f"{len(_low_elec)} part(s) added to the line items below — review "
-                          "quantities and prices, confirm the supplier, then create the order.")
+                st.success(auto_t("{0} part(s) added to the line items below — review quantities and prices, confirm the supplier, then create the order.").format(len(_low_elec))
+)
                 st.rerun()
 
-        with st.expander("➕ Add a new supplier"):
+        with st.expander(auto_t("➕ Add a new supplier")):
             with st.form("add_supplier_form", clear_on_submit=True):
-                _s_name = st.text_input("Company name *")
-                _s_contact = st.text_input("Contact person")
-                _s_email = st.text_input("Email")
-                _s_phone = st.text_input("Phone")
-                if st.form_submit_button("Add supplier"):
+                _s_name = st.text_input(auto_t("Company name *"))
+                _s_contact = st.text_input(auto_t("Contact person"))
+                _s_email = st.text_input(auto_t("Email"))
+                _s_phone = st.text_input(auto_t("Phone"))
+                if st.form_submit_button(auto_t("Add supplier")):
                     if not _s_name.strip():
-                        st.error("Company name is required.")
+                        st.error(auto_t("Company name is required."))
                     elif create_supplier(_s_name.strip(), _s_contact, _s_email, _s_phone, full_name):
-                        st.success(f"Supplier '{_s_name}' added.")
+                        st.success(auto_t("Supplier '{0}' added.").format(_s_name))
                         st.rerun()
                     else:
-                        st.error("Failed to add supplier.")
+                        st.error(auto_t("Failed to add supplier."))
 
         render_subheading("Existing Purchase Orders", level=4)
         pos = get_purchase_orders()
         if not pos:
-            st.info("No purchase orders yet.")
+            st.info(auto_t("No purchase orders yet."))
         else:
             for po in pos:
                 _supplier_name = (po.get("suppliers") or {}).get("company_name", "Unknown supplier")
-                with st.expander(f"{po['po_number']} — {_supplier_name} — {po['status']} — "
-                                f"GHS {po.get('total_cost', 0):.2f}"):
+                with st.expander(auto_t("{0} — {1} — {2} — GHS {3:.2f}").format(po['po_number'], _supplier_name, po['status'], po.get('total_cost', 0))
+):
                     lines = get_po_line_items(po["id"])
                     for li in lines:
                         _part = (li.get("inventory_parts") or {})
@@ -25363,56 +25765,56 @@ def page_inventory():
                             ("fa-check", f"Received: {li.get('quantity_received', 0)}",
                             "ok" if li.get("quantity_received", 0) >= li.get("quantity_ordered", 0) else "warn"),
                         ]), unsafe_allow_html=True)
-                    if po["status"] == "Sent" and st.button(f"📦 Mark as Received", key=f"recv_po_{po['id']}"):
+                    if po["status"] == "Sent" and st.button(auto_t("📦 Mark as Received").format(), key=f"recv_po_{po['id']}"):
                         _receive_items = [{"part_id": li["part_id"],
                                           "quantity_received": li["quantity_ordered"]} for li in lines]
                         if receive_purchase_order(po["id"], _receive_items, full_name):
-                            st.success("PO received — stock levels updated.")
+                            st.success(auto_t("PO received — stock levels updated."))
                             st.rerun()
                         else:
-                            st.error("Some items failed to update — check the error log before "
-                                    "assuming stock is fully correct.")
+                            st.error(auto_t("Some items failed to update — check the error log before "
+                                    "assuming stock is fully correct."))
 
                     if SAP_CONFIGURED:
                         _sap_sync_status = po.get("sync_status", "not_synced")
                         if po.get("sap_po_number"):
-                            st.caption(f"🔗 Linked to SAP PO `{esc(po['sap_po_number'])}`")
+                            st.caption(auto_t("🔗 Linked to SAP PO `{0}`").format(esc(po['sap_po_number'])))
                         elif _sap_sync_status == "error":
-                            st.caption(f"❌ SAP export failed: {esc(po.get('sync_error') or '')}")
+                            st.caption(auto_t("❌ SAP export failed: {0}").format(esc(po.get('sync_error') or '')))
                         if not po.get("sap_po_number") and st.button(
-                                "☁️ Export to SAP", key=f"sap_export_po_{po['id']}"):
+                                auto_t("☁️ Export to SAP"), key=f"sap_export_po_{po['id']}"):
                             with st.spinner("Sending to SAP..."):
                                 _ok, _msg = sap_export_purchase_order(po["id"], triggered_by=full_name)
                             if _ok:
-                                st.success(f"Exported — SAP PO number: {esc(_msg)}")
+                                st.success(auto_t("Exported — SAP PO number: {0}").format(esc(_msg)))
                                 get_purchase_orders.clear()
                                 st.rerun()
                             else:
-                                st.error(f"Export failed: {esc(_msg)}")
+                                st.error(auto_t("Export failed: {0}").format(esc(_msg)))
 
         render_subheading("Create New Purchase Order", level=4)
         if not suppliers:
-            st.warning("Add a supplier above before creating a purchase order.")
+            st.warning(auto_t("Add a supplier above before creating a purchase order."))
         elif not parts:
-            st.warning("Add parts to inventory before creating a purchase order.")
+            st.warning(auto_t("Add parts to inventory before creating a purchase order."))
         else:
             if "po_line_items" not in st.session_state:
                 st.session_state.po_line_items = []
 
             supplier_choices = {s["company_name"]: s["id"] for s in suppliers}
-            _po_supplier = st.selectbox("Supplier", list(supplier_choices.keys()), key="po_supplier_select")
+            _po_supplier = st.selectbox(auto_t("Supplier"), list(supplier_choices.keys()), key="po_supplier_select")
 
             part_choices = {f"{p['part_name']} ({p.get('part_number', 'N/A')})": p["id"] for p in parts}
             _pcol1, _pcol2, _pcol3, _pcol4 = st.columns([3, 1, 1, 1])
             with _pcol1:
-                _po_part_label = st.selectbox("Part", list(part_choices.keys()), key="po_part_select")
+                _po_part_label = st.selectbox(auto_t("Part"), list(part_choices.keys()), key="po_part_select")
             with _pcol2:
                 _po_qty = st.number_input("Qty", min_value=1, value=1, key="po_qty_input")
             with _pcol3:
-                _po_price = st.number_input("Unit price", min_value=0.0, value=0.0, step=0.01, key="po_price_input")
+                _po_price = st.number_input(auto_t("Unit price"), min_value=0.0, value=0.0, step=0.01, key="po_price_input")
             with _pcol4:
-                st.markdown("&nbsp;")
-                if st.button("➕ Add"):
+                st.markdown(auto_t("&nbsp;"))
+                if st.button(auto_t("➕ Add")):
                     st.session_state.po_line_items.append({
                         "part_id": part_choices[_po_part_label],
                         "part_label": _po_part_label,
@@ -25422,22 +25824,22 @@ def page_inventory():
                     st.rerun()
 
             if st.session_state.po_line_items:
-                st.markdown("**Line items:**")
+                st.markdown(auto_t("**Line items:**"))
                 _running_total = 0.0
                 for _idx, _item in enumerate(st.session_state.po_line_items):
                     _line_total = _item["quantity"] * _item["unit_price"]
                     _running_total += _line_total
                     _lcol1, _lcol2 = st.columns([4, 2])
                     with _lcol1:
-                        st.write(f"{_item['part_label']} — Qty {_item['quantity']} × "
-                                f"GHS {_item['unit_price']:.2f} = GHS {_line_total:.2f}")
+                        st.write(auto_t("{0} — Qty {1} × GHS {2:.2f} = GHS {3:.2f}").format(_item['part_label'], _item['quantity'], _item['unit_price'], _line_total)
+)
                     with _lcol2:
-                        if st.button("🗑️ Remove", key=f"remove_po_line_{_idx}"):
+                        if st.button(auto_t("🗑️ Remove"), key=f"remove_po_line_{_idx}"):
                             st.session_state.po_line_items.pop(_idx)
                             st.rerun()
-                st.markdown(f"**Total: GHS {_running_total:.2f}**")
+                st.markdown(auto_t("**Total: GHS {0:.2f}**").format(_running_total))
 
-                if st.button("💾 Create Purchase Order", type="primary"):
+                if st.button(auto_t("💾 Create Purchase Order"), type="primary"):
                     _po = create_purchase_order(
                         supplier_choices[_po_supplier],
                         [{"part_id": i["part_id"], "quantity": i["quantity"], "unit_price": i["unit_price"]}
@@ -25445,89 +25847,89 @@ def page_inventory():
                         full_name,
                     )
                     if _po:
-                        st.success(f"Purchase order {_po['po_number']} created.")
+                        st.success(auto_t("Purchase order {0} created.").format(_po['po_number']))
                         st.session_state.po_line_items = []
                         st.rerun()
                     else:
-                        st.error("Failed to create purchase order — check the error log.")
+                        st.error(auto_t("Failed to create purchase order — check the error log."))
             else:
-                st.caption("Add at least one line item above to create a purchase order.")
+                st.caption(auto_t("Add at least one line item above to create a purchase order."))
 
     elif inv_sub == "Bill of Materials":
-        st.markdown("### 📋 Bill of Materials")
-        st.caption("Link a recurring (PM) task template to the parts it typically needs — "
-                  "a reference list, not a live stock reservation.")
+        st.markdown(auto_t("### 📋 Bill of Materials"))
+        st.caption(auto_t("Link a recurring (PM) task template to the parts it typically needs — "
+                  "a reference list, not a live stock reservation."))
         pm_tasks = [t for t in st.session_state.tasks if t.get("is_recurring")]
         if not pm_tasks:
-            st.info("No recurring tasks found. Create a recurring task first (Task Dashboard → "
-                    "Dispatch New Work Ticket → check 'Recurring Task').")
+            st.info(auto_t("No recurring tasks found. Create a recurring task first (Task Dashboard → "
+                    "Dispatch New Work Ticket → check 'Recurring Task')."))
         elif not parts:
-            st.info("No parts in inventory yet. Add parts first.")
+            st.info(auto_t("No parts in inventory yet. Add parts first."))
         else:
             _bom_task_choices = {f"#{t['id']} {t['title']}": t["id"] for t in pm_tasks}
-            _bom_task_label = st.selectbox("Recurring task template", list(_bom_task_choices.keys()))
+            _bom_task_label = st.selectbox(auto_t("Recurring task template"), list(_bom_task_choices.keys()))
             _bom_task_id = _bom_task_choices[_bom_task_label]
 
             _bom_items = get_bom_for_task(_bom_task_id)
             if _bom_items:
-                st.markdown("**Current parts list:**")
+                st.markdown(auto_t("**Current parts list:**"))
                 for _bi in _bom_items:
                     _bi_part = _bi.get("inventory_parts") or {}
                     _bcol1, _bcol2 = st.columns([4, 2])
                     with _bcol1:
-                        st.write(f"{_bi_part.get('part_name', 'Unknown part')} — "
-                                f"{_bi.get('quantity_required', 0)} required")
+                        st.write(auto_t("{0} — {1} required").format(_bi_part.get('part_name', 'Unknown part'), _bi.get('quantity_required', 0))
+)
                     with _bcol2:
-                        if st.button("🗑️ Remove", key=f"remove_bom_{_bi['id']}"):
+                        if st.button(auto_t("🗑️ Remove"), key=f"remove_bom_{_bi['id']}"):
                             if remove_bom_item(_bi["id"], full_name):
                                 st.rerun()
             else:
-                st.caption("No parts linked to this task yet.")
+                st.caption(auto_t("No parts linked to this task yet."))
 
-            st.markdown("**Add a part:**")
+            st.markdown(auto_t("**Add a part:**"))
             _bom_part_choices = {f"{p['part_name']} ({p.get('part_number', 'N/A')})": p["id"] for p in parts}
             _acol1, _acol2, _acol3 = st.columns([3, 1, 1])
             with _acol1:
-                _bom_part_label = st.selectbox("Part", list(_bom_part_choices.keys()), key="bom_part_select")
+                _bom_part_label = st.selectbox(auto_t("Part"), list(_bom_part_choices.keys()), key="bom_part_select")
             with _acol2:
-                _bom_qty = st.number_input("Qty required", min_value=0.1, value=1.0, step=0.5, key="bom_qty_input")
+                _bom_qty = st.number_input(auto_t("Qty required"), min_value=0.1, value=1.0, step=0.5, key="bom_qty_input")
             with _acol3:
-                st.markdown("&nbsp;")
-                if st.button("➕ Add to BOM"):
+                st.markdown(auto_t("&nbsp;"))
+                if st.button(auto_t("➕ Add to BOM")):
                     if add_bom_item(_bom_task_id, _bom_part_choices[_bom_part_label], _bom_qty, full_name):
-                        st.success("Added.")
+                        st.success(auto_t("Added."))
                         st.rerun()
                     else:
-                        st.error("Failed to add — check the error log.")
+                        st.error(auto_t("Failed to add — check the error log."))
 
     elif inv_sub == "🔮 Reorder Forecast":
-        st.markdown("### 🔮 Spare Parts Reorder Forecast")
+        st.markdown(auto_t("### 🔮 Spare Parts Reorder Forecast"))
         st.caption(
-            "Projects when each part will hit its reorder point, from its own recent "
+            auto_t("Projects when each part will hit its reorder point, from its own recent "
             "consumption rate (straight-line extrapolation — a planning aid, not a "
             "trained demand-forecasting model; see the code comments for why that's "
             "the right tradeoff here). Parts with no recent usage history simply don't "
-            "appear below — there's nothing to extrapolate from yet."
+            "appear below — there's nothing to extrapolate from yet.")
         )
-        _horizon = st.slider("Forecast horizon (days)", 7, 90, 30, key="parts_forecast_horizon")
+        _horizon = st.slider(auto_t("Forecast horizon (days)"), 7, 90, 30, key="parts_forecast_horizon")
         _forecast = get_parts_reorder_forecast(parts, horizon_days=_horizon)
         if not _forecast:
-            st.info(f"No parts are forecast to need reordering within {_horizon} days.")
+            st.info(auto_t("No parts are forecast to need reordering within {0} days.").format(_horizon))
         else:
-            st.write(f"**{len(_forecast)} part(s)** flagged:")
+            st.write(auto_t("**{0} part(s)** flagged:").format(len(_forecast)))
 
             _already_due_parts = [f["part"] for f in _forecast if f["already_due"]]
             if _already_due_parts:
                 st.markdown("---")
-                st.markdown(f"**⚡ {len(_already_due_parts)} part(s) already at/below reorder point**")
+                st.markdown(auto_t("**⚡ {0} part(s) already at/below reorder point**").format(len(_already_due_parts)))
                 st.caption(
-                    "Auto-generates one PO per matched supplier for every part below — not a "
+                    auto_t("Auto-generates one PO per matched supplier for every part below — not a "
                     "background job (Streamlit has no scheduler to run one unattended; same "
                     "limitation noted on the escalations digest elsewhere in this app), but one "
                     "click here does for every already-due part at once what the manual "
-                    "checkboxes below do one at a time."
+                    "checkboxes below do one at a time.")
                 )
-                if st.button(f"🤖 Auto-generate PO(s) for all {len(_already_due_parts)} due part(s)",
+                if st.button(auto_t("🤖 Auto-generate PO(s) for all {0} due part(s)").format(len(_already_due_parts)),
                              key="auto_generate_due_pos"):
                     _created_pos, _auto_unmatched = auto_generate_reorder_pos(_already_due_parts, full_name)
                     if _created_pos:
@@ -25543,7 +25945,7 @@ def page_inventory():
                         st.rerun()
 
             st.markdown("---")
-            st.markdown("**Or hand-pick specific parts:**")
+            st.markdown(auto_t("**Or hand-pick specific parts:**"))
             _suppliers_by_name = {s["company_name"].strip().lower(): s for s in fetch_suppliers()}
             _selected_for_po = []
             for f in _forecast:
@@ -25552,23 +25954,23 @@ def page_inventory():
                     c1, c2 = st.columns([3, 1])
                     with c1:
                         if f["already_due"]:
-                            st.markdown(f"**{esc(p['part_name'])}** — ⚠️ at/below reorder point now "
-                                       f"({p.get('quantity_on_hand', 0)} on hand, "
-                                       f"reorder point {p.get('reorder_point', 0)})")
+                            st.markdown(auto_t("**{0}** — ⚠️ at/below reorder point now ({1} on hand, reorder point {2})").format(esc(p['part_name']), p.get('quantity_on_hand', 0), p.get('reorder_point', 0))
+
+)
                         else:
-                            st.markdown(f"**{esc(p['part_name'])}** — reorder point in "
-                                       f"~{f['days_until_reorder_point']:.0f} day(s) "
-                                       f"(projected {f['projected_reorder_date'].strftime('%b %d')})")
+                            st.markdown(auto_t("**{0}** — reorder point in ~{1:.0f} day(s) (projected {2})").format(esc(p['part_name']), f['days_until_reorder_point'], f['projected_reorder_date'].strftime('%b %d'))
+
+)
                         st.caption(f"Consumption rate: {f['rate']:.2f} units/day"
                                   + (f" · stockout in ~{f['days_until_stockout']:.0f} day(s)"
                                      if f['days_until_stockout'] is not None else ""))
                     with c2:
-                        if st.checkbox("Include in PO", key=f"po_select_{p['id']}"):
+                        if st.checkbox(auto_t("Include in PO"), key=f"po_select_{p['id']}"):
                             _selected_for_po.append(p)
 
             if _selected_for_po:
                 st.markdown("---")
-                st.markdown(f"**Create a purchase order for {len(_selected_for_po)} selected part(s)**")
+                st.markdown(auto_t("**Create a purchase order for {0} selected part(s)**").format(len(_selected_for_po)))
                 # Parts store `supplier` as free text, not a real FK — grouped
                 # by matching that text against the suppliers table by name.
                 # A part whose supplier text doesn't match any real supplier
@@ -25587,7 +25989,7 @@ def page_inventory():
                     _sname_display = next(s["company_name"] for s in fetch_suppliers() if s["id"] == _sid)
                     st.write(f"→ **{esc(_sname_display)}**: "
                             f"{', '.join(esc(sp['part_name']) for sp in _sparts)}")
-                    if st.button(f"📝 Create PO for {esc(_sname_display)}", key=f"create_po_{_sid}"):
+                    if st.button(auto_t("📝 Create PO for {0}").format(esc(_sname_display)), key=f"create_po_{_sid}"):
                         _line_items = [{
                             "part_id": sp["id"],
                             "quantity": sp.get("reorder_qty") or 1,
@@ -25595,10 +25997,10 @@ def page_inventory():
                         } for sp in _sparts]
                         _new_po = create_purchase_order(_sid, _line_items, full_name)
                         if _new_po:
-                            st.success(f"Created {_new_po['po_number']}.")
+                            st.success(auto_t("Created {0}.").format(_new_po['po_number']))
                             st.rerun()
                         else:
-                            st.error("Failed to create PO — check the error log.")
+                            st.error(auto_t("Failed to create PO — check the error log."))
                 if _unmatched:
                     st.warning(
                         f"{len(_unmatched)} selected part(s) couldn't be auto-matched to a "
@@ -25613,10 +26015,10 @@ def page_inventory():
 
 def page_equipment_health():
     render_section_header("🩺 Equipment Health Dashboard")
-    st.caption("A single at-a-glance view combining signals that already exist elsewhere in the app "
+    st.caption(auto_t("A single at-a-glance view combining signals that already exist elsewhere in the app "
               "(asset status, overdue maintenance tasks, meter anomaly detection, and ML failure "
               "predictions) — nothing new is measured here, this just brings them together instead "
-              "of leaving them scattered across Assets, Analytics, and prediction cards.")
+              "of leaving them scattered across Assets, Analytics, and prediction cards."))
 
     assets = st.session_state.assets
     if not assets:
@@ -25649,7 +26051,7 @@ def page_equipment_health():
 
     _down_now = [a for a in assets if (a.get("status") or "").strip() == "Down"]
     if _down_now:
-        with st.expander(f"🔴 {len(_down_now)} asset(s) currently DOWN", expanded=True):
+        with st.expander(auto_t("🔴 {0} asset(s) currently DOWN").format(len(_down_now)), expanded=True):
             for a in _down_now:
                 _open_on_asset = [t2 for t2 in tasks if t2.get("asset_id") == a["id"]
                                   and t2.get("status") not in ("Complete", "Closed", "Cancelled")]
@@ -25667,7 +26069,7 @@ def page_equipment_health():
             p["asset_id"]: p for p in get_ml_failure_predictions(tasks, assets)
         }
 
-    _health_search = st.text_input("🔍 Search by name, tag, or location", "", key="health_search")
+    _health_search = st.text_input(auto_t("🔍 Search by name, tag, or location"), "", key="health_search")
     _visible_assets = quick_filter(assets, _health_search, ["name", "asset_tag", "location"])
 
     # ONE batched query for every visible asset's meter anomaly check,
@@ -25705,18 +26107,18 @@ def page_equipment_health():
 
 def page_kanban_board():
     render_section_header("📋 Shift Task Board")
-    st.caption("Every open task at a glance, grouped by where it actually is right now — the "
+    st.caption(auto_t("Every open task at a glance, grouped by where it actually is right now — the "
               "same picture a physical shift-handover board gives, just always up to date. "
               "Reuses the exact same task data as every other view — this is a different way "
-              "of looking at it, not a separate system to keep in sync.")
+              "of looking at it, not a separate system to keep in sync."))
 
     tasks = st.session_state.tasks
     all_users = fetch_all_users_from_db()
     worker_names = ["Unassigned"] + [u["full_name"] for u in all_users
                                      if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
 
-    _kb_search = st.text_input("🔍 Search by title or location", "", key="kanban_search")
-    _kb_show_completed = st.checkbox("Include tasks completed today", value=True, key="kanban_show_completed")
+    _kb_search = st.text_input(auto_t("🔍 Search by title or location"), "", key="kanban_search")
+    _kb_show_completed = st.checkbox(auto_t("Include tasks completed today"), value=True, key="kanban_show_completed")
 
     # COLUMNS match the app's own existing status vocabulary exactly
     # (see the offline-mode status dropdown, which is the canonical
@@ -25741,6 +26143,9 @@ def page_kanban_board():
     _cols_ui = st.columns(len(columns))
     _priority_colors = {"Critical": "#dc2626", "High": "#f0b429", "Medium": "#3b82f6", "Low": "#6b7280"}
     _kanban_all_permits = fetch_permits() if any(tk.get('loto') for tk in _visible) else []
+    # Pre-fetched once for the whole board, not per-card — same
+    # reasoning _kanban_all_permits already follows just above.
+    _kanban_team_ids = fetch_task_ids_for_team_member(full_name)
     for i, status in enumerate(columns):
         with _cols_ui[i]:
             _col_tasks = [tk for tk in _visible if tk.get("status") == status]
@@ -25754,8 +26159,16 @@ def page_kanban_board():
                     f'{esc(tk.get("location") or "—")} · {esc(tk.get("assigned_to") or "Unassigned")}'
                     f'</div></div>',
                     unsafe_allow_html=True)
+                # Someone else's job is still fully VISIBLE here — shift
+                # awareness matters — it just isn't EDITABLE by a worker
+                # who isn't the assignee or a team member. Supervisors/
+                # superintendents are never restricted (see
+                # user_is_assigned_to_task's own docstring for why).
+                if not user_is_assigned_to_task(tk, full_name, role, _kanban_team_ids):
+                    st.caption(auto_t("👁️ Assigned to {0} — view only").format(esc(tk.get("assigned_to") or "Unassigned")))
+                    continue
                 _other_cols = [c for c in columns if c != status]
-                _move_to = st.selectbox("Move to", ["—"] + _other_cols, key=f"kanban_move_{tk['id']}", label_visibility="collapsed")
+                _move_to = st.selectbox(auto_t("Move to"), ["—"] + _other_cols, key=f"kanban_move_{tk['id']}", label_visibility="collapsed")
                 if _move_to != "—":
                     # Shared with the main Task Dashboard status
                     # control (task_status_change_gate) rather than
@@ -25779,62 +26192,62 @@ def page_kanban_board():
 
 def page_scan_hub():
     render_section_header("📷 Scan Hub")
-    st.caption("Scan any MWDTS QR label — asset, task work order, or permit-to-work slip — and "
+    st.caption(auto_t("Scan any MWDTS QR label — asset, task work order, or permit-to-work slip — and "
               "jump straight to that record. One scanner instead of hunting down which page has "
-              "a scan tab for the specific thing you're holding.")
+              "a scan tab for the specific thing you're holding."))
 
     if not QR_SCANNING_AVAILABLE:
-        st.warning("QR scanning isn't available in this deployment — the optional opencv/numpy "
-                  "dependencies aren't installed.")
+        st.warning(auto_t("QR scanning isn't available in this deployment — the optional opencv/numpy "
+                  "dependencies aren't installed."))
         return
 
-    _scan_photo = st.camera_input("Scan a QR label", label_visibility="collapsed")
+    _scan_photo = st.camera_input(auto_t("Scan a QR label"), label_visibility="collapsed")
     if _scan_photo is None:
         return
 
     _entity_type, _entity_id = decode_entity_qr(_scan_photo.getvalue())
     if _entity_type is None:
-        st.error("No MWDTS QR label found in that photo — try holding the camera steadier "
-                "and closer to the label, with good lighting.")
+        st.error(auto_t("No MWDTS QR label found in that photo — try holding the camera steadier "
+                "and closer to the label, with good lighting."))
         return
 
     if _entity_type == "ASSET":
         _matched = next((a for a in st.session_state.assets if a.get("id") == _entity_id), None)
         if _matched is None:
-            st.error(f"Scanned a valid asset label (#{_entity_id}), but no asset with that ID "
-                    "exists anymore — it may have been deleted.")
+            st.error(auto_t("Scanned a valid asset label (#{0}), but no asset with that ID exists anymore — it may have been deleted.").format(_entity_id)
+)
         else:
-            st.success(f"📦 Asset: {_matched.get('name')}")
+            st.success(auto_t("📦 Asset: {0}").format(_matched.get('name')))
             st.markdown(render_meta_chips([
                 ("fa-tag", f"Tag: {_matched['asset_tag']}" if _matched.get('asset_tag') else None, "neutral"),
                 ("fa-map-marker-alt", _matched.get('location'), "neutral"),
                 ("fa-flag", f"Status: {_matched.get('status', 'Operational')}", "info"),
             ]), unsafe_allow_html=True)
-            if st.button("→ Go to Asset Register"):
+            if st.button(auto_t("→ Go to Asset Register")):
                 navigate_to("Assets")
                 st.rerun()
 
     elif _entity_type == "TASK":
         _matched = next((t2 for t2 in st.session_state.tasks if t2.get("id") == _entity_id), None)
         if _matched is None:
-            st.error(f"Scanned a valid task label (#{_entity_id}), but no task with that ID "
-                    "exists anymore.")
+            st.error(auto_t("Scanned a valid task label (#{0}), but no task with that ID exists anymore.").format(_entity_id)
+)
         else:
-            st.success(f"📋 Task #{_matched['id']}: {_matched.get('title')}")
+            st.success(auto_t("📋 Task #{0}: {1}").format(_matched['id'], _matched.get('title')))
             st.markdown(render_meta_chips([
                 ("fa-map-marker-alt", _matched.get('location'), "neutral"),
                 ("fa-user", _matched.get('assigned_to') or "Unassigned", "neutral"),
                 ("fa-flag", f"Status: {_matched.get('status')}", "info"),
             ]), unsafe_allow_html=True)
-            if st.button("→ Go to Task Dashboard"):
+            if st.button(auto_t("→ Go to Task Dashboard")):
                 navigate_to("Task Dashboard")
                 st.rerun()
 
     elif _entity_type == "PERMIT":
         _matched = next((p for p in fetch_permits() if p.get("id") == _entity_id), None)
         if _matched is None:
-            st.error(f"Scanned a valid permit label (#{_entity_id}), but no permit with that ID "
-                    "exists anymore.")
+            st.error(auto_t("Scanned a valid permit label (#{0}), but no permit with that ID exists anymore.").format(_entity_id)
+)
         else:
             _status = _matched.get("status", "Issued")
             _expired = False
@@ -25842,25 +26255,25 @@ def page_scan_hub():
                 _vu = _parse_dt(_matched["valid_until"])
                 _expired = bool(_vu and _vu < datetime.now() and _status in ("Issued", "Active"))
             if _expired:
-                st.error(f"🔒 Permit #{_matched['id']} — {_matched.get('permit_type')} — **EXPIRED**")
+                st.error(auto_t("🔒 Permit #{0} — {1} — **EXPIRED**").format(_matched['id'], _matched.get('permit_type')))
             else:
-                st.success(f"🔒 Permit #{_matched['id']}: {_matched.get('permit_type')}")
+                st.success(auto_t("🔒 Permit #{0}: {1}").format(_matched['id'], _matched.get('permit_type')))
             st.markdown(render_meta_chips([
                 ("fa-flag", f"Status: {_status}", "danger" if _expired else "info"),
                 ("fa-hourglass-end", f"Valid until: {_fmt_log_time(_matched['valid_until'])}"
                  if _matched.get('valid_until') else None, "danger" if _expired else "neutral"),
             ]), unsafe_allow_html=True)
-            if st.button("→ Go to Permits"):
+            if st.button(auto_t("→ Go to Permits")):
                 navigate_to("Permits")
                 st.rerun()
 
 
 def page_task_templates():
     render_section_header("📇 Task Templates")
-    st.caption("Reusable job templates with an embedded procedure — pick one when creating a "
+    st.caption(auto_t("Reusable job templates with an embedded procedure — pick one when creating a "
               "task instead of typing it from scratch every time. The procedure walks the "
               "assigned worker through each step in order, same mechanism already proven for "
-              "Outage Commander's own runbooks.")
+              "Outage Commander's own runbooks."))
 
     tabs = ["Create Task from Template"]
     if can(role, "task.create"):
@@ -25877,18 +26290,18 @@ def page_task_templates():
                                "Ask a Supervisor or Superintendent to create one under Manage Templates.")
         else:
             _tpl_names = {t["name"]: t for t in templates}
-            _sel_name = st.selectbox("Template", list(_tpl_names.keys()))
+            _sel_name = st.selectbox(auto_t("Template"), list(_tpl_names.keys()))
             _sel = _tpl_names[_sel_name]
             st.info(_sel.get("description") or "No description provided.")
             if _sel.get("procedure_steps"):
-                st.markdown("**Embedded procedure:**")
+                st.markdown(auto_t("**Embedded procedure:**"))
                 for i, step in enumerate(_sel["procedure_steps"], 1):
                     st.write(f"{i}. {step}")
             if _sel.get("requires_loto"):
-                st.warning("⚠️ This template requires LOTO isolation.")
+                st.warning(auto_t("⚠️ This template requires LOTO isolation."))
             if _sel.get("required_certification"):
-                st.info(f"🎓 Requires certification: **{_sel['required_certification']}** — "
-                       "only currently-certified workers will be suggested below.")
+                st.info(auto_t("🎓 Requires certification: **{0}** — only currently-certified workers will be suggested below.").format(_sel['required_certification'])
+)
 
             # Outside the form deliberately — a button inside st.form
             # can't trigger a rerun until the whole form submits, so
@@ -25904,7 +26317,7 @@ def page_task_templates():
             # correctness issue, not cosmetic staleness: a stale
             # suggestion here could point at someone certified for a
             # different job than the one actually being assigned.
-            if st.button("🤖 Suggest best assignee"):
+            if st.button(auto_t("🤖 Suggest best assignee")):
                 st.session_state["_tpl_assign_suggestions"] = {
                     "template_id": _sel["id"],
                     "ranked": rank_assignment_candidates(_sel),
@@ -25922,28 +26335,28 @@ def page_task_templates():
                                if _sel.get("required_certification") else "."))
                 else:
                     _suggested_default = _suggestions[0][0]
-                    st.success(f"Top suggestion: **{_suggested_default}** — {', '.join(_suggestions[0][2])}")
+                    st.success(auto_t("Top suggestion: **{0}** — {1}").format(_suggested_default, ', '.join(_suggestions[0][2])))
                     if len(_suggestions) > 1:
-                        with st.expander(f"See all {len(_suggestions)} ranked candidates"):
+                        with st.expander(auto_t("See all {0} ranked candidates").format(len(_suggestions))):
                             for name, score, reasons in _suggestions:
                                 st.write(f"**{name}** — {', '.join(reasons)}")
 
             with st.form("create_from_template_form", clear_on_submit=True):
-                _location = st.text_input("Location *")
+                _location = st.text_input(auto_t("Location *"))
                 _assets_for_tpl = st.session_state.assets
                 _asset_names = ["(none)"] + [f"{a['name']} ({a['asset_tag']})" for a in _assets_for_tpl]
-                _asset_sel = st.selectbox("Asset (optional)", _asset_names)
+                _asset_sel = st.selectbox(auto_t("Asset (optional)"), _asset_names)
                 _all_users_tpl = fetch_all_users_from_db()
                 _worker_names_tpl = ["Unassigned"] + [u["full_name"] for u in _all_users_tpl
                                                        if u["role"].strip().lower() == "worker" and u.get("is_approved")]
                 _default_idx = (_worker_names_tpl.index(_suggested_default)
                                 if _suggested_default in _worker_names_tpl else 0)
-                _assign_sel = st.selectbox("Assign to", _worker_names_tpl, index=_default_idx)
-                _due = st.date_input("Due date", value=None)
-                _submit_tpl = st.form_submit_button("➕ Create Task")
+                _assign_sel = st.selectbox(auto_t("Assign to"), _worker_names_tpl, index=_default_idx)
+                _due = st.date_input(auto_t("Due date"), value=None)
+                _submit_tpl = st.form_submit_button(auto_t("➕ Create Task"))
                 if _submit_tpl:
                     if not _location:
-                        st.error("Location is required.")
+                        st.error(auto_t("Location is required."))
                     else:
                         _asset_id_sel = None
                         if _asset_sel != "(none)":
@@ -25954,17 +26367,17 @@ def page_task_templates():
                             _sel["id"], _location, full_name, assigned_to=_assign_val,
                             due_date=_due, asset_id=_asset_id_sel)
                         if _new_task:
-                            st.success(f"✅ Task #{_new_task['id']} created from template.")
+                            st.success(auto_t("✅ Task #{0} created from template.").format(_new_task['id']))
                             fetch_all_tasks.clear()
                             st.session_state.pop("_tpl_assign_suggestions", None)
                             st.rerun()
                         else:
-                            st.error("Couldn't create the task — check the error log in Owner Console.")
+                            st.error(auto_t("Couldn't create the task — check the error log in Owner Console."))
 
     elif template_sub == "Manage Templates":
-        st.markdown("### Existing Templates")
+        st.markdown(auto_t("### Existing Templates"))
         for tpl in templates:
-            with st.expander(f"{tpl['name']} ({len(tpl.get('procedure_steps', []))} steps)"):
+            with st.expander(auto_t("{0} ({1} steps)").format(tpl['name'], len(tpl.get('procedure_steps', [])))):
                 st.write(tpl.get("description") or "—")
                 st.write(f"Work type: {tpl.get('work_type')} · Default priority: {tpl.get('default_priority')} "
                         f"· Requires LOTO: {'Yes' if tpl.get('requires_loto') else 'No'}"
@@ -25973,13 +26386,13 @@ def page_task_templates():
                 for i, step in enumerate(tpl.get("procedure_steps", []), 1):
                     st.write(f"{i}. {step}")
 
-        st.markdown("### New Template")
+        st.markdown(auto_t("### New Template"))
         with st.form("new_task_template_form", clear_on_submit=True):
-            _name = st.text_input("Template Name *", placeholder="e.g. Conveyor Belt Replacement")
-            _desc = st.text_area("Description")
-            _wtype = st.selectbox("Work Type", ["Preventive", "Reactive", "Predictive", "Inspection"])
-            _prio = st.selectbox("Default Priority", ["Low", "Medium", "High", "Critical"])
-            _loto = st.checkbox("Requires LOTO isolation")
+            _name = st.text_input(auto_t("Template Name *"), placeholder="e.g. Conveyor Belt Replacement")
+            _desc = st.text_area(auto_t("Description"))
+            _wtype = st.selectbox(auto_t("Work Type"), ["Preventive", "Reactive", "Predictive", "Inspection"], format_func=auto_t)
+            _prio = st.selectbox(auto_t("Default Priority"), ["Low", "Medium", "High", "Critical"], format_func=auto_t)
+            _loto = st.checkbox(auto_t("Requires LOTO isolation"))
             _existing_cert_types = sorted({c["certification_type"]
                                            for c in fetch_technician_certifications()
                                            if c.get("certification_type")})
@@ -25993,33 +26406,33 @@ def page_task_templates():
             # that failure mode structurally impossible instead of
             # something to remember to type carefully.
             if not _existing_cert_types:
-                st.caption("No certification types recorded yet under Technician Certifications — "
-                          "add one there first if this template should require one.")
-            _req_cert = st.selectbox("Requires certification (optional)", ["None"] + _existing_cert_types,
-                                     help="Only workers with a current, non-expired certification of this "
-                                          "type will be suggested when assigning tasks from this template.")
-            _steps_raw = st.text_area("Procedure Steps (one per line, in order) *",
+                st.caption(auto_t("No certification types recorded yet under Technician Certifications — "
+                          "add one there first if this template should require one."))
+            _req_cert = st.selectbox(auto_t("Requires certification (optional)"), ["None"] + _existing_cert_types,
+                                     help=auto_t("Only workers with a current, non-expired certification of this "
+                                          "type will be suggested when assigning tasks from this template."))
+            _steps_raw = st.text_area(auto_t("Procedure Steps (one per line, in order) *"),
                                       placeholder="Isolate and lock out power\nRemove guard panel\n...")
-            _submit_new_tpl = st.form_submit_button("💾 Save Template")
+            _submit_new_tpl = st.form_submit_button(auto_t("💾 Save Template"))
             if _submit_new_tpl:
                 _steps = [s.strip() for s in _steps_raw.split("\n") if s.strip()]
                 if not _name or not _steps:
-                    st.error("Template name and at least one procedure step are required.")
+                    st.error(auto_t("Template name and at least one procedure step are required."))
                 else:
                     _created = create_task_template(_name, _desc, _wtype, _prio, _loto, _steps, full_name,
                                                     required_certification=None if _req_cert == "None" else _req_cert)
                     if _created:
-                        st.success(f"✅ Template \"{_name}\" saved with {len(_steps)} step(s).")
+                        st.success(auto_t("✅ Template \"{0}\" saved with {1} step(s).").format(_name, len(_steps)))
                         st.rerun()
                     else:
-                        st.error("Couldn't save the template — check the error log in Owner Console.")
+                        st.error(auto_t("Couldn't save the template — check the error log in Owner Console."))
 
 
 def page_prestart_checklists():
     render_section_header("✅ Pre-Start Checklists")
-    st.caption("Standard pre-start safety checks, done digitally instead of on a paper pad — "
+    st.caption(auto_t("Standard pre-start safety checks, done digitally instead of on a paper pad — "
               "a failed critical item immediately notifies every Supervisor and Superintendent, "
-              "rather than sitting on a clipboard until someone happens to read it.")
+              "rather than sitting on a clipboard until someone happens to read it."))
 
     tabs = ["Complete a Checklist"]
     if can(role, "task.create"):
@@ -26037,14 +26450,14 @@ def page_prestart_checklists():
         else:
             _assets_ps = st.session_state.assets
             if not _assets_ps:
-                st.info("No assets registered yet — register one under Assets first.")
+                st.info(auto_t("No assets registered yet — register one under Assets first."))
             else:
                 _asset_names_ps = [f"{a['name']} ({a['asset_tag']})" for a in _assets_ps]
-                _asset_sel_ps = st.selectbox("Asset", _asset_names_ps, key="ps_asset_sel")
+                _asset_sel_ps = st.selectbox(auto_t("Asset"), _asset_names_ps, key="ps_asset_sel")
                 _asset_obj = next(a for a in _assets_ps
                                   if f"{a['name']} ({a['asset_tag']})" == _asset_sel_ps)
                 _tpl_names_ps = {t["name"]: t for t in templates}
-                _tpl_sel_name = st.selectbox("Checklist", list(_tpl_names_ps.keys()), key="ps_tpl_sel")
+                _tpl_sel_name = st.selectbox(auto_t("Checklist"), list(_tpl_names_ps.keys()), key="ps_tpl_sel")
                 _tpl = _tpl_names_ps[_tpl_sel_name]
 
                 with st.form("prestart_checklist_form", clear_on_submit=True):
@@ -26053,10 +26466,10 @@ def page_prestart_checklists():
                     for item in _tpl.get("items", []):
                         _label = f"⚠️ {item['text']} (CRITICAL)" if item.get("is_critical") else item["text"]
                         _passed = st.radio(_label, ["Pass", "Fail"], horizontal=True,
-                                           key=f"ps_item_{item['text']}")
+                                           key=f"ps_item_{item['text']}", format_func=auto_t)
                         _results.append({"item": item["text"], "passed": _passed == "Pass"})
-                    _notes_ps = st.text_area("Notes (optional)")
-                    _submit_ps = st.form_submit_button("✅ Submit Checklist")
+                    _notes_ps = st.text_area(auto_t("Notes (optional)"))
+                    _submit_ps = st.form_submit_button(auto_t("✅ Submit Checklist"))
                     if _submit_ps:
                         # Attach is_critical back onto each result before
                         # saving, so the failure email can distinguish a
@@ -26070,33 +26483,33 @@ def page_prestart_checklists():
                             _tpl["id"], _asset_obj["id"], full_name, _results, _notes_ps)
                         if _completion:
                             if _completion["overall_pass"]:
-                                st.success("✅ All items passed.")
+                                st.success(auto_t("✅ All items passed."))
                             else:
-                                st.error("⚠️ One or more items failed — Supervisors and "
-                                        "Superintendents have been notified.")
+                                st.error(auto_t("⚠️ One or more items failed — Supervisors and "
+                                        "Superintendents have been notified."))
                             fetch_prestart_completions.clear()
                         else:
-                            st.error("Couldn't save the checklist — check the error log in Owner Console.")
+                            st.error(auto_t("Couldn't save the checklist — check the error log in Owner Console."))
 
     elif ps_sub == "Manage Templates":
-        st.markdown("### Existing Checklist Templates")
+        st.markdown(auto_t("### Existing Checklist Templates"))
         for tpl in templates:
-            with st.expander(f"{tpl['name']} ({len(tpl.get('items', []))} items)"):
-                st.write(f"Asset category: {tpl.get('asset_category') or 'Any'}")
+            with st.expander(auto_t("{0} ({1} items)").format(tpl['name'], len(tpl.get('items', [])))):
+                st.write(auto_t("Asset category: {0}").format(tpl.get('asset_category') or 'Any'))
                 for item in tpl.get("items", []):
                     _marker = "⚠️ CRITICAL — " if item.get("is_critical") else "• "
                     st.write(f"{_marker}{item['text']}")
 
-        st.markdown("### New Checklist Template")
+        st.markdown(auto_t("### New Checklist Template"))
         with st.form("new_prestart_template_form", clear_on_submit=True):
-            _ps_name = st.text_input("Template Name *", placeholder="e.g. Haul Truck Pre-Start")
-            _ps_category = st.text_input("Asset Category (optional)", placeholder="e.g. Haul Truck")
-            _standard_items_raw = st.text_area("Standard check items (one per line)",
+            _ps_name = st.text_input(auto_t("Template Name *"), placeholder="e.g. Haul Truck Pre-Start")
+            _ps_category = st.text_input(auto_t("Asset Category (optional)"), placeholder="e.g. Haul Truck")
+            _standard_items_raw = st.text_area(auto_t("Standard check items (one per line)"),
                                                placeholder="Check tire condition\nCheck lights\n...")
-            _critical_items_raw = st.text_area("CRITICAL check items (one per line) — "
-                                               "failing any of these immediately notifies leadership",
+            _critical_items_raw = st.text_area(auto_t("CRITICAL check items (one per line) — "
+                                               "failing any of these immediately notifies leadership"),
                                                placeholder="Check brakes\nCheck steering\n...")
-            _submit_ps_tpl = st.form_submit_button("💾 Save Checklist Template")
+            _submit_ps_tpl = st.form_submit_button(auto_t("💾 Save Checklist Template"))
             if _submit_ps_tpl:
                 _standard = [{"text": s.strip(), "is_critical": False}
                             for s in _standard_items_raw.split("\n") if s.strip()]
@@ -26104,25 +26517,25 @@ def page_prestart_checklists():
                             for s in _critical_items_raw.split("\n") if s.strip()]
                 _all_items = _standard + _critical
                 if not _ps_name or not _all_items:
-                    st.error("Template name and at least one check item are required.")
+                    st.error(auto_t("Template name and at least one check item are required."))
                 else:
                     _created_ps = create_prestart_template(_ps_name, _ps_category or None, _all_items, full_name)
                     if _created_ps:
-                        st.success(f"✅ Checklist template \"{_ps_name}\" saved with {len(_all_items)} item(s).")
+                        st.success(auto_t("✅ Checklist template \"{0}\" saved with {1} item(s).").format(_ps_name, len(_all_items)))
                         st.rerun()
                     else:
-                        st.error("Couldn't save the template — check the error log in Owner Console.")
+                        st.error(auto_t("Couldn't save the template — check the error log in Owner Console."))
 
     elif ps_sub == "Completion History":
         _asset_filter_names = ["All Assets"] + [f"{a['name']} ({a['asset_tag']})" for a in st.session_state.assets]
-        _asset_filter_sel = st.selectbox("Filter by asset", _asset_filter_names, key="ps_history_asset_filter")
+        _asset_filter_sel = st.selectbox(auto_t("Filter by asset"), _asset_filter_names, key="ps_history_asset_filter")
         _filter_asset_id = None
         if _asset_filter_sel != "All Assets":
             _filter_asset_id = next((a["id"] for a in st.session_state.assets
                                      if f"{a['name']} ({a['asset_tag']})" == _asset_filter_sel), None)
         _completions = fetch_prestart_completions(asset_id=_filter_asset_id)
         if not _completions:
-            st.info("No completed checklists yet.")
+            st.info(auto_t("No completed checklists yet."))
         for c in _completions:
             _icon = "✅" if c.get("overall_pass") else "⚠️"
             _asset_name_hist = next((a["name"] for a in st.session_state.assets
@@ -26134,38 +26547,38 @@ def page_prestart_checklists():
                     _r_crit = " (CRITICAL)" if r.get("is_critical") else ""
                     st.write(f"{_r_icon} {r['item']}{_r_crit}")
                 if c.get("notes"):
-                    st.caption(f"Notes: {c['notes']}")
+                    st.caption(auto_t("Notes: {0}").format(c['notes']))
 
 
 def page_logbook():
     render_section_header("📔 Digital Logbook")
-    st.caption("Quick observations that don't need a formal task or incident report — the gap "
+    st.caption(auto_t("Quick observations that don't need a formal task or incident report — the gap "
               "between task activity (tied to specific work), incidents (something went wrong), "
               "and shift handover (end-of-shift only). Visible to everyone immediately, not held "
-              "until handover.")
+              "until handover."))
 
     _lb_locations = sorted({a.get("location") for a in st.session_state.assets if a.get("location")})
     _categories = ["Observation", "Equipment", "Safety", "General"]
 
     with st.form("logbook_new_entry", clear_on_submit=True):
-        _lb_text = st.text_area("Entry *", placeholder="e.g. Conveyor #3 running rough, keeping an eye on it",
+        _lb_text = st.text_area(auto_t("Entry *"), placeholder="e.g. Conveyor #3 running rough, keeping an eye on it",
                                 height=80)
         _lb_cols = st.columns(2)
         _lb_location = _lb_cols[0].selectbox("Location (optional)", ["—"] + _lb_locations)
         _lb_category = _lb_cols[1].selectbox("Category", _categories)
-        _lb_submit = st.form_submit_button("📝 Add Entry")
+        _lb_submit = st.form_submit_button(auto_t("📝 Add Entry"))
         if _lb_submit:
             if not _lb_text.strip():
-                st.error("Entry text is required.")
+                st.error(auto_t("Entry text is required."))
             else:
                 _entry = create_logbook_entry(
                     _lb_text.strip(), None if _lb_location == "—" else _lb_location,
                     _lb_category, full_name)
                 if _entry:
-                    st.success("Logged.")
+                    st.success(auto_t("Logged."))
                     st.rerun()
                 else:
-                    st.error("Couldn't save the entry — check the error log in Owner Console.")
+                    st.error(auto_t("Couldn't save the entry — check the error log in Owner Console."))
 
     st.markdown("---")
     _filter_cols = st.columns(2)
@@ -26189,11 +26602,11 @@ def page_logbook():
 
 def page_daily_report():
     render_section_header("🗞️ Daily Report")
-    st.caption("Everything that happened site-wide on a given date — production, tasks, "
+    st.caption(auto_t("Everything that happened site-wide on a given date — production, tasks, "
               "incidents, equipment status, logbook — in one place instead of checking each "
-              "page separately. Read-only: this doesn't edit anything, it just summarizes.")
+              "page separately. Read-only: this doesn't edit anything, it just summarizes."))
 
-    _dr_date = st.date_input("Date", value=datetime.now().date(), max_value=datetime.now().date())
+    _dr_date = st.date_input(auto_t("Date"), value=datetime.now().date(), max_value=datetime.now().date())
     _report = generate_daily_report(_dr_date)
 
     _dr_cols = st.columns(4)
@@ -26207,53 +26620,53 @@ def page_daily_report():
         for (mat, unit), qty in _report["production_totals"].items():
             st.write(f"- {mat}: {qty:,.1f} {unit}")
     else:
-        st.caption("No production logged for this date.")
+        st.caption(auto_t("No production logged for this date."))
 
-    with st.expander(f"✅ Tasks completed ({len(_report['tasks_completed'])})"):
+    with st.expander(auto_t("✅ Tasks completed ({0})").format(len(_report['tasks_completed']))):
         for t2 in _report["tasks_completed"]:
             st.write(f"#{t2['id']} {t2.get('title', '')} — {t2.get('assigned_to') or 'unassigned'}")
         if not _report["tasks_completed"]:
-            st.caption("None.")
+            st.caption(auto_t("None."))
 
-    with st.expander(f"⚠️ Currently overdue ({len(_report['tasks_overdue'])})"):
-        st.caption("Site-wide overdue tasks as of now — not scoped to this date specifically.")
+    with st.expander(auto_t("⚠️ Currently overdue ({0})").format(len(_report['tasks_overdue']))):
+        st.caption(auto_t("Site-wide overdue tasks as of now — not scoped to this date specifically."))
         for t2 in _report["tasks_overdue"]:
             st.write(f"#{t2['id']} {t2.get('title', '')} — {t2.get('assigned_to') or 'unassigned'}")
         if not _report["tasks_overdue"]:
-            st.caption("None.")
+            st.caption(auto_t("None."))
 
     if _report["incidents"]:
-        with st.expander(f"🚨 Incidents ({len(_report['incidents'])})", expanded=True):
+        with st.expander(auto_t("🚨 Incidents ({0})").format(len(_report['incidents'])), expanded=True):
             for i in _report["incidents"]:
-                st.write(f"#{i['id']} {i.get('incident_type', '')} at {i.get('location') or 'no location'} "
-                        f"— severity: {i.get('severity') or 'n/a'}")
+                st.write(auto_t("#{0} {1} at {2} — severity: {3}").format(i['id'], i.get('incident_type', ''), i.get('location') or 'no location', i.get('severity') or 'n/a')
+)
 
     if _report["down_assets"]:
-        with st.expander(f"🔴 Equipment down ({len(_report['down_assets'])})", expanded=True):
+        with st.expander(auto_t("🔴 Equipment down ({0})").format(len(_report['down_assets'])), expanded=True):
             for a in _report["down_assets"]:
                 st.write(f"{a.get('name')} — {a.get('status')}")
 
     if _report["logbook_entries"]:
-        with st.expander(f"📔 Logbook entries ({len(_report['logbook_entries'])})"):
+        with st.expander(auto_t("📔 Logbook entries ({0})").format(len(_report['logbook_entries']))):
             for e in _report["logbook_entries"]:
                 st.write(f"{e.get('created_by')}: {e.get('entry_text')}")
 
     st.markdown("---")
     if can(role, "handover.create"):
-        _dr_recipient_email = st.text_input("Email this report to",
+        _dr_recipient_email = st.text_input(auto_t("Email this report to"),
                                             placeholder="name@company.com — or leave blank to email yourself")
-        if st.button("📧 Email this report"):
+        if st.button(auto_t("📧 Email this report")):
             _target = _dr_recipient_email.strip() or user_email
             if not _target:
-                st.error("No email address available — enter one above.")
+                st.error(auto_t("No email address available — enter one above."))
             else:
                 _sent, _err = send_email_notification(
-                    _target, f"Daily Report — {_dr_date.strftime('%B %d, %Y')}",
+                    _target, auto_t("Daily Report — {0}").format(_dr_date.strftime('%B %d, %Y')),
                     daily_report_html(_report), _return_error=True)
                 if _sent:
-                    st.success(f"Sent to {_target}.")
+                    st.success(auto_t("Sent to {0}.").format(_target))
                 else:
-                    st.error(f"Couldn't send: {_err}")
+                    st.error(auto_t("Couldn't send: {0}").format(_err))
 
 
 def page_assets():
@@ -26290,20 +26703,20 @@ def page_assets():
         asset_sub = "All Assets"
 
     if asset_sub == "📷 Scan Asset":
-        st.caption("Take a photo of an asset's printed QR label to jump straight to its record.")
-        _scan_photo = st.camera_input("Scan QR label", label_visibility="collapsed")
+        st.caption(auto_t("Take a photo of an asset's printed QR label to jump straight to its record."))
+        _scan_photo = st.camera_input(auto_t("Scan QR label"), label_visibility="collapsed")
         if _scan_photo is not None:
             _decoded_id = decode_asset_qr(_scan_photo.getvalue())
             if _decoded_id is None:
-                st.error("No MWDTS asset label found in that photo — try holding the camera "
-                        "steadier and closer to the label, with good lighting.")
+                st.error(auto_t("No MWDTS asset label found in that photo — try holding the camera "
+                        "steadier and closer to the label, with good lighting."))
             else:
                 _matched = next((a for a in st.session_state.assets if a.get("id") == _decoded_id), None)
                 if _matched is None:
-                    st.error(f"Scanned a valid label (asset #{_decoded_id}), but no asset with "
-                            "that ID exists anymore — it may have been deleted.")
+                    st.error(auto_t("Scanned a valid label (asset #{0}), but no asset with that ID exists anymore — it may have been deleted.").format(_decoded_id)
+)
                 else:
-                    st.success(f"Found: {_matched.get('name')}")
+                    st.success(auto_t("Found: {0}").format(_matched.get('name')))
                     st.markdown(render_meta_chips([
                         ("fa-tag", f"Tag: {_matched['asset_tag']}" if _matched.get('asset_tag') else None, "neutral"),
                         ("fa-map-marker-alt", _matched.get('location'), "neutral"),
@@ -26311,10 +26724,10 @@ def page_assets():
                     ]), unsafe_allow_html=True)
 
     elif asset_sub == "📁 Document Library":
-        st.markdown("### 📁 Document Library")
-        st.caption("SOPs, manuals, and asset documentation — viewable by everyone.")
+        st.markdown(auto_t("### 📁 Document Library"))
+        st.caption(auto_t("SOPs, manuals, and asset documentation — viewable by everyone."))
 
-        _doc_search = st.text_input("🔍 Search by title or description", "", key="doc_search")
+        _doc_search = st.text_input(auto_t("🔍 Search by title or description"), "", key="doc_search")
         _docs = search_documents(_doc_search) if _doc_search.strip() else fetch_all_documents()
 
         if not _docs:
@@ -26332,35 +26745,35 @@ def page_assets():
                     ]), unsafe_allow_html=True)
                     if _doc.get("description"):
                         st.caption(_doc["description"])
-                    st.markdown(f"[📄 Open document]({_doc['file_url']})")
+                    st.markdown(auto_t("[📄 Open document]({0})").format(_doc['file_url']))
 
         if can_manage_assets:
-            with st.expander("⬆️ Upload a document"):
+            with st.expander(auto_t("⬆️ Upload a document")):
                 with st.form("upload_doc_form", clear_on_submit=True):
-                    _doc_title = st.text_input("Title *")
-                    _doc_desc = st.text_area("Description")
+                    _doc_title = st.text_input(auto_t("Title *"))
+                    _doc_desc = st.text_area(auto_t("Description"))
                     _doc_asset_choices = {"None (general document)": None}
                     _doc_asset_choices.update({a["name"]: a["id"] for a in st.session_state.assets})
-                    _doc_asset_label = st.selectbox("Linked asset (optional)", list(_doc_asset_choices.keys()))
-                    _doc_file = st.file_uploader("File", type=["pdf", "docx", "doc", "png", "jpg", "jpeg"])
-                    if st.form_submit_button("Upload"):
+                    _doc_asset_label = st.selectbox(auto_t("Linked asset (optional)"), list(_doc_asset_choices.keys()))
+                    _doc_file = st.file_uploader(auto_t("File"), type=["pdf", "docx", "doc", "png", "jpg", "jpeg"])
+                    if st.form_submit_button(auto_t("Upload")):
                         if not _doc_title.strip():
-                            st.error("Title is required.")
+                            st.error(auto_t("Title is required."))
                         elif not _doc_file:
-                            st.error("Please choose a file.")
+                            st.error(auto_t("Please choose a file."))
                         elif upload_document(_doc_file.getvalue(), _doc_file.name, _doc_title.strip(),
                                             _doc_desc, _doc_asset_choices[_doc_asset_label], full_name):
-                            st.success("Document uploaded.")
+                            st.success(auto_t("Document uploaded."))
                             st.rerun()
                         else:
-                            st.error("Upload failed — check the error log.")
+                            st.error(auto_t("Upload failed — check the error log."))
 
     elif asset_sub == "All Assets":
         assets = st.session_state.assets
         if not assets:
             render_empty_state("fa-server", "No assets registered yet", "Add your first asset to start tracking maintenance history and meter readings.")
         else:
-            search = st.text_input("🔍 Search by name, tag, or location", "")
+            search = st.text_input(auto_t("🔍 Search by name, tag, or location"), "")
             filtered = assets
             if search:
                 s = search.lower()
@@ -26368,13 +26781,13 @@ def page_assets():
                             or s in str(a.get('asset_tag', '')).lower()
                             or s in str(a.get('location', '')).lower()]
             if can_manage_assets and filtered:
-                with st.expander(f"☑️ Bulk actions ({len(filtered)} asset(s) in current view)"):
+                with st.expander(auto_t("☑️ Bulk actions ({0} asset(s) in current view)").format(len(filtered))):
                     _bulk_asset_labels = {f"#{a['id']} {a.get('name')}": a['id'] for a in filtered}
                     _bulk_asset_selected = st.multiselect(
-                        "Select assets", list(_bulk_asset_labels.keys()), key="bulk_asset_select")
+                        auto_t("Select assets"), list(_bulk_asset_labels.keys()), key="bulk_asset_select")
                     _bulk_asset_ids = [_bulk_asset_labels[l] for l in _bulk_asset_selected]
                     if _bulk_asset_ids:
-                        st.caption(f"{len(_bulk_asset_ids)} asset(s) selected.")
+                        st.caption(auto_t("{0} asset(s) selected.").format(len(_bulk_asset_ids)))
                         _bcol1, _bcol2, _bcol3 = st.columns([2, 1, 1])
                         _bulk_status = _bcol1.selectbox(
                             "Set status to", ["Operational", "Down", "Maintenance", "Retired"],
@@ -26382,15 +26795,15 @@ def page_assets():
                         if _bcol2.button("Apply to selected", key="bulk_asset_apply"):
                             for _aid in _bulk_asset_ids:
                                 update_asset(_aid, {"status": _bulk_status}, full_name)
-                            st.success(f"Updated {len(_bulk_asset_ids)} asset(s) to '{_bulk_status}'.")
+                            st.success(auto_t("Updated {0} asset(s) to '{1}'.").format(len(_bulk_asset_ids), _bulk_status))
                             st.rerun()
                         if can(role, "asset.delete") and _bcol3.button("🗑️ Delete selected", key="bulk_asset_delete"):
                             for _aid in _bulk_asset_ids:
                                 delete_asset(_aid, full_name)
-                            st.success(f"Deleted {len(_bulk_asset_ids)} asset(s).")
+                            st.success(auto_t("Deleted {0} asset(s).").format(len(_bulk_asset_ids)))
                             st.rerun()
                     else:
-                        st.caption("Select one or more assets above to update their status or delete them together.")
+                        st.caption(auto_t("Select one or more assets above to update their status or delete them together."))
 
             _pm_predictions_by_asset = {}
             if SKLEARN_AVAILABLE:
@@ -26412,25 +26825,25 @@ def page_assets():
                 if _pm_pred:
                     _pm_days = _pm_pred["predicted_days_remaining"]
                     if _pm_days <= 0:
-                        st.caption(f"🤖 ML model: overdue by predicted failure estimate "
-                                  f"(based on {_pm_pred['num_failures']} recorded failures)")
+                        st.caption(auto_t("🤖 ML model: overdue by predicted failure estimate (based on {0} recorded failures)").format(_pm_pred['num_failures'])
+)
                     elif _pm_days < 30:
-                        st.caption(f"🤖 ML model: ~{_pm_days:.0f} day(s) to predicted failure "
-                                  f"(~{_pm_pred['predicted_failure_date'].strftime('%b %d')})")
+                        st.caption(auto_t("🤖 ML model: ~{0:.0f} day(s) to predicted failure (~{1})").format(_pm_days, _pm_pred['predicted_failure_date'].strftime('%b %d'))
+)
                 if QR_GENERATION_AVAILABLE:
-                    with st.expander(f"🔲 Print QR Label — {a.get('name')}"):
-                        st.caption("Print this and attach it to the physical equipment. Scanning "
-                                  "it later (Assets → Scan Asset) jumps straight to this record.")
+                    with st.expander(auto_t("🔲 Print QR Label — {0}").format(a.get('name'))):
+                        st.caption(auto_t("Print this and attach it to the physical equipment. Scanning "
+                                  "it later (Assets → Scan Asset) jumps straight to this record."))
                         _qr_img = generate_asset_qr(a['id'])
                         if _qr_img is not None:
                             st.image(_qr_img, width=200)
                             _qr_buf = BytesIO()
                             _qr_img.save(_qr_buf, format="PNG")
-                            st.download_button("⬇ Download label", data=_qr_buf.getvalue(),
+                            st.download_button(auto_t("⬇ Download label"), data=_qr_buf.getvalue(),
                                               file_name=f"asset_{a['id']}_qr.png", mime="image/png",
                                               key=f"qr_dl_{a['id']}")
                 if can_manage_assets:
-                    with st.expander(f"⚙️ Manage #{a['id']} {a.get('name')}"):
+                    with st.expander(auto_t("⚙️ Manage #{0} {1}").format(a['id'], a.get('name'))):
                         cols = st.columns(5)
                         new_status = cols[0].selectbox("Status", ["Operational", "Down", "Maintenance", "Retired"],
                                                         index=["Operational", "Down", "Maintenance", "Retired"].index(a.get('status', 'Operational')) if a.get('status') in ["Operational", "Down", "Maintenance", "Retired"] else 0,
@@ -26469,66 +26882,66 @@ def page_assets():
                             # as the Add Asset form — see create_asset for why.
                             _updates["downtime_cost_per_hour"] = new_downtime_cost if new_downtime_cost > 0 else None
                             update_asset(a['id'], _updates, full_name)
-                            st.success("Asset updated.")
+                            st.success(auto_t("Asset updated."))
                             st.rerun()
                         if can(role, "asset.delete") and cols[4].button("🗑️ Delete", key=f"asset_del_{a['id']}"):
                             delete_asset(a['id'], full_name)
                             st.rerun()
                         related_tasks = [t for t in st.session_state.tasks if t.get('asset_id') == a['id']]
-                        st.caption(f"📋 {len(related_tasks)} maintenance task(s) linked to this asset.")
+                        st.caption(auto_t("📋 {0} maintenance task(s) linked to this asset.").format(len(related_tasks)))
 
-                        st.markdown("**📈 Meter Reading History**")
+                        st.markdown(auto_t("**📈 Meter Reading History**"))
                         readings = fetch_meter_readings(a['id'])
                         rate = meter_usage_rate(a['id'], readings)
                         if rate is not None:
-                            st.caption(f"Observed usage: **{rate:.1f} {a.get('meter_unit','units')}/day** "
-                                       f"(from {len(readings)} readings)")
+                            st.caption(auto_t("Observed usage: **{0:.1f} {1}/day** (from {2} readings)").format(rate, a.get('meter_unit','units'), len(readings))
+)
                         elif len(readings) < 2:
-                            st.caption("Log at least two readings over time to calculate a usage rate.")
+                            st.caption(auto_t("Log at least two readings over time to calculate a usage rate."))
                         if detect_meter_anomaly(a["id"]):
-                            st.warning("⚠️ The latest meter reading is a statistical outlier compared to "
+                            st.warning(auto_t("⚠️ The latest meter reading is a statistical outlier compared to "
                                       "recent history — worth double-checking it was entered correctly, "
-                                      "or investigating whether something genuinely changed with this asset.")
+                                      "or investigating whether something genuinely changed with this asset."))
                         if SKLEARN_AVAILABLE:
                             _anom_method = st.radio(
-                                "ML anomaly model", ["Isolation Forest", "Autoencoder"],
-                                horizontal=True, key=f"anom_method_{a['id']}", label_visibility="collapsed")
+                                auto_t("ML anomaly model"), ["Isolation Forest", "Autoencoder"],
+                                horizontal=True, key=f"anom_method_{a['id']}", label_visibility="collapsed", format_func=auto_t)
                             _method_key = "autoencoder" if _anom_method == "Autoencoder" else "isolation_forest"
                             _ml_is_anomaly, _ml_score, _ml_columns = detect_asset_anomaly_ml(a["id"], method=_method_key)
                             if _ml_is_anomaly:
                                 _basis = ", ".join(_ml_columns) if _ml_columns else "meter"
-                                st.warning(f"🤖 {_anom_method} flags this asset as unusual "
-                                          f"(score {_ml_score:.3f}) — based on: **{esc(_basis)}**.")
+                                st.warning(auto_t("🤖 {0} flags this asset as unusual (score {1:.3f}) — based on: **{2}**.").format(_anom_method, _ml_score, esc(_basis))
+)
                             elif _ml_is_anomaly is False:
-                                st.caption(f"🤖 {_anom_method}: nothing unusual detected "
-                                          f"(based on: {esc(', '.join(_ml_columns))}).")
+                                st.caption(auto_t("🤖 {0}: nothing unusual detected (based on: {1}).").format(_anom_method, esc(', '.join(_ml_columns)))
+)
 
-                        st.markdown("**🌡️ Sensor Telemetry**")
-                        st.caption("Log any additional sensor stream (temperature, vibration, pressure, "
+                        st.markdown(auto_t("**🌡️ Sensor Telemetry**"))
+                        st.caption(auto_t("Log any additional sensor stream (temperature, vibration, pressure, "
                                   "etc.) — once at least 2 sensor types have enough history, anomaly "
                                   "detection above automatically upgrades to using them together with "
-                                  "the meter reading, instead of just the meter alone.")
+                                  "the meter reading, instead of just the meter alone."))
                         _sens_col1, _sens_col2, _sens_col3, _sens_col4 = st.columns([2, 1.5, 1, 1])
                         with _sens_col1:
                             _sensor_type_in = selectbox_with_other(
                                 "Sensor type", COMMON_SENSOR_TYPES, key_prefix=f"sensor_type_{a['id']}")
                         with _sens_col2:
-                            _sensor_value_in = st.number_input("Value", key=f"sensor_val_{a['id']}", value=0.0)
+                            _sensor_value_in = st.number_input(auto_t("Value"), key=f"sensor_val_{a['id']}", value=0.0)
                         with _sens_col3:
-                            _sensor_unit_in = st.text_input("Unit", key=f"sensor_unit_{a['id']}", placeholder="°C")
+                            _sensor_unit_in = st.text_input(auto_t("Unit"), key=f"sensor_unit_{a['id']}", placeholder="°C")
                         with _sens_col4:
-                            st.markdown("&nbsp;")
-                            if st.button("➕ Log", key=f"log_sensor_{a['id']}"):
+                            st.markdown(auto_t("&nbsp;"))
+                            if st.button(auto_t("➕ Log"), key=f"log_sensor_{a['id']}"):
                                 if log_sensor_reading(a['id'], _sensor_type_in, _sensor_value_in,
                                                       _sensor_unit_in, full_name):
-                                    st.success("Logged.")
+                                    st.success(auto_t("Logged."))
                                     st.rerun()
                                 else:
-                                    st.error("Failed to log — check the error log.")
+                                    st.error(auto_t("Failed to log — check the error log."))
                         _existing_sensor_types = get_asset_sensor_types(a['id'])
                         if _existing_sensor_types and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                             _sensor_chart_type = st.selectbox(
-                                "View history for", _existing_sensor_types, key=f"sensor_chart_pick_{a['id']}")
+                                auto_t("View history for"), _existing_sensor_types, key=f"sensor_chart_pick_{a['id']}")
                             _sensor_hist = fetch_sensor_readings(a['id'], sensor_type=_sensor_chart_type)
                             if _sensor_hist:
                                 dfs = pd.DataFrame(_sensor_hist)
@@ -26553,51 +26966,51 @@ def page_assets():
                         mr_note = mr_cols[1].text_input("Note (optional)", key=f"mr_note_{a['id']}")
                         if mr_cols[2].button("📝 Log", key=f"mr_btn_{a['id']}"):
                             if new_reading < float(a.get('current_meter', 0) or 0):
-                                st.error("New reading is lower than the current reading. "
-                                         "Meters normally only increase — correct the value, or note a meter replacement.")
+                                st.error(auto_t("New reading is lower than the current reading. "
+                                         "Meters normally only increase — correct the value, or note a meter replacement."))
                             else:
                                 if log_meter_reading(a['id'], new_reading, a.get('meter_unit'), full_name, mr_note):
-                                    st.success("Reading logged.")
+                                    st.success(auto_t("Reading logged."))
                                     st.rerun()
                                 else:
-                                    st.error("Failed to log reading. Check Row Level Security "
-                                            "on the meter_readings table.")
+                                    st.error(auto_t("Failed to log reading. Check Row Level Security "
+                                            "on the meter_readings table."))
                         meter_tasks = [t for t in related_tasks if t.get('meter_interval')]
                         for mt in meter_tasks:
                             interval = mt.get('meter_interval', 0)
                             current = a.get('current_meter', 0) or 0
                             if interval and current and (current % interval) >= (interval * 0.9):
-                                st.warning(f"⏰ '{mt['title']}' is meter-based (every {interval} {a.get('meter_unit', '')}) and is approaching its next service interval.")
+                                st.warning(auto_t("⏰ '{0}' is meter-based (every {1} {2}) and is approaching its next service interval.").format(mt['title'], interval, a.get('meter_unit', '')))
 
     # PM compliance quick view for managers
     if can_manage_assets and st.session_state.assets:
         st.markdown("---")
-        if st.button("📥 Export Assets as CSV"):
+        if st.button(auto_t("📥 Export Assets as CSV")):
             csv = export_assets_csv(st.session_state.assets)
             if csv:
-                st.download_button("Download CSV", data=csv, file_name="assets_export.csv", mime="text/csv", key="dl_assets_csv")
+                st.download_button(auto_t("Download CSV"), data=csv, file_name="assets_export.csv", mime="text/csv", key="dl_assets_csv")
 
         render_subheading("📊 Asset Task Frequency (proxy for downtime)", level=4)
         ranking = compute_asset_downtime_ranking(st.session_state.tasks, st.session_state.assets)
         if ranking:
             for name, count in ranking[:10]:
-                st.write(f"- **{esc(name)}**: {count} maintenance task(s)")
+                st.write(auto_t("- **{0}**: {1} maintenance task(s)").format(esc(name), count))
         else:
-            st.caption("No tasks linked to assets yet.")
+            st.caption(auto_t("No tasks linked to assets yet."))
 
     elif asset_sub == "🗺️ Map View":
-        st.markdown("### 🗺️ Asset Locations")
+        st.markdown(auto_t("### 🗺️ Asset Locations"))
         _geo_assets = [a for a in st.session_state.assets
                        if a.get("latitude") is not None and a.get("longitude") is not None]
         if not _geo_assets:
             st.info(
-                "No assets have coordinates set yet. Add a latitude/longitude when creating "
+                auto_t("No assets have coordinates set yet. Add a latitude/longitude when creating "
                 "a new asset (Add Asset tab), or edit an existing asset to add them — the map "
-                "here only plots assets that have both values."
+                "here only plots assets that have both values.")
             )
         else:
-            st.caption(f"{len(_geo_assets)} of {len(st.session_state.assets)} asset(s) have "
-                      "coordinates and are shown below.")
+            st.caption(auto_t("{0} of {1} asset(s) have coordinates and are shown below.").format(len(_geo_assets), len(st.session_state.assets))
+)
             _map_df = pd.DataFrame(_geo_assets)
             _status_colors = {"Operational": "#0f9d58", "Down": "#dc2626",
                               "Maintenance": "#f0b429", "Retired": "#94a3b8"}
@@ -26641,56 +27054,56 @@ def page_assets():
 
             if _zones:
                 _violations = check_asset_geofence_violations(_geo_assets, _zones)
-                st.caption("Checks each asset's LAST RECORDED position against defined zones — "
-                          "not live tracking (positions here are set manually, not fed by GPS).")
+                st.caption(auto_t("Checks each asset's LAST RECORDED position against defined zones — "
+                          "not live tracking (positions here are set manually, not fed by GPS)."))
                 if _violations:
-                    st.error(f"⚠️ {len(_violations)} asset(s) inside a defined zone:")
+                    st.error(auto_t("⚠️ {0} asset(s) inside a defined zone:").format(len(_violations)))
                     for v in _violations:
                         st.write(f"**{esc(v['asset'].get('name'))}** is {v['distance_m']:.0f}m from "
                                 f"the center of **{esc(v['zone']['name'])}** "
                                 f"({v['zone']['zone_type']}, {v['zone']['radius_meters']:.0f}m radius)"
                                 + (f" — {esc(v['zone']['alert_message'])}" if v['zone'].get('alert_message') else ""))
                 else:
-                    st.success("No assets currently inside a defined zone.")
+                    st.success(auto_t("No assets currently inside a defined zone."))
 
             if can_manage_assets:
-                with st.expander("🚧 Manage Geofence Zones"):
+                with st.expander(auto_t("🚧 Manage Geofence Zones")):
                     for z in _zones:
-                        st.write(f"**{z['name']}** ({z['zone_type']}) — radius {z['radius_meters']:.0f}m "
-                                f"at ({z['center_lat']:.5f}, {z['center_lng']:.5f})")
-                    st.markdown("##### New Zone")
+                        st.write(auto_t("**{0}** ({1}) — radius {2:.0f}m at ({3:.5f}, {4:.5f})").format(z['name'], z['zone_type'], z['radius_meters'], z['center_lat'], z['center_lng'])
+)
+                    st.markdown(auto_t("##### New Zone"))
                     with st.form("new_geofence_zone_form", clear_on_submit=True):
-                        _gz_name = st.text_input("Zone name *", placeholder="e.g. Active Blast Zone")
-                        _gz_type = st.selectbox("Zone type", ["Restricted", "Hazard", "Authorized-Only"])
+                        _gz_name = st.text_input(auto_t("Zone name *"), placeholder="e.g. Active Blast Zone")
+                        _gz_type = st.selectbox(auto_t("Zone type"), ["Restricted", "Hazard", "Authorized-Only"], format_func=auto_t)
                         _gzc1, _gzc2, _gzc3 = st.columns(3)
                         _gz_lat = _gzc1.number_input("Center latitude", value=None, format="%.6f")
                         _gz_lng = _gzc2.number_input("Center longitude", value=None, format="%.6f")
                         _gz_radius = _gzc3.number_input("Radius (meters)", min_value=1.0, value=100.0)
-                        _gz_msg = st.text_input("Alert message (optional)",
+                        _gz_msg = st.text_input(auto_t("Alert message (optional)"),
                                                 placeholder="e.g. Active blasting in progress — no entry without authorization")
-                        _gz_submit = st.form_submit_button("💾 Save Zone")
+                        _gz_submit = st.form_submit_button(auto_t("💾 Save Zone"))
                         if _gz_submit:
                             if not _gz_name or _gz_lat is None or _gz_lng is None:
-                                st.error("Zone name, latitude, and longitude are required.")
+                                st.error(auto_t("Zone name, latitude, and longitude are required."))
                             else:
                                 _new_zone = create_geofence_zone(
                                     _gz_name, _gz_type, _gz_lat, _gz_lng, _gz_radius, _gz_msg, full_name)
                                 if _new_zone:
-                                    st.success(f"✅ Zone \"{_gz_name}\" saved.")
+                                    st.success(auto_t("✅ Zone \"{0}\" saved.").format(_gz_name))
                                     st.rerun()
                                 else:
-                                    st.error("Couldn't save the zone — check the error log in Owner Console.")
+                                    st.error(auto_t("Couldn't save the zone — check the error log in Owner Console."))
 
     elif asset_sub == "🧊 3D Mine View":
-        st.markdown("### 🧊 3D Asset Positions")
+        st.markdown(auto_t("### 🧊 3D Asset Positions"))
         st.caption(
-            "**What this is:** a genuine, interactive 3D scatter of asset positions — "
+            auto_t("**What this is:** a genuine, interactive 3D scatter of asset positions — "
             "latitude, longitude, and elevation — so equipment on different benches or "
             "levels shows up distinctly, which a flat map can't do. **What this is NOT:** "
             "a CAD mine model — no pit walls, bench geometry, terrain surface, or "
             "underground workings. Real 3D mine visualization needs dedicated mining "
             "software (Vulcan, Surpac, Deswik); this is a lightweight, honest approximation "
-            "using only the position data already in this app."
+            "using only the position data already in this app.")
         )
         _geo3d_assets = [a for a in st.session_state.assets
                          if a.get("latitude") is not None and a.get("longitude") is not None
@@ -26705,8 +27118,8 @@ def page_assets():
                       "elevation yet." if _geo_no_elev else "an asset."))
         else:
             if _geo_no_elev:
-                st.caption(f"{len(_geo3d_assets)} asset(s) shown below; {len(_geo_no_elev)} more "
-                          "have coordinates but no elevation set, so aren't plotted here.")
+                st.caption(auto_t("{0} asset(s) shown below; {1} more have coordinates but no elevation set, so aren't plotted here.").format(len(_geo3d_assets), len(_geo_no_elev))
+)
             _status_colors_3d = {"Operational": "#0f9d58", "Down": "#dc2626",
                                  "Maintenance": "#f0b429", "Retired": "#94a3b8"}
             _fig3d = go.Figure()
@@ -26731,37 +27144,37 @@ def page_assets():
                 legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01),
             )
             st.plotly_chart(_fig3d, use_container_width=True)
-            st.caption("Drag to rotate, scroll to zoom, double-click to reset the view.")
+            st.caption(auto_t("Drag to rotate, scroll to zoom, double-click to reset the view."))
 
     elif asset_sub == "Add Asset":
-        st.markdown("### Register New Asset")
+        st.markdown(auto_t("### Register New Asset"))
         with st.form("new_asset_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             with c1:
-                name = st.text_input("Asset Name *", max_chars=100)
-                asset_tag = st.text_input("Asset Tag / ID *", max_chars=50)
+                name = st.text_input(auto_t("Asset Name *"), max_chars=100)
+                asset_tag = st.text_input(auto_t("Asset Tag / ID *"), max_chars=50)
                 category = selectbox_with_other("Category",
                     ["Heavy Equipment", "Fixed Plant", "Vehicle", "Electrical",
                      "Hydraulic", "Conveyor", "Pump"], key_prefix="asset_category")
-                location = st.text_input("Location / Area *", max_chars=100)
-                criticality = st.selectbox("Criticality", ["Low", "Medium", "High", "Critical"])
+                location = st.text_input(auto_t("Location / Area *"), max_chars=100)
+                criticality = st.selectbox(auto_t("Criticality"), ["Low", "Medium", "High", "Critical"], format_func=auto_t)
             with c2:
-                manufacturer = st.text_input("Manufacturer", max_chars=100)
-                model_number = st.text_input("Model Number", max_chars=100)
-                serial_number = st.text_input("Serial Number", max_chars=100)
-                install_date = st.date_input("Install Date", value=datetime.now())
-                status = st.selectbox("Status", ["Operational", "Down", "Maintenance", "Retired"])
+                manufacturer = st.text_input(auto_t("Manufacturer"), max_chars=100)
+                model_number = st.text_input(auto_t("Model Number"), max_chars=100)
+                serial_number = st.text_input(auto_t("Serial Number"), max_chars=100)
+                install_date = st.date_input(auto_t("Install Date"), value=datetime.now())
+                status = st.selectbox(auto_t("Status"), ["Operational", "Down", "Maintenance", "Retired"], format_func=auto_t)
             colm1, colm2 = st.columns(2)
             current_meter = colm1.number_input("Current Meter Reading", value=0.0)
             meter_unit = colm2.selectbox("Meter Unit", ["hours", "km", "cycles", "N/A"])
-            st.caption("Optional — set a downtime cost rate to see dollar-impact alongside hours "
-                      "in Analytics and the Equipment Health Dashboard.")
-            downtime_cost_in = st.number_input("Downtime Cost per Hour ($)", min_value=0.0,
+            st.caption(auto_t("Optional — set a downtime cost rate to see dollar-impact alongside hours "
+                      "in Analytics and the Equipment Health Dashboard."))
+            downtime_cost_in = st.number_input(auto_t("Downtime Cost per Hour ($)"), min_value=0.0,
                                                value=0.0, format="%.2f",
-                                               help="Leave at 0 and skip setting it if unknown — "
-                                                    "0 is stored as \"not set\", not as a real $0 rate.")
+                                               help=auto_t("Leave at 0 and skip setting it if unknown — "
+                                                    "0 is stored as \"not set\", not as a real $0 rate."))
             if PLOTLY_AVAILABLE:
-                st.caption("Optional — set coordinates to show this asset on Map View and 3D Mine View.")
+                st.caption(auto_t("Optional — set coordinates to show this asset on Map View and 3D Mine View."))
                 geo1, geo2, geo3 = st.columns(3)
                 latitude_in = geo1.number_input("Latitude", value=None, format="%.6f",
                                                 placeholder="e.g. -25.746000")
@@ -26772,7 +27185,7 @@ def page_assets():
                                                  help="Bench or level height — only needed for 3D Mine View.")
             else:
                 latitude_in, longitude_in, elevation_in = None, None, None
-            submitted = st.form_submit_button("➕ Register Asset")
+            submitted = st.form_submit_button(auto_t("➕ Register Asset"))
             if submitted:
                 if name and asset_tag and location:
                     # 0.0 from an untouched number_input means "left blank",
@@ -26787,12 +27200,12 @@ def page_assets():
                                               downtime_cost_per_hour=_downtime_cost_val,
                                               elevation_m=elevation_in)
                     if new_asset:
-                        st.success(f"Asset '{name}' registered!")
+                        st.success(auto_t("Asset '{0}' registered!").format(name))
                         st.rerun()
                     else:
-                        st.error("Failed to register asset.")
+                        st.error(auto_t("Failed to register asset."))
                 else:
-                    st.error("Asset Name, Tag, and Location are required.")
+                    st.error(auto_t("Asset Name, Tag, and Location are required."))
 
 # ---- INVENTORY ----
 
@@ -26804,11 +27217,11 @@ def page_about():
 
     with _about_tab1:
         st.caption(
-            "This is a starting draft grounded in how the app actually works today — "
+            auto_t("This is a starting draft grounded in how the app actually works today — "
             "not a finished legal document. It's worth review by the Owner (and legal "
-            "counsel, if the organization wants one) before being treated as official policy."
+            "counsel, if the organization wants one) before being treated as official policy.")
         )
-        st.markdown("""
+        st.markdown(auto_t("""
 #### Purpose
 MWDTS (Mine & Workshop Digital Tracker System) exists to replace paper-based
 maintenance, safety, and incident tracking with a single digital system —
@@ -26853,10 +27266,10 @@ Use the Feedback section for suggestions and non-urgent issues. For
 anything safety-critical, follow the site's normal safety escalation
 process — this app is a tool alongside that process, not a replacement
 reporting channel for emergencies.
-""")
+"""))
 
     with _about_tab2:
-        st.markdown("""
+        st.markdown(auto_t("""
 #### What this app actually is
 A maintenance and safety tracking system for mine and workshop operations —
 think of it as replacing several paper logbooks (task boards, incident
@@ -26864,7 +27277,7 @@ report books, permit-to-work logs, shift handover sheets) with one system
 everyone uses from their phone or a computer.
 
 #### Roles — what each one can do
-""")
+"""))
         st.markdown(render_field_grid([
             ("fa-user", "Worker",
             "Sees and updates their own assigned tasks, reports incidents, files shift "
@@ -26880,7 +27293,7 @@ everyone uses from their phone or a computer.
             "the announcement ticker, feature toggles, and migration tools.", "ok"),
         ]), unsafe_allow_html=True)
 
-        st.markdown("""
+        st.markdown(auto_t("""
 #### A quick tour of the main sections
 - **Task Dashboard** — create, assign, and track maintenance work. Tasks
   requiring LOTO isolation are blocked from starting until an accepted
@@ -26905,23 +27318,23 @@ everyone uses from their phone or a computer.
 #### If something seems wrong
 Use Feedback for anything about the app itself — a confusing screen, a
 feature that isn't working as expected, or an idea for something new.
-""")
+"""))
 
 
 def page_wallboard():
     if WALLBOARD_MODULE_AVAILABLE:
         wallboard.render_wallboard()
     else:
-        st.error("The Wallboard module file (wallboard.py) isn't present in this deployment — "
-                "it needs to sit alongside app.py for this section to work.")
+        st.error(auto_t("The Wallboard module file (wallboard.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work."))
 
 
 def page_job_plans():
     if JOB_PLANS_MODULE_AVAILABLE:
         job_plans.render_job_plans()
     else:
-        st.error("The Job Plans module file (job_plans.py) isn't present in this deployment — "
-                "it needs to sit alongside app.py for this section to work.")
+        st.error(auto_t("The Job Plans module file (job_plans.py) isn't present in this deployment — "
+                "it needs to sit alongside app.py for this section to work."))
 
 
 if selected_section == "Task Dashboard":
@@ -26936,6 +27349,7 @@ if selected_section == "Task Dashboard":
         if SUPABASE_AVAILABLE:
             run_escalations(st.session_state.tasks, fetch_permits(), full_name)
             send_predictive_downtime_alerts(st.session_state.tasks, st.session_state.assets, full_name)
+            send_geofence_violation_alerts(st.session_state.assets, fetch_geofence_zones(), full_name)
 
     # Active Outage banner — deliberately NOT role-gated like the
     # alerts below (weather, predictive failure, calibration, low
@@ -26944,9 +27358,9 @@ if selected_section == "Task Dashboard":
     # dashboard, not only people with elevated roles.
     _active_outage_events = fetch_outage_events(active_only=True)
     if _active_outage_events:
-        st.error(f"🚧 **{len(_active_outage_events)} active outage(s) in progress** — "
-                f"Commander: {', '.join(e['outage_commander'] for e in _active_outage_events)}. "
-                f"Go to Outage Commander for the live response.")
+        st.error(auto_t("🚧 **{0} active outage(s) in progress** — Commander: {1}. Go to Outage Commander for the live response.").format(len(_active_outage_events), ', '.join(e['outage_commander'] for e in _active_outage_events))
+
+)
 
     if WEATHER_CONFIGURED:
         _forecast = fetch_weather_forecast()
@@ -26955,9 +27369,9 @@ if selected_section == "Task Dashboard":
             _risk_dates = sorted(set(day["date"] for _, day in _at_risk))
             _risk_task_count = len(set(t["id"] for t, _ in _at_risk))
             st.warning(
-                f"🌧️ Rain is forecast with high probability on {', '.join(_risk_dates)} — "
-                f"{_risk_task_count} weather-sensitive task(s) may need rescheduling. "
-                f"Check Task Dashboard for details."
+                auto_t("🌧️ Rain is forecast with high probability on {0} — {1} weather-sensitive task(s) may need rescheduling. Check Task Dashboard for details.").format(', '.join(_risk_dates), _risk_task_count)
+
+
             )
 
     # "My Open Items" — one place showing what THIS person specifically
@@ -26980,43 +27394,43 @@ if selected_section == "Task Dashboard":
 
     if _my_open_tasks or _my_permits or _my_unread:
         with st.expander(
-            f"📋 My Open Items — {len(_my_open_tasks)} task(s), {len(_my_permits)} permit(s), "
-            f"{len(_my_unread)} unread notification(s)",
+            auto_t("📋 My Open Items — {0} task(s), {1} permit(s), {2} unread notification(s)").format(len(_my_open_tasks), len(_my_permits), len(_my_unread))
+,
             expanded=True,
         ):
             _moi_col1, _moi_col2, _moi_col3 = st.columns(3)
             with _moi_col1:
-                st.markdown("**My Tasks**")
+                st.markdown(auto_t("**My Tasks**"))
                 if not _my_open_tasks:
-                    st.caption("Nothing assigned right now.")
+                    st.caption(auto_t("Nothing assigned right now."))
                 for _mt in _my_open_tasks[:5]:
                     st.markdown(f"• #{_mt['id']} {esc(_mt.get('title'))} — *{esc(_mt.get('status'))}*")
                 if len(_my_open_tasks) > 5:
-                    st.caption(f"+ {len(_my_open_tasks) - 5} more — see Task Dashboard below.")
+                    st.caption(auto_t("+ {0} more — see Task Dashboard below.").format(len(_my_open_tasks) - 5))
             with _moi_col2:
-                st.markdown("**My Permits**")
+                st.markdown(auto_t("**My Permits**"))
                 if not _my_permits:
-                    st.caption("No open permits.")
+                    st.caption(auto_t("No open permits."))
                 for _mp in _my_permits[:5]:
                     st.markdown(f"• #{_mp['id']} {esc(_mp.get('permit_type'))} — *{esc(_mp.get('status'))}*")
                 if len(_my_permits) > 5:
-                    st.caption(f"+ {len(_my_permits) - 5} more — see Permits.")
+                    st.caption(auto_t("+ {0} more — see Permits.").format(len(_my_permits) - 5))
             with _moi_col3:
-                st.markdown("**Unread Notifications**")
+                st.markdown(auto_t("**Unread Notifications**"))
                 if not _my_unread:
-                    st.caption("You're caught up.")
+                    st.caption(auto_t("You're caught up."))
                 for _mn in _my_unread[:5]:
                     st.markdown(f"• {esc(_mn.get('title'))}")
                 if len(_my_unread) > 5:
-                    st.caption(f"+ {len(_my_unread) - 5} more.")
+                    st.caption(auto_t("+ {0} more.").format(len(_my_unread) - 5))
 
             if _my_open_tasks:
                 _ics_bytes = generate_ics_for_tasks(_my_open_tasks)
                 if _ics_bytes:
                     st.download_button(
-                        "📅 Export my task due dates (.ics)", _ics_bytes,
+                        auto_t("📅 Export my task due dates (.ics)"), _ics_bytes,
                         "my_mwdts_tasks.ics", "text/calendar", key="moi_ics_export",
-                        help="Opens directly in Google Calendar, Outlook, or Apple Calendar via Import.")
+                        help=auto_t("Opens directly in Google Calendar, Outlook, or Apple Calendar via Import."))
 
     # Predictive Failure Alerts — supervisor/superintendent-facing, same
     # role gate as the escalations check above, since this is the same
@@ -27026,11 +27440,11 @@ if selected_section == "Task Dashboard":
         if _failure_alerts:
             _worst = _failure_alerts[0]
             st.warning(
-                f"🔧 **Predictive alert**: {len(_failure_alerts)} asset(s) are approaching their "
-                f"typical failure window based on past breakdown history — "
-                f"**{esc(_worst['asset_name'])}** is at {_worst['pct_of_window']:.0%} of its usual "
-                f"{_worst['mtbf_hours']/24:.0f}-day interval between failures. "
-                f"Check Analytics → Reliability for the full list."
+                auto_t("🔧 **Predictive alert**: {0} asset(s) are approaching their typical failure window based on past breakdown history — **{1}** is at {2:.0%} of its usual {3:.0f}-day interval between failures. Check Analytics → Reliability for the full list.").format(len(_failure_alerts), esc(_worst['asset_name']), _worst['pct_of_window'], _worst['mtbf_hours']/24)
+
+
+
+
             )
 
         # Instrument Calibration alerts — the entire point of a 7-day
@@ -27046,22 +27460,25 @@ if selected_section == "Task Dashboard":
             elif _cal_status == "due_soon":
                 _cal_due_soon.append(_c)
         if _cal_overdue:
-            st.error(f"🔴 **{len(_cal_overdue)} instrument(s) overdue for calibration** — "
-                    f"check Instrument Calibration for details.")
+            st.error(auto_t("🔴 **{0} instrument(s) overdue for calibration** — check Instrument Calibration for details.").format(len(_cal_overdue))
+)
         if _cal_due_soon:
-            st.warning(f"📏 **{len(_cal_due_soon)} instrument(s) due for calibration within 7 days** — "
-                      f"check Instrument Calibration for details.")
+            st.warning(auto_t("📏 **{0} instrument(s) due for calibration within 7 days** — check Instrument Calibration for details.").format(len(_cal_due_soon))
+)
 
         # Electrical Critical Spares — same "should be seen without
         # hunting for it" reasoning as the calibration alerts above.
         _low_elec_parts = get_low_stock_electrical_parts(st.session_state.get("parts", []))
         if _low_elec_parts:
-            st.warning(f"⚡ **{len(_low_elec_parts)} electrical critical spare(s) at or below reorder "
-                      f"point** — check Inventory → Purchase Orders to reorder.")
+            st.warning(auto_t("⚡ **{0} electrical critical spare(s) at or below reorder point** — check Inventory → Purchase Orders to reorder.").format(len(_low_elec_parts))
+)
 
     if st.session_state.get("_show_welcome"):
-        st.markdown(f"""<div class="empty-state" style="border-style: solid; border-color: var(--accent); text-align: left;"> <div style="display: flex; align-items: flex-start; gap: 1rem;"> <div class="empty-icon" style="margin: 0; flex-shrink: 0;"><i class="fas fa-hand-sparkles"></i></div> <div> <div class="empty-title">Welcome to MWDTS, {esc(full_name.split(' ')[0] if full_name else 'there')}</div> <div class="empty-sub"> This replaces the paper task boards, incident report books, and permit logs with one system — tasks, permits, incidents, and shift handovers, all in one place. The <b>About</b> page has a full walkthrough whenever you want it. </div> </div> </div> </div>""", unsafe_allow_html=True)
-        if st.button("Got it, thanks", key="dismiss_welcome"):
+        _welcome_first_name = full_name.split(' ')[0] if full_name else auto_t('there')
+        _welcome_title = auto_t("Welcome to MWDTS, {0}").format(esc(_welcome_first_name))
+        _welcome_body = auto_t("This replaces the paper task boards, incident report books, and permit logs with one system — tasks, permits, incidents, and shift handovers, all in one place. The <b>About</b> page has a full walkthrough whenever you want it.")
+        st.markdown(f"""<div class="empty-state" style="border-style: solid; border-color: var(--accent); text-align: left;"> <div style="display: flex; align-items: flex-start; gap: 1rem;"> <div class="empty-icon" style="margin: 0; flex-shrink: 0;"><i class="fas fa-hand-sparkles"></i></div> <div> <div class="empty-title">{_welcome_title}</div> <div class="empty-sub"> {_welcome_body} </div> </div> </div> </div>""", unsafe_allow_html=True)
+        if st.button(auto_t("Got it, thanks"), key="dismiss_welcome"):
             mark_welcome_seen(username)
             st.rerun()
 
@@ -27070,24 +27487,24 @@ if selected_section == "Task Dashboard":
     # every widget here is an EXISTING analytics function already
     # proven elsewhere in this app (MTBF, cost breakdown, predictive
     # alerts, etc.), not new calculations built just for this feature.
-    with st.expander("📊 My Dashboard"):
+    with st.expander(auto_t("📊 My Dashboard")):
         _my_widgets = get_user_dashboard_widgets(username)
         _widget_choices = {key: label for key, (label, icon, fn) in DASHBOARD_WIDGET_REGISTRY.items()}
         _selected_labels = st.multiselect(
-            "Choose what to show here",
+            auto_t("Choose what to show here"),
             list(_widget_choices.values()),
             default=[_widget_choices[k] for k in _my_widgets if k in _widget_choices],
             key="dashboard_widget_picker",
         )
-        if st.button("💾 Save My Dashboard", key="save_dashboard_widgets"):
+        if st.button(auto_t("💾 Save My Dashboard"), key="save_dashboard_widgets"):
             _label_to_key = {v: k for k, v in _widget_choices.items()}
             _new_selection = [_label_to_key[label] for label in _selected_labels]
             set_user_dashboard_widgets(_new_selection, username)
-            st.success("Dashboard updated.")
+            st.success(auto_t("Dashboard updated."))
             st.rerun()
 
         if not _my_widgets:
-            st.caption("No widgets selected — choose some above.")
+            st.caption(auto_t("No widgets selected — choose some above."))
         else:
             _dash_cols = st.columns(2)
             _parts_for_dashboard = {p['id']: p for p in st.session_state.get("parts", [])}
@@ -27158,12 +27575,12 @@ if selected_section == "Task Dashboard":
     for _i, _qa in enumerate(_quick_actions):
         with (_qa_col1 if _i % 2 == 0 else _qa_col2):
             st.markdown(render_action_cards([_qa]), unsafe_allow_html=True)
-            if st.button(f"Open {_qa['title']}", key=f"quick_action_{_qa['target']}", use_container_width=True):
+            if st.button(auto_t("Open {0}").format(_qa['title']), key=f"quick_action_{_qa['target']}", use_container_width=True):
                 navigate_to(_qa["target"])
                 st.rerun()
 
     if role == "worker":
-        st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>', unsafe_allow_html=True)
+        st.markdown(auto_t('<div class="sub-header"><i class="fas fa-hard-hat"></i> Field Worker Workspace</div>'), unsafe_allow_html=True)
         _recent_broadcasts = fetch_recent_broadcasts(limit=5)
         if _recent_broadcasts:
             st.info(t("task.info_latest_broadcasts"))
@@ -27191,7 +27608,7 @@ if selected_section == "Task Dashboard":
             # the whole app (every worker checks this constantly),
             # so probably the highest-impact fix of all of them for
             # how slow the app has felt as task volume has grown.
-            _my_show_completed = st.checkbox("Include completed tasks", value=False, key="my_tasks_show_completed")
+            _my_show_completed = st.checkbox(auto_t("Include completed tasks"), value=False, key="my_tasks_show_completed")
             my_tasks = _my_tasks_all if _my_show_completed else \
                 [t for t in _my_tasks_all if t.get('status') not in ("Complete", "Completed", "Closed", "Cancelled")]
             # Fetch permits ONCE for the whole loop instead of per task.
@@ -27235,8 +27652,8 @@ if selected_section == "Task Dashboard":
                         if APP_URL:
                             st.code(f"{APP_URL}/?task={task['id']}", language=None)
                         else:
-                            st.caption("Set `APP_URL` in secrets.toml (Owner Console → deployment settings) "
-                                      "to generate a working shareable link.")
+                            st.caption(auto_t("Set `APP_URL` in secrets.toml (Owner Console → deployment settings) "
+                                      "to generate a working shareable link."))
 
                     # Permit gate: if this task requires LOTO, there must be a
                     # live accepted permit before work can be marked in progress.
@@ -27257,8 +27674,8 @@ if selected_section == "Task Dashboard":
                         _cert_ok = worker_has_valid_certification(
                             task.get("assigned_to"), task["required_certification"])
                         if task.get("assigned_to") and task["assigned_to"] != "Unassigned" and _cert_ok:
-                            st.caption(f"🎓 Requires {task['required_certification']} — "
-                                      f"{task['assigned_to']} is currently certified.")
+                            st.caption(auto_t("🎓 Requires {0} — {1} is currently certified.").format(task['required_certification'], task['assigned_to'])
+)
                         else:
                             st.warning(f"🎓 Requires **{task['required_certification']}** — "
                                       + (f"{task['assigned_to']} is NOT currently certified for this."
@@ -27267,9 +27684,9 @@ if selected_section == "Task Dashboard":
                                       + " Cannot move to In Progress until resolved.")
 
                     if QR_GENERATION_AVAILABLE:
-                        with st.expander("📱 QR Code"):
-                            st.caption("Print on a physical work order slip — scanning it via "
-                                      "Scan Hub jumps straight back to this task.")
+                        with st.expander(auto_t("📱 QR Code")):
+                            st.caption(auto_t("Print on a physical work order slip — scanning it via "
+                                      "Scan Hub jumps straight back to this task."))
                             _task_qr_img = generate_entity_qr("TASK", task["id"])
                             if _task_qr_img:
                                 st.image(_task_qr_img, width=180)
@@ -27304,8 +27721,8 @@ if selected_section == "Task Dashboard":
                                 st.markdown(t("task.txt_closeout_details"))
                                 fc_options = ["(none)"] + [f"{k} — {v}" for k, v in FAILURE_CODES.items()]
                                 fc_sel = st.selectbox(t("task.field_failure_code"), fc_options)
-                                lh = st.number_input("Labour hours spent", min_value=0.0, value=0.0, step=0.5)
-                                confirm_close = st.form_submit_button("✅ Complete Task")
+                                lh = st.number_input(auto_t("Labour hours spent"), min_value=0.0, value=0.0, step=0.5)
+                                confirm_close = st.form_submit_button(auto_t("✅ Complete Task"))
                                 if confirm_close:
                                     closing = {"status": new_status, "labour_hours": lh}
                                     if fc_sel != "(none)":
@@ -27334,8 +27751,8 @@ if selected_section == "Task Dashboard":
                     if _proc_steps:
                         _step_idx = task.get("current_step_index") or 0
                         _done_log = {e.get("step_index"): e for e in (task.get("step_log") or [])}
-                        with st.expander(f"📋 Procedure ({min(_step_idx, len(_proc_steps))}/"
-                                        f"{len(_proc_steps)} steps done)",
+                        with st.expander(auto_t("📋 Procedure ({0}/{1} steps done)").format(min(_step_idx, len(_proc_steps)), len(_proc_steps))
+,
                                         expanded=_step_idx < len(_proc_steps)):
                             for _si, _stext in enumerate(_proc_steps):
                                 if _si < _step_idx:
@@ -27345,30 +27762,30 @@ if selected_section == "Task Dashboard":
                                         st.caption(f"    {_entry['completed_by']} · "
                                                   f"{_fmt_log_time(_entry.get('completed_at'))}")
                                 elif _si == _step_idx:
-                                    st.markdown(f"**➡️ Step {_si + 1}: {esc(_stext)}**")
-                                    if st.button("✓ Mark this step done",
+                                    st.markdown(auto_t("**➡️ Step {0}: {1}**").format(_si + 1, esc(_stext)))
+                                    if st.button(auto_t("✓ Mark this step done"),
                                                 key=f"procstep_{task['id']}_{_si}_{idx}"):
                                         if advance_task_step(task['id'], _stext, full_name):
                                             st.rerun()
                                         else:
-                                            st.error("Couldn't record that step.")
+                                            st.error(auto_t("Couldn't record that step."))
                                 else:
                                     st.markdown(f"◻️ {esc(_stext)}")
                             if _step_idx >= len(_proc_steps):
-                                st.success("All procedure steps complete.")
+                                st.success(auto_t("All procedure steps complete."))
 
-                    with st.expander("💬 Comments"):
+                    with st.expander(auto_t("💬 Comments")):
                         render_presence_indicator(f"task:{task['id']}", username, full_name)
                         render_comments_section(task, full_name, key_prefix=f"w{idx}")
 
-                    with st.expander("📎 Attachments"):
+                    with st.expander(auto_t("📎 Attachments")):
                         attachments = fetch_attachments(task['id'])
                         if attachments:
                             for a in attachments:
-                                st.markdown(f"[{a['file_name']}]({a['file_url']}) (uploaded by {a['uploaded_by']})")
+                                st.markdown(auto_t("[{0}]({1}) (uploaded by {2})").format(a['file_name'], a['file_url'], a['uploaded_by']))
                         else:
                             st.caption(t("task.caption_no_attachments"))
-                        uploaded_file = st.file_uploader("Upload attachment (PDF, DOC, etc.)", type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_{task['id']}_{idx}")
+                        uploaded_file = st.file_uploader(auto_t("Upload attachment (PDF, DOC, etc.)"), type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_{task['id']}_{idx}")
                         if uploaded_file is not None:
                             if st.button(t("task.btn_upload_attachment"), key=f"attach_btn_{task['id']}_{idx}"):
                                 bytes_data = uploaded_file.getvalue()
@@ -27377,10 +27794,10 @@ if selected_section == "Task Dashboard":
                                     st.rerun()
 
                     st.markdown("---")
-                    st.markdown('<i class="fas fa-camera"></i> **Upload Proof Photo**', unsafe_allow_html=True)
-                    uploaded_file = st.file_uploader(f"Choose an image for task #{task['id']}", type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
+                    st.markdown(auto_t('<i class="fas fa-camera"></i> **Upload Proof Photo**'), unsafe_allow_html=True)
+                    uploaded_file = st.file_uploader(auto_t("Choose an image for task #{0}").format(task['id']), type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
                     if uploaded_file is not None:
-                        if st.button(f"📤 Upload for Task #{task['id']}", key=f"upload_btn_{task['id']}_{idx}"):
+                        if st.button(auto_t("📤 Upload for Task #{0}").format(task['id']), key=f"upload_btn_{task['id']}_{idx}"):
                             bytes_data = uploaded_file.getvalue()
                             success = upload_photo(task['id'], bytes_data, uploaded_file.name, full_name)
                             if success:
@@ -27396,7 +27813,7 @@ if selected_section == "Task Dashboard":
                             with cols[pic_idx % len(cols)]:
                                 img_url = photo.get('photo_url', '')
                                 if img_url.startswith('memory://'):
-                                    st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
+                                    st.info(auto_t("📷 {0} uploaded a photo").format(photo.get('uploaded_by', 'Unknown')))
                                 else:
                                     st.image(img_url, width=120, use_container_width=True)
                                 st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
@@ -27441,7 +27858,7 @@ if selected_section == "Task Dashboard":
                     st.markdown(_card_html, unsafe_allow_html=True)
 
     elif role == "supervisor":
-        st.markdown('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>', unsafe_allow_html=True)
+        st.markdown(auto_t('<div class="sub-header"><i class="fas fa-clipboard"></i> Supervisor Operations Desk</div>'), unsafe_allow_html=True)
         supervisor_sub = option_menu(
             menu_title=None,
             options=["Manage All Tasks", "Create New Task", "Dashboard"],
@@ -27456,17 +27873,17 @@ if selected_section == "Task Dashboard":
             worker_names = ["Unassigned"] + [u["full_name"] for u in all_users if u["role"].strip().lower() == "worker" and u.get("is_approved", False)]
 
             _subsection_filter = st.selectbox(
-                "Filter by Electrical Dept. subsection",
+                auto_t("Filter by Electrical Dept. subsection"),
                 ["All", "Electrical Workshop", "Carbonate Plant", "Auto Electricals"],
-                key="task_mgmt_subsection_filter")
+                key="task_mgmt_subsection_filter", format_func=auto_t)
             # Same fix and same reasoning as the Superintendent's
             # "Manage Tasks" view — this previously showed EVERY task
             # ever created with no completion-status filter at all
             # (only the subsection dropdown above narrowed anything),
             # which is almost certainly the main reason task volume
             # made the app feel slow over time.
-            _mgmt_show_completed_v = st.checkbox("Include completed tasks", value=False, key="sup_mgmt_show_completed")
-            _mgmt_search_v = st.text_input("🔍 Search by title or location", "", key="sup_mgmt_task_search")
+            _mgmt_show_completed_v = st.checkbox(auto_t("Include completed tasks"), value=False, key="sup_mgmt_show_completed")
+            _mgmt_search_v = st.text_input(auto_t("🔍 Search by title or location"), "", key="sup_mgmt_task_search")
             _tasks_to_show = st.session_state.tasks if _mgmt_show_completed_v else \
                 [t2 for t2 in st.session_state.tasks if t2.get('status') not in ("Complete", "Completed", "Closed", "Cancelled")]
             _tasks_to_show = quick_filter(_tasks_to_show, _mgmt_search_v, ["title", "location"])
@@ -27502,7 +27919,7 @@ if selected_section == "Task Dashboard":
                                                key=f"assign_{task['id']}")
                 _team_options = [w for w in worker_names if w not in ("Unassigned", new_assign)]
                 _current_team = [n for n in _team_by_task.get(task['id'], []) if n in _team_options]
-                _new_team = st.multiselect("Team members (in addition to the assignee above)",
+                _new_team = st.multiselect(auto_t("Team members (in addition to the assignee above)"),
                                            _team_options, default=_current_team,
                                            key=f"team_{task['id']}")
                 if set(_new_team) != set(_current_team):
@@ -27525,17 +27942,17 @@ if selected_section == "Task Dashboard":
                         update_task(task['id'], {"status": "Complete"}, full_name)
                         log_audit(full_name, "task_approve", {"task_id": task['id']})
                         st.rerun()
-                with st.expander("💬 Comments"):
+                with st.expander(auto_t("💬 Comments")):
                     render_presence_indicator(f"task:{task['id']}", username, full_name)
                     render_comments_section(task, full_name, key_prefix="sup")
-                with st.expander("📎 Attachments"):
+                with st.expander(auto_t("📎 Attachments")):
                     attachments = fetch_attachments(task['id'])
                     if attachments:
                         for a in attachments:
                             st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
                     else:
                         st.caption(t("task.caption_no_attachments"))
-                    uploaded_file = st.file_uploader("Upload attachment", type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_sup_{task['id']}")
+                    uploaded_file = st.file_uploader(auto_t("Upload attachment"), type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_sup_{task['id']}")
                     if uploaded_file is not None:
                         if st.button(t("task.btn_upload"), key=f"attach_btn_sup_{task['id']}"):
                             bytes_data = uploaded_file.getvalue()
@@ -27544,13 +27961,13 @@ if selected_section == "Task Dashboard":
                                 st.rerun()
                 photos = fetch_photos(task['id'])
                 if photos:
-                    with st.expander(f"📸 Photos for Task #{task['id']}"):
+                    with st.expander(auto_t("📸 Photos for Task #{0}").format(task['id'])):
                         cols = st.columns(min(4, len(photos)))
                         for idx, photo in enumerate(photos):
                             with cols[idx % len(cols)]:
                                 img_url = photo.get('photo_url', '')
                                 if img_url.startswith('memory://'):
-                                    st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
+                                    st.info(auto_t("📷 {0} uploaded a photo").format(photo.get('uploaded_by', 'Unknown')))
                                 else:
                                     st.image(img_url, width=120)
                                 st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
@@ -27563,11 +27980,11 @@ if selected_section == "Task Dashboard":
             # the form couldn't show its result until the whole form was
             # submitted, defeating the point of previewing it first.
             if AI_FEATURES_AVAILABLE:
-                with st.expander("✨ Smart Work Order Description (optional)"):
-                    st.caption("Type a brief, rough note — AI will expand it into a clearer description "
-                              "you can review and edit below before creating the task.")
-                    _brief_notes = st.text_input("Brief notes", key="smart_desc_brief")
-                    if st.button("✨ Expand with AI", key="smart_desc_expand_btn"):
+                with st.expander(auto_t("✨ Smart Work Order Description (optional)")):
+                    st.caption(auto_t("Type a brief, rough note — AI will expand it into a clearer description "
+                              "you can review and edit below before creating the task."))
+                    _brief_notes = st.text_input(auto_t("Brief notes"), key="smart_desc_brief")
+                    if st.button(auto_t("✨ Expand with AI"), key="smart_desc_expand_btn"):
                         if _brief_notes.strip():
                             with st.spinner("Generating description..."):
                                 _expanded = generate_smart_work_order_description(_brief_notes)
@@ -27575,42 +27992,42 @@ if selected_section == "Task Dashboard":
                                 st.session_state["_smart_description_result"] = _expanded
                                 st.rerun()
                             else:
-                                st.error("Couldn't generate a description right now — you can still write "
-                                         "one directly in the Description field below.")
+                                st.error(auto_t("Couldn't generate a description right now — you can still write "
+                                         "one directly in the Description field below."))
                         else:
-                            st.warning("Enter some brief notes first.")
+                            st.warning(auto_t("Enter some brief notes first."))
 
             _location_options = get_location_path_options()
             with st.form("new_task_form", clear_on_submit=True):
                 title = st.text_input(t("task.field_task_title"), max_chars=100)
                 description = st.text_area(
-                    "Description (optional)",
+                    auto_t("Description (optional)"),
                     value=st.session_state.pop("_smart_description_result", ""),
-                    help="A fuller description of the work — the AI expander above can help draft this.")
+                    help=auto_t("A fuller description of the work — the AI expander above can help draft this."))
                 if _location_options:
                     location = selectbox_with_other(t("task.field_location"), _location_options,
                                                     key_prefix="task_location")
                 else:
                     location = st.text_input(t("task.field_location"), max_chars=100)
-                priority = st.selectbox(t("task.field_priority"), ["Low", "Medium", "High", "Critical"])
-                due_date = st.date_input("Due Date", value=datetime.now() + timedelta(days=7))
+                priority = st.selectbox(t("task.field_priority"), ["Low", "Medium", "High", "Critical"], format_func=auto_t)
+                due_date = st.date_input(auto_t("Due Date"), value=datetime.now() + timedelta(days=7))
                 asset_options = ["None"] + [f"#{a['id']} {a['name']}" for a in st.session_state.get("assets", [])]
                 selected_asset = st.selectbox(t("task.field_linked_asset"), asset_options)
                 work_type = st.selectbox(t("task.field_work_type"), ["Reactive", "Preventive", "Planned", "Predictive", "Improvement"],
-                                          help="Drives the planned-vs-reactive benchmark. Reactive = breakdown response.")
+                                          help=auto_t("Drives the planned-vs-reactive benchmark. Reactive = breakdown response."), format_func=auto_t)
                 subsection = st.selectbox(
-                    "Electrical Dept. Subsection (optional)",
+                    auto_t("Electrical Dept. Subsection (optional)"),
                     ["None", "Electrical Workshop", "Carbonate Plant", "Auto Electricals"],
-                    help="Only relevant for Electrical Department work — leave as None for tasks "
-                        "elsewhere on site. Lets the team see workload split across the three areas.")
-                labour_rate = st.number_input("Labour rate (per hour, for costing)", min_value=0.0, value=0.0, step=1.0)
+                    help=auto_t("Only relevant for Electrical Department work — leave as None for tasks "
+                        "elsewhere on site. Lets the team see workload split across the three areas."), format_func=auto_t)
+                labour_rate = st.number_input(auto_t("Labour rate (per hour, for costing)"), min_value=0.0, value=0.0, step=1.0)
                 is_recurring = st.checkbox(t("task.chk_recurring"))
-                recurrence_type = st.selectbox(t("task.field_recurrence"), ["daily", "weekly", "monthly", "meter-based"], disabled=not is_recurring)
-                recurrence_end_date = st.date_input("End Date (optional)", value=datetime.now() + timedelta(days=30), disabled=not is_recurring)
-                meter_interval = st.number_input("Meter Interval (e.g. every N hours, only if meter-based)", min_value=0, value=0, disabled=not is_recurring)
+                recurrence_type = st.selectbox(t("task.field_recurrence"), ["daily", "weekly", "monthly", "meter-based"], disabled=not is_recurring, format_func=auto_t)
+                recurrence_end_date = st.date_input(auto_t("End Date (optional)"), value=datetime.now() + timedelta(days=30), disabled=not is_recurring)
+                meter_interval = st.number_input(auto_t("Meter Interval (e.g. every N hours, only if meter-based)"), min_value=0, value=0, disabled=not is_recurring)
                 loto = st.checkbox(t("task.chk_requires_loto"))
                 jsa = st.checkbox(t("task.chk_requires_jsa"))
-                weather_sensitive_flag = st.checkbox("🌧️ Weather-sensitive (flag if adverse weather is forecast)")
+                weather_sensitive_flag = st.checkbox(auto_t("🌧️ Weather-sensitive (flag if adverse weather is forecast)"))
                 jsa_document_id = None
                 if JSA_LIBRARY_MODULE_AVAILABLE:
                     _jsa_docs = jsa_library.fetch_jsa_documents()
@@ -27618,13 +28035,13 @@ if selected_section == "Task Dashboard":
                         _jsa_choices = {"None": None}
                         _jsa_choices.update({d["title"]: d["id"] for d in _jsa_docs})
                         _jsa_pick = st.selectbox(
-                            "📄 Link a specific JSA/SWP (optional)", list(_jsa_choices.keys()),
-                            help="Workers see this exact document on the task, instead of guessing "
-                                "which paper file applies.")
+                            auto_t("📄 Link a specific JSA/SWP (optional)"), list(_jsa_choices.keys()),
+                            help=auto_t("Workers see this exact document on the task, instead of guessing "
+                                "which paper file applies."))
                         jsa_document_id = _jsa_choices[_jsa_pick]
                     else:
-                        st.caption("No JSA documents in the library yet — add one under JSA Library first.")
-                submitted = st.form_submit_button('➕ Create Work Ticket')
+                        st.caption(auto_t("No JSA documents in the library yet — add one under JSA Library first."))
+                submitted = st.form_submit_button(auto_t('➕ Create Work Ticket'))
                 if submitted:
                     if title and location:
                         asset_id = None
@@ -27646,7 +28063,7 @@ if selected_section == "Task Dashboard":
                             subsection=subsection if subsection != "None" else None,
                         )
                         if new_task:
-                            st.success(f"Task #{new_task['id']} created!")
+                            st.success(auto_t("Task #{0} created!").format(new_task['id']))
                             st.rerun()
                         elif st.session_state.pop("_last_error_was_connectivity", False):
                             st.error(friendly_db_error("connection timeout"))
@@ -27669,7 +28086,7 @@ if selected_section == "Task Dashboard":
             low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
             kcol4.metric("Low Stock Parts", low_stock_count)
             if mttr_n and mttr_n < 10:
-                st.caption(f"⚠️ MTTR is based on only {mttr_n} completed task(s) — indicative, not yet reliable.")
+                st.caption(auto_t("⚠️ MTTR is based on only {0} completed task(s) — indicative, not yet reliable.").format(mttr_n))
             st.caption(t("task.caption_full_breakdowns"))
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
@@ -27690,10 +28107,10 @@ if selected_section == "Task Dashboard":
             if st.button(t("task.btn_export_csv")):
                 csv = export_tasks_csv(st.session_state.tasks)
                 if csv:
-                    st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
+                    st.download_button(auto_t("Download CSV"), data=csv, file_name="tasks_export.csv", mime="text/csv")
 
     elif role == "superintendent":
-        st.markdown('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>', unsafe_allow_html=True)
+        st.markdown(auto_t('<div class="sub-header"><i class="fas fa-hard-hat"></i> Superintendent Control Centre</div>'), unsafe_allow_html=True)
         superintendent_sub = option_menu(
             menu_title=None,
             options=["Overview", "Manage Tasks", "Broadcast Log", "Dashboard", "User Management"],
@@ -27750,8 +28167,8 @@ if selected_section == "Task Dashboard":
             # "full control" realistically means day-to-day), with a
             # search box and an explicit opt-in to include completed
             # ones for whoever genuinely needs to find an old task.
-            _mgmt_show_completed = st.checkbox("Include completed tasks", value=False, key="mgmt_show_completed")
-            _mgmt_search = st.text_input("🔍 Search by title or location", "", key="mgmt_task_search")
+            _mgmt_show_completed = st.checkbox(auto_t("Include completed tasks"), value=False, key="mgmt_show_completed")
+            _mgmt_search = st.text_input(auto_t("🔍 Search by title or location"), "", key="mgmt_task_search")
             _mgmt_tasks = st.session_state.tasks if _mgmt_show_completed else \
                 [t2 for t2 in st.session_state.tasks if t2.get('status') not in ("Complete", "Completed", "Closed", "Cancelled")]
             _mgmt_tasks = quick_filter(_mgmt_tasks, _mgmt_search, ["title", "location"])
@@ -27782,7 +28199,7 @@ if selected_section == "Task Dashboard":
                                                key=f"sup_assign_{task['id']}")
                 _team_options_s = [w for w in worker_names if w not in ("Unassigned", new_assign)]
                 _current_team_s = [n for n in _team_by_task_s.get(task['id'], []) if n in _team_options_s]
-                _new_team_s = st.multiselect("Team members (in addition to the assignee above)",
+                _new_team_s = st.multiselect(auto_t("Team members (in addition to the assignee above)"),
                                              _team_options_s, default=_current_team_s,
                                              key=f"sup_team_{task['id']}")
                 if set(_new_team_s) != set(_current_team_s):
@@ -27811,17 +28228,17 @@ if selected_section == "Task Dashboard":
                         st.rerun()
                     else:
                         st.error(t("task.err_delete_failed"))
-                with st.expander("💬 Comments"):
+                with st.expander(auto_t("💬 Comments")):
                     render_presence_indicator(f"task:{task['id']}", username, full_name)
                     render_comments_section(task, full_name, key_prefix="supt")
-                with st.expander("📎 Attachments"):
+                with st.expander(auto_t("📎 Attachments")):
                     attachments = fetch_attachments(task['id'])
                     if attachments:
                         for a in attachments:
                             st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
                     else:
                         st.caption(t("task.caption_no_attachments"))
-                    uploaded_file = st.file_uploader("Upload attachment", type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_sup_{task['id']}")
+                    uploaded_file = st.file_uploader(auto_t("Upload attachment"), type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_sup_{task['id']}")
                     if uploaded_file is not None:
                         if st.button(t("task.btn_upload"), key=f"attach_btn_sup_{task['id']}"):
                             bytes_data = uploaded_file.getvalue()
@@ -27830,13 +28247,13 @@ if selected_section == "Task Dashboard":
                                 st.rerun()
                 photos = fetch_photos(task['id'])
                 if photos:
-                    with st.expander(f"📸 Photos for Task #{task['id']}"):
+                    with st.expander(auto_t("📸 Photos for Task #{0}").format(task['id'])):
                         cols = st.columns(min(4, len(photos)))
                         for idx, photo in enumerate(photos):
                             with cols[idx % len(cols)]:
                                 img_url = photo.get('photo_url', '')
                                 if img_url.startswith('memory://'):
-                                    st.info(f"📷 {photo.get('uploaded_by', 'Unknown')} uploaded a photo")
+                                    st.info(auto_t("📷 {0} uploaded a photo").format(photo.get('uploaded_by', 'Unknown')))
                                 else:
                                     st.image(img_url, width=120)
                                 st.caption(f"By {photo.get('uploaded_by', 'Unknown')}")
@@ -27865,7 +28282,7 @@ if selected_section == "Task Dashboard":
             low_stock_count = sum(1 for p in st.session_state.get("parts", []) if p.get('quantity_on_hand', 0) <= p.get('reorder_point', 0))
             kcol4.metric("Low Stock Parts", low_stock_count)
             if mttr_n and mttr_n < 10:
-                st.caption(f"⚠️ MTTR is based on only {mttr_n} completed task(s) — indicative, not yet reliable.")
+                st.caption(auto_t("⚠️ MTTR is based on only {0} completed task(s) — indicative, not yet reliable.").format(mttr_n))
             st.caption(t("task.caption_full_breakdowns"))
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
@@ -27886,7 +28303,7 @@ if selected_section == "Task Dashboard":
             if st.button(t("task.btn_export_csv")):
                 csv = export_tasks_csv(st.session_state.tasks)
                 if csv:
-                    st.download_button("Download CSV", data=csv, file_name="tasks_export.csv", mime="text/csv")
+                    st.download_button(auto_t("Download CSV"), data=csv, file_name="tasks_export.csv", mime="text/csv")
 
         elif superintendent_sub == "User Management":
             st.markdown(f"### {t('task.hdr_user_directory')}")
@@ -27912,7 +28329,7 @@ if selected_section == "Task Dashboard":
             _uc3.metric("Suspended", len(suspended_users))
 
             if pending_users:
-                st.warning(f"⏳ {len(pending_users)} request(s) awaiting the owner's decision.")
+                st.warning(auto_t("⏳ {0} request(s) awaiting the owner's decision.").format(len(pending_users)))
 
             st.markdown(f"#### {t('task.hdr_active_users')}")
             if approved_users:
@@ -28052,47 +28469,51 @@ elif selected_section == "Technician Certifications":
         page_technician_certifications()
 elif selected_section == "Offline Mode":
     with st.container(key="page_OfflineMode"):
-        st.markdown("### 📴 Offline Mode")
+        st.markdown(auto_t("### 📴 Offline Mode"))
         st.info(
-            "This page works even with no signal, **once it has loaded once while you had a "
+            auto_t("This page works even with no signal, **once it has loaded once while you had a "
             "connection**. It caches your assigned tasks locally in your browser, then lets you "
             "queue status changes, comments, and photos while offline — plus report a safety "
             "incident offline, whether or not it's tied to a specific task. **Nothing is sent "
             "anywhere automatically** — once you're back online, export the queue below and "
             "paste it into **Sync Review**, where every queued action is reviewed individually "
-            "before it's actually applied."
+            "before it's actually applied.")
         )
         _offline_team_ids = fetch_task_ids_for_team_member(full_name)
         _offline_my_tasks = [t for t in st.session_state.tasks
                              if (t.get('assigned_to') == full_name or t.get('id') in _offline_team_ids)
                              and t.get('status') not in ("Completed", "Closed", "Cancelled")]
         if not _offline_my_tasks:
-            st.caption("No open tasks assigned to you — the Incident Report tab below still works.")
+            st.caption(auto_t("No open tasks assigned to you — the Incident Report tab below still works."))
+        _offline_task_ids = {t['id'] for t in _offline_my_tasks}
+        _offline_my_permits = [p for p in fetch_permits() if p.get('task_id') in _offline_task_ids
+                               and p.get('status') in ('Issued', 'Active')]
         st.components.v1.html(
             render_offline_capture_component(_offline_my_tasks, username, full_name, app_url=APP_URL,
                                              assets=st.session_state.assets,
-                                             prestart_templates=fetch_prestart_templates()),
+                                             prestart_templates=fetch_prestart_templates(),
+                                             permits=_offline_my_permits),
             height=900, scrolling=True,
         )
         st.caption(
-            "⚠️ Known limits: photos are auto-compressed but still capped around 1.5MB each "
+            auto_t("⚠️ Known limits: photos are auto-compressed but still capped around 1.5MB each "
             "while offline (browser storage isn't unlimited), and this page's own data only "
             "survives if your phone's browser doesn't clear its storage in the meantime. For "
             "an incident that's urgent, prefer a live connection or another reporting channel "
-            "if one's available — don't wait on a sync that hasn't happened yet."
+            "if one's available — don't wait on a sync that hasn't happened yet.")
         )
 
 elif selected_section == "Sync Review":
     with st.container(key="page_SyncReview"):
-        st.markdown("### 🔄 Sync Review")
+        st.markdown(auto_t("### 🔄 Sync Review"))
         st.caption(
-            "Paste the JSON exported from Offline Mode, or upload the downloaded file. Every "
+            auto_t("Paste the JSON exported from Offline Mode, or upload the downloaded file. Every "
             "queued action is shown individually below — nothing is applied until you approve "
             "it. Approved actions go through the exact same checks as if you'd done them live "
-            "(permit gates, conflict detection if the task changed since you went offline)."
+            "(permit gates, conflict detection if the task changed since you went offline).")
         )
-        _sync_uploaded = st.file_uploader("Upload exported queue (.json)", type=["json"], key="sync_review_upload")
-        _sync_pasted = st.text_area("...or paste the exported JSON here", height=150, key="sync_review_paste")
+        _sync_uploaded = st.file_uploader(auto_t("Upload exported queue (.json)"), type=["json"], key="sync_review_upload")
+        _sync_pasted = st.text_area(auto_t("...or paste the exported JSON here"), height=150, key="sync_review_paste")
 
         _sync_actions = None
         _sync_source_text = None
@@ -28100,7 +28521,7 @@ elif selected_section == "Sync Review":
             try:
                 _sync_source_text = _sync_uploaded.read().decode("utf-8")
             except Exception as e:
-                st.error(f"Couldn't read the uploaded file: {e}")
+                st.error(auto_t("Couldn't read the uploaded file: {0}").format(e))
         elif _sync_pasted.strip():
             _sync_source_text = _sync_pasted
 
@@ -28108,71 +28529,81 @@ elif selected_section == "Sync Review":
             try:
                 _sync_actions = json.loads(_sync_source_text)
                 if not isinstance(_sync_actions, list):
-                    st.error("Expected a JSON list of queued actions — check you copied the whole export.")
+                    st.error(auto_t("Expected a JSON list of queued actions — check you copied the whole export."))
                     _sync_actions = None
             except Exception as e:
-                st.error(f"Couldn't parse that as JSON: {e}")
+                st.error(auto_t("Couldn't parse that as JSON: {0}").format(e))
 
         if _sync_actions:
             _processed_ids = get_processed_offline_client_ids()
             _new_actions = [a for a in _sync_actions if a.get("client_id") not in _processed_ids]
             _already_done = len(_sync_actions) - len(_new_actions)
-            st.markdown(f"**{len(_new_actions)} new queued action(s) found.**")
+            st.markdown(auto_t("**{0} new queued action(s) found.**").format(len(_new_actions)))
             if _already_done:
-                st.caption(f"({_already_done} action(s) in this export were already reviewed before "
-                          f"and are hidden — safe to re-paste an old export without double-applying it.)")
+                st.caption(auto_t("({0} action(s) in this export were already reviewed before and are hidden — safe to re-paste an old export without double-applying it.)").format(_already_done)
+)
 
             for _sa_idx, _action in enumerate(_new_actions):
                 _client_id = _action.get("client_id", str(_sa_idx))
                 _atype = _action.get("action_type")
                 with st.container(border=True):
                     if _atype == "incident":
-                        st.markdown(f"**🚨 Incident report** ({esc(_action.get('payload', {}).get('incident_type', '?'))})")
+                        st.markdown(auto_t("**🚨 Incident report** ({0})").format(esc(_action.get('payload', {}).get('incident_type', '?'))))
                     elif _atype == "prestart_checklist":
-                        st.markdown(f"**✅ Pre-Start Checklist** — {esc(_action.get('task_title', ''))}")
+                        st.markdown(auto_t("**✅ Pre-Start Checklist** — {0}").format(esc(_action.get('task_title', ''))))
                     elif _atype == "logbook_entry":
-                        st.markdown(f"**📔 Logbook Entry** ({esc(_action.get('payload', {}).get('category', '?'))})")
+                        st.markdown(auto_t("**📔 Logbook Entry** ({0})").format(esc(_action.get('payload', {}).get('category', '?'))))
+                    elif _atype == "permit_accept":
+                        st.markdown(auto_t("**🔒 Permit Accept** — {0}").format(esc(_action.get('task_title', ''))))
+                    elif _atype == "permit_sign_back":
+                        st.markdown(auto_t("**🔓 Permit Sign Back** — {0}").format(esc(_action.get('task_title', ''))))
                     else:
                         st.markdown(
-                            f"**Task #{_action.get('task_id')}: {esc(_action.get('task_title', ''))}** — "
-                            f"{esc(_atype or '?')}"
+                            auto_t("**Task #{0}: {1}** — {2}").format(_action.get('task_id'), esc(_action.get('task_title', '')), esc(_atype or '?'))
+
                         )
                     st.caption(
-                        f"Queued by {esc(_action.get('queued_by_name') or _action.get('queued_by', '?'))} "
-                        f"at {esc(_action.get('queued_at', '?'))}"
+                        auto_t("Queued by {0} at {1}").format(esc(_action.get('queued_by_name') or _action.get('queued_by', '?')), esc(_action.get('queued_at', '?')))
+
                     )
                     _payload = _action.get("payload", {})
                     if _atype == "status_change":
-                        st.write(f"New status: **{esc(_payload.get('new_status', '?'))}**")
+                        st.write(auto_t("New status: **{0}**").format(esc(_payload.get('new_status', '?'))))
                     elif _atype == "comment":
-                        st.write(f"Comment: {esc(_payload.get('comment', ''))}")
+                        st.write(auto_t("Comment: {0}").format(esc(_payload.get('comment', ''))))
                     elif _atype == "photo":
-                        st.write(f"Photo: {esc(_payload.get('filename', 'unnamed'))}")
+                        st.write(auto_t("Photo: {0}").format(esc(_payload.get('filename', 'unnamed'))))
                         _data_url = _payload.get("data_base64", "")
                         if _data_url.startswith("data:image"):
                             st.image(_data_url, width=200)
                     elif _atype == "incident":
-                        st.write(f"Severity: **{esc(_payload.get('severity', '?'))}**")
-                        st.write(f"Location: {esc(_payload.get('location', '—'))}")
-                        st.write(f"Description: {esc(_payload.get('description', ''))}")
+                        st.write(auto_t("Severity: **{0}**").format(esc(_payload.get('severity', '?'))))
+                        st.write(auto_t("Location: {0}").format(esc(_payload.get('location', '—'))))
+                        st.write(auto_t("Description: {0}").format(esc(_payload.get('description', ''))))
                     elif _atype == "prestart_checklist":
                         _sync_results = _payload.get("results", [])
                         _sync_failed = [r for r in _sync_results if not r.get("passed")]
                         if _sync_failed:
-                            st.error(f"⚠️ {len(_sync_failed)} of {len(_sync_results)} item(s) FAILED")
+                            st.error(auto_t("⚠️ {0} of {1} item(s) FAILED").format(len(_sync_failed), len(_sync_results)))
                         else:
-                            st.success(f"All {len(_sync_results)} item(s) passed")
+                            st.success(auto_t("All {0} item(s) passed").format(len(_sync_results)))
                         for r in _sync_results:
                             _r_icon = "✅" if r.get("passed") else "❌"
                             _r_crit = " (CRITICAL)" if r.get("is_critical") else ""
                             st.write(f"{_r_icon} {esc(r.get('item', ''))}{_r_crit}")
                         if _payload.get("notes"):
-                            st.caption(f"Notes: {esc(_payload['notes'])}")
+                            st.caption(auto_t("Notes: {0}").format(esc(_payload['notes'])))
                     elif _atype == "logbook_entry":
-                        st.write(f"Category: **{esc(_payload.get('category', '?'))}**")
+                        st.write(auto_t("Category: **{0}**").format(esc(_payload.get('category', '?'))))
                         if _payload.get("location"):
-                            st.write(f"Location: {esc(_payload['location'])}")
-                        st.write(f"Entry: {esc(_payload.get('entry_text', ''))}")
+                            st.write(auto_t("Location: {0}").format(esc(_payload['location'])))
+                        st.write(auto_t("Entry: {0}").format(esc(_payload.get('entry_text', ''))))
+                    elif _atype in ("permit_accept", "permit_sign_back"):
+                        st.write(auto_t("Permit: #{0}").format(_payload.get('permit_id', '?')))
+                        _permit_check = next((p for p in fetch_permits() if p["id"] == _payload.get('permit_id')), None)
+                        _expected_status = "Issued" if _atype == "permit_accept" else "Active"
+                        if _permit_check and _permit_check.get("status") != _expected_status:
+                            st.warning(auto_t("This permit's status has changed since this was queued ({0} now) — applying this may fail, which is the correct, safe outcome if so.").format(esc(_permit_check.get("status", "?"))))
 
                     _rcol1, _rcol2 = st.columns(2)
                     if _rcol1.button("✅ Approve & apply", key=f"sync_approve_{_client_id}"):
@@ -28181,7 +28612,7 @@ elif selected_section == "Sync Review":
                         get_processed_offline_client_ids.clear()
                     if _rcol2.button("❌ Reject", key=f"sync_reject_{_client_id}"):
                         reject_offline_action(_action, full_name, reason="Rejected in Sync Review")
-                        st.info("Marked as rejected — no change was made.")
+                        st.info(auto_t("Marked as rejected — no change was made."))
                         get_processed_offline_client_ids.clear()
 
 elif selected_section == "Help":
@@ -28240,11 +28671,11 @@ if st.session_state.pop("_scroll_to_top_pending", False):
     )
 
 # Footer
-st.markdown("""
+st.markdown(auto_t("""
 <div class="footer">
     <i class="fas fa-hard-hat"></i> Mine & Workshop Digital Tracker v3.0 — CMMS Edition &nbsp;|&nbsp; Asset Register · Inventory · Incident Reporting · KPI Analytics &nbsp;|&nbsp; Powered by Streamlit & Supabase
 </div>
-""", unsafe_allow_html=True)
+"""), unsafe_allow_html=True)
 
 # Bottom navigation bar — see the CSS comment (.bottom-nav-bar) for
 # why this is a real position:fixed bar with real buttons rather than
