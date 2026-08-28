@@ -5453,7 +5453,7 @@ def complete_login(matched_user):
         "avatar_url": matched_user.get("avatar_url", None),
         "must_change_password": matched_user.get("must_change_password", False),
     }
-    st.session_state["user_language"] = matched_user.get("preferred_language") or "en"
+    st.session_state["user_language"] = resolve_post_login_language(matched_user)
     st.session_state["_show_welcome"] = not matched_user.get("has_seen_welcome", False)
     st.session_state.authenticated = True
     st.session_state.last_activity = datetime.now()
@@ -7014,11 +7014,20 @@ def fetch_comments(task_id):
     return []
 
 
-def render_comments_section(task, full_name, key_prefix):
+def render_comments_section(task, full_name, key_prefix, authorized=True):
     """Shared comments UI — threaded (one level of replies) with
     @mention support. Used by all three role-specific task detail
     views so 'add threading here' is one change, not three near-
-    identical ones drifting out of sync."""
+    identical ones drifting out of sync.
+
+    authorized controls posting only, never the history display —
+    someone viewing a colleague's task can still read what's been
+    said about it (shift awareness), they just can't add to it if
+    they're not the assignee, a team member, or a supervisor/
+    superintendent. Defaults to True so any call site that hasn't
+    been updated to pass it explicitly keeps its EXISTING behavior
+    rather than silently losing the ability to comment.
+    """
     comments = fetch_comments(task['id'])
     top_level = [c for c in comments if not c.get('parent_comment_id')]
     replies_by_parent = {}
@@ -7033,6 +7042,8 @@ def render_comments_section(task, full_name, key_prefix):
         for r in replies_by_parent.get(c['id'], []):
             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;↳ **{esc(r['posted_by'])}** "
                        f"({_fmt_log_time(r['posted_at'])}): {esc(r['comment'])}", unsafe_allow_html=True)
+        if not authorized:
+            continue
         _reply_key = f"_reply_open_{key_prefix}_{c['id']}"
         if st.button(auto_t("↩️ Reply"), key=f"reply_btn_{key_prefix}_{c['id']}"):
             st.session_state[_reply_key] = not st.session_state.get(_reply_key, False)
@@ -7049,6 +7060,10 @@ def render_comments_section(task, full_name, key_prefix):
                         st.rerun()
                     else:
                         st.error(t("task.err_comment_failed"))
+
+    if not authorized:
+        st.caption(auto_t("👁️ Assigned to {0} — you can view comments but only they (or their team) can post here.").format(esc(task.get("assigned_to") or "another worker")))
+        return
 
     _comment_val_key = f"_comment_val_{key_prefix}_{task['id']}"
     if _comment_val_key not in st.session_state:
@@ -16788,6 +16803,32 @@ def set_user_language(lang_code, username):
             # across future logins silently didn't save this time.
 
 
+def resolve_post_login_language(matched_user):
+    """Called once per successful login, right where session-state
+    login code previously hard-defaulted to English. Returns the
+    language to actually use for this session: the account's own
+    saved preference if it has one, otherwise whatever was picked on
+    the pre-login welcome/login screen — not a hard-coded "en" that
+    would otherwise silently undo a choice made seconds earlier, the
+    exact jarring reset this function exists to avoid.
+
+    If the account had NO saved preference and a real pre-login
+    choice exists, persists that choice as the account's new
+    preference too, so it's still there next time they log in from
+    anywhere — not just remembered for this one browser session.
+    """
+    if matched_user.get("preferred_language"):
+        return matched_user["preferred_language"]
+    _pre_login_choice = st.session_state.get("user_language")
+    if _pre_login_choice and _pre_login_choice in SUPPORTED_LANGUAGES and _pre_login_choice != "en":
+        try:
+            set_user_language(_pre_login_choice, matched_user.get("username"))
+        except Exception as e:
+            log_error(str(e), endpoint="resolve_post_login_language")
+        return _pre_login_choice
+    return "en"
+
+
 # Registry of available "My Dashboard" widgets — a curated set of
 # EXISTING analytics functions already built and proven elsewhere in
 # this app, not a general-purpose widget framework. Each entry is
@@ -18643,7 +18684,7 @@ def whatsapp_login():
                             "avatar_url": matched_user.get("avatar_url", None),
                             "must_change_password": False,
                         }
-                        st.session_state["user_language"] = matched_user.get("preferred_language") or "en"
+                        st.session_state["user_language"] = resolve_post_login_language(matched_user)
                         st.session_state["_show_welcome"] = not matched_user.get("has_seen_welcome", False)
                         st.session_state.authenticated = True
                         st.session_state.last_activity = datetime.now()
@@ -18955,7 +18996,7 @@ def handle_google_oauth_return():
                                          # a change on here even if the flag is set in the
                                          # DB from before this account switched to Google.
     }
-    st.session_state["user_language"] = matched_user.get("preferred_language") or "en"
+    st.session_state["user_language"] = resolve_post_login_language(matched_user)
     st.session_state["_show_welcome"] = not matched_user.get("has_seen_welcome", False)
     st.session_state.authenticated = True
     st.session_state.last_activity = datetime.now()
@@ -19059,7 +19100,7 @@ if not st.session_state.authenticated and not st.session_state.get("_session_tok
                     "avatar_url": _restored_user.get("avatar_url", None),
                     "must_change_password": _restored_user.get("must_change_password", False),
                 }
-                st.session_state["user_language"] = _restored_user.get("preferred_language") or "en"
+                st.session_state["user_language"] = resolve_post_login_language(_restored_user)
                 st.session_state["_show_welcome"] = False  # already seen it in the original session
                 st.session_state.authenticated = True
                 st.session_state.last_activity = datetime.now()
@@ -19084,6 +19125,26 @@ if not st.session_state.authenticated and not st.session_state["_pre_login_welco
     # continuous-reload issue.
     try:
         render_logo_bar()
+        # The FIRST interactive thing anyone sees, before anything
+        # else on this page — someone who can't read English shouldn't
+        # have to get through an English hero section and English
+        # role cards just to find where to fix that. Options list is
+        # rebuilt from SUPPORTED_LANGUAGES itself, not hand-maintained
+        # separately, so a language added there automatically shows up
+        # here with no second place to remember to update.
+        _lang_codes = list(SUPPORTED_LANGUAGES.keys())
+        _current_lang = get_user_language()
+        _lang_col1, _lang_col2 = st.columns([3, 2])
+        with _lang_col2:
+            _picked_lang = st.selectbox(
+                "🌐", _lang_codes,
+                index=_lang_codes.index(_current_lang) if _current_lang in _lang_codes else 0,
+                format_func=lambda code: SUPPORTED_LANGUAGES.get(code, code),
+                key="_pre_login_lang_picker", label_visibility="collapsed")
+        if _picked_lang != _current_lang:
+            st.session_state["user_language"] = _picked_lang
+            st.rerun()
+
         st.markdown(auto_t('''
         <div class="landing-hero">
             <i class="fas fa-hard-hat landing-icon"></i>
@@ -19357,6 +19418,25 @@ elif not st.session_state.authenticated:
     # we're waiting on a 2FA code instead, so the person isn't shown
     # both forms confusingly at once.
     if not st.session_state.get("_pending_2fa_username"):
+        # Same selector as the welcome page, repeated here rather than
+        # assumed already-seen — reachable directly (session timeout,
+        # after 2FA, a bookmarked link) without ever passing through
+        # the welcome page at all, and someone who dismissed that page
+        # before deciding they want a different language still needs
+        # a way to change it before typing their password.
+        _lang_codes = list(SUPPORTED_LANGUAGES.keys())
+        _current_lang = get_user_language()
+        _login_lang_col1, _login_lang_col2 = st.columns([3, 2])
+        with _login_lang_col2:
+            _picked_login_lang = st.selectbox(
+                "🌐", _lang_codes,
+                index=_lang_codes.index(_current_lang) if _current_lang in _lang_codes else 0,
+                format_func=lambda code: SUPPORTED_LANGUAGES.get(code, code),
+                key="_login_form_lang_picker", label_visibility="collapsed")
+        if _picked_login_lang != _current_lang:
+            st.session_state["user_language"] = _picked_login_lang
+            st.rerun()
+
         with st.form("login_form", clear_on_submit=True):
             user_in = st.text_input(auto_t("Username"), placeholder="Enter your username").strip().lower()
             pass_in = st.text_input(auto_t("Password"), type="password", placeholder="Enter your password")
@@ -27692,15 +27772,25 @@ if selected_section == "Task Dashboard":
                                 st.image(_task_qr_img, width=180)
 
                     col1, col2 = st.columns([2, 3])
+                    # Computed once per task, reused for every editable
+                    # control below (LOTO/JSA checkboxes, status
+                    # selectbox) — disabled=True renders the SAME
+                    # information a viewer would otherwise see, just
+                    # not interactive, which is the "can see it, can't
+                    # edit it" requirement this whole authorization
+                    # layer exists for.
+                    _task_authorized = user_is_assigned_to_task(task, full_name, role)
                     with col1:
-                        loto = st.checkbox(t("task.chk_loto_isolated"), value=task.get('loto', False), key=f"loto_{task['id']}_{idx}")
-                        jsa = st.checkbox(t("task.chk_jsa_signed"), value=task.get('jsa', False), key=f"jsa_{task['id']}_{idx}")
+                        loto = st.checkbox(t("task.chk_loto_isolated"), value=task.get('loto', False), key=f"loto_{task['id']}_{idx}", disabled=not _task_authorized)
+                        jsa = st.checkbox(t("task.chk_jsa_signed"), value=task.get('jsa', False), key=f"jsa_{task['id']}_{idx}", disabled=not _task_authorized)
                     with col2:
                         status_options = ["In Progress", "Pending QA", "Blocked", "Complete"]
                         current_idx = status_options.index(task['status']) if task['status'] in status_options else 0
-                        new_status = st.selectbox(t("task.field_update_status"), status_options, index=current_idx, key=f"stat_{task['id']}_{idx}")
+                        new_status = st.selectbox(t("task.field_update_status"), status_options, index=current_idx, key=f"stat_{task['id']}_{idx}", disabled=not _task_authorized)
 
-                    if loto != task.get('loto') or jsa != task.get('jsa'):
+                    if not _task_authorized:
+                        st.caption(auto_t("👁️ Assigned to {0} — you can view this task but only they (or their team) can make changes.").format(esc(task.get("assigned_to") or "another worker")))
+                    elif loto != task.get('loto') or jsa != task.get('jsa'):
                         update_task(task['id'], {"loto": loto, "jsa": jsa}, full_name)
                         st.rerun()
 
@@ -27716,7 +27806,19 @@ if selected_section == "Task Dashboard":
 
                     # Closing out work: capture the data the analytics depend on.
                     if new_status != task['status']:
-                        if new_status == "Complete":
+                        # Only the assigned worker, their team, or a
+                        # supervisor/superintendent may actually change
+                        # this task's status — someone just viewing a
+                        # colleague's task (Kanban and Manage Tasks both
+                        # show every task for shift-awareness) shouldn't
+                        # be able to act on it. A warning, not a hard
+                        # error, since this isn't a broken/invalid
+                        # request — it's a normal person looking at
+                        # normal shared visibility who simply isn't the
+                        # one this particular job belongs to.
+                        if not user_is_assigned_to_task(task, full_name, role):
+                            st.warning(auto_t("🔒 Only {0} or their team can change this task's status.").format(esc(task.get("assigned_to") or "the assigned worker")))
+                        elif new_status == "Complete":
                             with st.form(f"close_out_{task['id']}_{idx}", clear_on_submit=True):
                                 st.markdown(t("task.txt_closeout_details"))
                                 fc_options = ["(none)"] + [f"{k} — {v}" for k, v in FAILURE_CODES.items()]
@@ -27776,7 +27878,7 @@ if selected_section == "Task Dashboard":
 
                     with st.expander(auto_t("💬 Comments")):
                         render_presence_indicator(f"task:{task['id']}", username, full_name)
-                        render_comments_section(task, full_name, key_prefix=f"w{idx}")
+                        render_comments_section(task, full_name, key_prefix=f"w{idx}", authorized=_task_authorized)
 
                     with st.expander(auto_t("📎 Attachments")):
                         attachments = fetch_attachments(task['id'])
@@ -27785,26 +27887,28 @@ if selected_section == "Task Dashboard":
                                 st.markdown(auto_t("[{0}]({1}) (uploaded by {2})").format(a['file_name'], a['file_url'], a['uploaded_by']))
                         else:
                             st.caption(t("task.caption_no_attachments"))
-                        uploaded_file = st.file_uploader(auto_t("Upload attachment (PDF, DOC, etc.)"), type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_{task['id']}_{idx}")
-                        if uploaded_file is not None:
-                            if st.button(t("task.btn_upload_attachment"), key=f"attach_btn_{task['id']}_{idx}"):
-                                bytes_data = uploaded_file.getvalue()
-                                if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
-                                    st.success(t("task.success_attachment"))
-                                    st.rerun()
+                        if _task_authorized:
+                            uploaded_file = st.file_uploader(auto_t("Upload attachment (PDF, DOC, etc.)"), type=ALLOWED_ATTACHMENT_EXTENSIONS, key=f"attach_{task['id']}_{idx}")
+                            if uploaded_file is not None:
+                                if st.button(t("task.btn_upload_attachment"), key=f"attach_btn_{task['id']}_{idx}"):
+                                    bytes_data = uploaded_file.getvalue()
+                                    if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
+                                        st.success(t("task.success_attachment"))
+                                        st.rerun()
 
                     st.markdown("---")
                     st.markdown(auto_t('<i class="fas fa-camera"></i> **Upload Proof Photo**'), unsafe_allow_html=True)
-                    uploaded_file = st.file_uploader(auto_t("Choose an image for task #{0}").format(task['id']), type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
-                    if uploaded_file is not None:
-                        if st.button(auto_t("📤 Upload for Task #{0}").format(task['id']), key=f"upload_btn_{task['id']}_{idx}"):
-                            bytes_data = uploaded_file.getvalue()
-                            success = upload_photo(task['id'], bytes_data, uploaded_file.name, full_name)
-                            if success:
-                                st.success(t("task.success_photo"))
-                                st.rerun()
-                            else:
-                                st.error(t("task.err_upload_failed"))
+                    if _task_authorized:
+                        uploaded_file = st.file_uploader(auto_t("Choose an image for task #{0}").format(task['id']), type=["jpg", "jpeg", "png", "gif", "webp", "bmp"], key=f"upload_{task['id']}_{idx}")
+                        if uploaded_file is not None:
+                            if st.button(auto_t("📤 Upload for Task #{0}").format(task['id']), key=f"upload_btn_{task['id']}_{idx}"):
+                                bytes_data = uploaded_file.getvalue()
+                                success = upload_photo(task['id'], bytes_data, uploaded_file.name, full_name)
+                                if success:
+                                    st.success(t("task.success_photo"))
+                                    st.rerun()
+                                else:
+                                    st.error(t("task.err_upload_failed"))
                     photos = fetch_photos(task['id'])
                     if photos:
                         st.markdown(t("task.txt_already_uploaded"))
