@@ -2068,6 +2068,7 @@ div[data-testid="element-container"]:has(> div.action-grid) + div[data-testid="e
 .status-PendingQA   { background: #b45309; }
 .status-Blocked     { background: #a4161a; }
 .status-Complete    { background: #15803d; }
+.status-Cancelled   { background: #6b7280; }
 .status-Open        { background: #b45309; }
 .status-Investigating { background: #1d4ed8; }
 .status-Resolved    { background: #15803d; }
@@ -6086,6 +6087,24 @@ def fetch_prestart_completions(asset_id=None, limit=50):
         return []
 
 
+def countersign_prestart_completion(completion_id, countersigned_by):
+    """L.I. 2182 Regulation 47(11): a shift-level daily record "shall
+    be examined and countersigned by the manager... at least once
+    every day." Marks one pre-start checklist completion as reviewed
+    — a genuine sign-off trail, not just the record existing."""
+    if not SUPABASE_AVAILABLE:
+        return False
+    try:
+        supabase.table("prestart_checklist_completions").update({
+            "countersigned_by": countersigned_by, "countersigned_at": datetime.now().isoformat(),
+        }).eq("id", completion_id).execute()
+        fetch_prestart_completions.clear()
+        return True
+    except Exception as e:
+        log_error(str(e), details={"completion_id": completion_id}, endpoint="countersign_prestart_completion")
+        return False
+
+
 def update_task(task_id, updates, updated_by):
     fetch_all_tasks.clear()
     # Stamp real completion/reopen timestamps. Every downstream metric
@@ -6745,6 +6764,24 @@ def fetch_logbook_entries(location=None, category=None, limit=100):
         return []
 
 
+def countersign_logbook_entry(entry_id, countersigned_by):
+    """Same L.I. 2182 Regulation 47(11) daily-review reasoning as
+    countersign_prestart_completion — the Digital Logbook is this
+    app's equivalent of the shift-level record that regulation
+    requires a manager to examine and countersign daily."""
+    if not SUPABASE_AVAILABLE:
+        return False
+    try:
+        supabase.table("logbook_entries").update({
+            "countersigned_by": countersigned_by, "countersigned_at": datetime.now().isoformat(),
+        }).eq("id", entry_id).execute()
+        fetch_logbook_entries.clear()
+        return True
+    except Exception as e:
+        log_error(str(e), details={"entry_id": entry_id}, endpoint="countersign_logbook_entry")
+        return False
+
+
 def send_grouped_notification(user_name, event_title, items, item_label_fn, category=None, max_listed=5):
     """Sends ONE notification summarizing several items of the same
     kind, instead of one notification per item — e.g. "5 tasks
@@ -6941,6 +6978,60 @@ def fetch_attachments(task_id):
     except Exception as e:
         log_error(str(e), endpoint="fetch_attachments")
         return []
+
+
+def fetch_attachments_batch(task_ids):
+    """Batch version of fetch_attachments — ONE query with .in_()
+    instead of one query per task. The three task-detail views
+    (worker/supervisor/superintendent) all render attachments for
+    every visible task in a loop; calling fetch_attachments(task_id)
+    per task there means one real round-trip per task on first load
+    of every page, even though the individual results are cached —
+    this collapses that into a single round-trip regardless of how
+    many tasks are shown. Returns a dict of task_id -> list of
+    attachments; callers do attachments_by_task.get(tid, [])."""
+    if not task_ids or not SUPABASE_AVAILABLE:
+        return {}
+    try:
+        res = supabase.table("task_attachments").select("*").in_(
+            "task_id", list(task_ids)).order("uploaded_at", desc=True).execute()
+        out = {}
+        for row in (res.data or []):
+            out.setdefault(row["task_id"], []).append(row)
+        return out
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_attachments_batch")
+        return {}
+
+
+def fetch_photos_batch(task_ids):
+    """Batch version of fetch_photos — same N-round-trips-to-one
+    reasoning as fetch_attachments_batch. Deliberately NOT wrapped in
+    @st.cache_data, matching fetch_photos's own documented reasoning
+    (these are often compliance evidence — LOTO isolation photos,
+    incident scenes — where staleness from caching would undermine
+    the exact guarantee that function exists for). One batched,
+    uncached query is still far cheaper than N separate uncached
+    ones, so this keeps the freshness guarantee while fixing the
+    actual N+1 cost."""
+    if not task_ids:
+        return {}
+    out = {tid: [] for tid in task_ids}
+    if SUPABASE_AVAILABLE:
+        try:
+            res = supabase.table("task_photos").select("*").in_(
+                "task_id", list(task_ids)).order("uploaded_at", desc=True).execute()
+            for row in (res.data or []):
+                out.setdefault(row["task_id"], []).append(row)
+        except Exception as e:
+            log_error(str(e), endpoint="fetch_photos_batch")
+    memory_photos = st.session_state.get("photos_memory", [])
+    for p in memory_photos:
+        if p["task_id"] in out:
+            out[p["task_id"]].append(p)
+    for tid in out:
+        out[tid].sort(key=lambda x: x.get('uploaded_at', ''), reverse=True)
+    return out
 
 # -------------------------------
 # 15. TASK COMMENTS
@@ -11836,9 +11927,43 @@ def fetch_all_incidents():
         log_error(str(e), endpoint="fetch_incidents")
         return st.session_state.get("incidents_memory", [])
 
+def li2182_reg26_deadline(incident_type, reg26_immediate_criteria, days_unfit_for_work):
+    """Computes which L.I. 2182 Regulation 26 reporting deadline
+    applies, from the exact clause thresholds — fatality, skull/limb/
+    spine fracture, or an incident affecting more than two people
+    requires reporting to the Chief Inspector and nearest inspector
+    IMMEDIATELY by phone or the fastest means available; over 14 days
+    unfit for work within 3 days; 3-14 days unfit for work within 7
+    days. Anything else falls under the general Form Thirteen
+    reporting duty with no specific fast deadline in the clause.
+
+    Only meaningful for Injury-type incidents — returns None for
+    every other type, since Reg 26 specifically concerns bodily
+    injury, not property damage or environmental incidents (those
+    fall under different parts of L.I. 2182 this app doesn't map yet).
+
+    Returns (deadline_text, urgency) or (None, None). urgency is
+    "immediate", "urgent", "routine", or None — for the caller to
+    choose st.error/st.warning/st.info appropriately, since a
+    9-word status string doesn't carry visual severity on its own.
+    """
+    if incident_type != "Injury":
+        return None, None
+    if reg26_immediate_criteria:
+        return ("Report to the Chief Inspector and nearest inspector IMMEDIATELY, by phone or the "
+                "fastest means available (L.I. 2182 Reg. 26) — do this now, not after finishing this form."), "immediate"
+    if days_unfit_for_work is not None:
+        if days_unfit_for_work > 14:
+            return "Report to the nearest inspector within 3 days (L.I. 2182 Reg. 26).", "urgent"
+        elif days_unfit_for_work >= 3:
+            return "Report to the nearest inspector within 7 days (L.I. 2182 Reg. 26).", "urgent"
+    return "Standard reporting applies — no specific fast deadline under Reg. 26 for this case.", "routine"
+
+
 def create_incident(incident_type, severity, location, description, reported_by, asset_id=None,
                     witnesses=None, immediate_action=None, paper_ref_no=None, reporter_id_no=None,
-                    department=None, shift=None, reporter_suggestion=None):
+                    department=None, shift=None, reporter_suggestion=None,
+                    reg26_immediate_criteria=False, days_unfit_for_work=None):
     fetch_all_incidents.clear()
     payload = {
         "incident_type": incident_type,
@@ -11854,6 +11979,8 @@ def create_incident(incident_type, severity, location, description, reported_by,
         "department": department,
         "shift": shift,
         "reporter_suggestion": reporter_suggestion,
+        "reg26_immediate_criteria": reg26_immediate_criteria,
+        "days_unfit_for_work": days_unfit_for_work,
         "status": "Open",
         "root_cause": None,
         "corrective_action": None,
@@ -13577,7 +13704,13 @@ def arc_flash_study_status(study, warn_days=90, review_years=5):
 # 20S. TECHNICIAN COMPETENCY / CERTIFICATION TRACKING
 # -------------------------------
 CERTIFICATION_TYPES = ["HV Switching Authorization", "Arc Flash / Electrical Safety Training",
-                       "Confined Space Entry", "Working at Heights", "First Aid / CPR", "Other"]
+                       "Confined Space Entry", "Working at Heights", "First Aid / CPR",
+                       # Added to align with L.I. 2182 (Ghana's Minerals and Mining Health,
+                       # Safety and Technical Regulations, 2012), Regulations 36, 37, and 45 —
+                       # these are named, required certificates for anyone holding a Manager,
+                       # Mine Captain, Mine Superintendent, Shift Boss, or Mining Foreman role.
+                       "Blasting Certificate of Competency", "Mine Rescue Brigade Certificate",
+                       "Medical Fitness Certificate", "Other"]
 
 
 def create_technician_certification(technician_name, certification_type, issued_date, created_by,
@@ -18782,7 +18915,14 @@ def email_login():
                           "actual role."))
                 _wa_username = st.text_input(auto_t("Choose Username")).strip().lower()
                 _wa_name = st.text_input(auto_t("Full Name *"))
-                _wa_role = st.selectbox(auto_t("Requested Access Level"), ["Worker", "Supervisor", "Superintendent"], format_func=auto_t)
+                _wa_c1, _wa_c2 = st.columns(2)
+                with _wa_c1:
+                    _wa_empid = st.text_input(auto_t("Employee / Contractor ID"),
+                                              placeholder="Helps the admin verify you")
+                    _wa_title = st.text_input(auto_t("Job Title"), placeholder="e.g. Fitter, Electrician")
+                with _wa_c2:
+                    _wa_dept = st.text_input(auto_t("Department / Crew"), placeholder="e.g. Fixed Plant")
+                    _wa_role = st.selectbox(auto_t("Requested Access Level"), ["Worker", "Supervisor", "Superintendent"], format_func=auto_t)
                 _wa_submit = st.form_submit_button(auto_t("📨 Request Access"), use_container_width=True)
             if _wa_submit:
                 if not _wa_username or not _wa_name:
@@ -18793,10 +18933,12 @@ def email_login():
                     _ok, _err = register_user_to_db(
                         _wa_username, _wa_name, _wa_role,
                         _generate_google_account_password(),  # same rationale as Google:
-                        phone_number=_wa_phone)                # never used to log in via
+                        phone_number=_wa_phone,                # never used to log in via
                                                                 # the normal form, only exists
                                                                 # because the schema requires
                                                                 # a password_hash row
+                        job_title=_wa_title.strip() or None, department=_wa_dept.strip() or None,
+                        employee_id=_wa_empid.strip() or None)
                     if _ok:
                         st.success(auto_t("✅ Access request submitted. You'll be able to sign in "
                                    "with WhatsApp once an administrator approves it."))
@@ -18946,7 +19088,14 @@ def handle_google_oauth_return():
                 value=re.sub(r"[^a-z0-9_]", "", google_email.split("@")[0].lower()),
             ).strip().lower()
             _g_name = st.text_input(auto_t("Full Name *"), value=st.user.get("name", ""))
-            _g_role = st.selectbox(auto_t("Requested Access Level"), ["Worker", "Supervisor", "Superintendent"], format_func=auto_t)
+            _g_c1, _g_c2 = st.columns(2)
+            with _g_c1:
+                _g_empid = st.text_input(auto_t("Employee / Contractor ID"),
+                                         placeholder="Helps the admin verify you")
+                _g_title = st.text_input(auto_t("Job Title"), placeholder="e.g. Fitter, Electrician")
+            with _g_c2:
+                _g_dept = st.text_input(auto_t("Department / Crew"), placeholder="e.g. Fixed Plant")
+                _g_role = st.selectbox(auto_t("Requested Access Level"), ["Worker", "Supervisor", "Superintendent"], format_func=auto_t)
             _g_submit = st.form_submit_button(auto_t("📨 Request Access"), use_container_width=True)
         if _g_submit:
             if not _g_username or not _g_name:
@@ -18956,7 +19105,9 @@ def handle_google_oauth_return():
             else:
                 _ok, _err = register_user_to_db(
                     _g_username, _g_name, _g_role,
-                    _generate_google_account_password(), email=google_email)
+                    _generate_google_account_password(), email=google_email,
+                    job_title=_g_title.strip() or None, department=_g_dept.strip() or None,
+                    employee_id=_g_empid.strip() or None)
                 if _ok:
                     st.success(auto_t("✅ Access request submitted. You'll be able to sign in "
                                "with Google once an administrator approves it."))
@@ -19169,13 +19320,13 @@ if not st.session_state.authenticated and not st.session_state["_pre_login_welco
         _lcol1, _lcol2 = st.columns(2)
         for _i, (_icon, _title, _desc) in enumerate(_landing_features):
             with (_lcol1 if _i % 2 == 0 else _lcol2):
-                st.markdown(f'''
-                <div class="landing-feature-card">
-                    <i class="fas {_icon} landing-feature-icon"></i>
-                    <h4>{esc(_title)}</h4>
-                    <p>{esc(_desc)}</p>
-                </div>
-                ''', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="landing-feature-card">'
+                    f'<i class="fas {_icon} landing-feature-icon"></i>'
+                    f'<h4>{esc(_title)}</h4>'
+                    f'<p>{esc(_desc)}</p>'
+                    f'</div>',
+                    unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         render_subheading("Get Started", level=4)
@@ -25564,7 +25715,10 @@ def page_incidents():
                 # other code (e.g. safety_leading_indicators) checks for.
                 incident_type = selectbox_with_other(t("incidents.type_label"),
                     ["Near Miss", "Injury", "Property Damage", "Equipment Failure",
-                     "Environmental", "Hazard Observation"], key_prefix="incident_type")
+                     "Environmental", "Hazard Observation", "Slope/Rock Failure (Open Pit)",
+                     "Flooding (Open Pit)", "Fire / Spontaneous Combustion",
+                     "Heatstroke / Fume Exposure", "Tailings/Processing Plant Failure"],
+                    key_prefix="incident_type")
                 _severity_options = ["Low", "Medium", "High", "Critical"]
                 _suggested_severity = st.session_state.pop("_severity_suggestion", None)
                 _severity_default_index = _severity_options.index(_suggested_severity) if _suggested_severity in _severity_options else 0
@@ -25591,6 +25745,26 @@ def page_incidents():
                 location = st.text_input(t("incidents.location_label"), max_chars=100)
             description = st.text_area(t("incidents.description_label"), placeholder=t("incidents.description_placeholder"))
             immediate_action = st.text_area(t("incidents.immediate_action_label"), placeholder=t("incidents.immediate_action_placeholder"))
+
+            # L.I. 2182 Regulation 26 sets exact, legally-binding
+            # reporting deadlines for injuries specifically — only
+            # relevant when incident_type is "Injury", but both fields
+            # render unconditionally here rather than dynamically,
+            # since a value picked in one st.form() widget isn't
+            # available to control another widget's visibility until
+            # the whole form submits. The actual deadline is computed
+            # and shown to the reporter AFTER submission, using
+            # li2182_reg26_deadline().
+            st.markdown(f"##### {auto_t('If this is an Injury — L.I. 2182 reporting deadline')}")
+            st.caption(auto_t("Only used when Incident Type above is \"Injury\" — otherwise ignored."))
+            _reg26_immediate_criteria = st.checkbox(
+                auto_t("Fatality, a skull/limb/spine fracture, or an incident affecting more than 2 people?"),
+                help=auto_t("If checked, L.I. 2182 requires reporting to the Chief Inspector and nearest "
+                            "inspector IMMEDIATELY by phone — do that regardless of when this form is submitted."))
+            _days_unfit_raw = st.text_input(
+                auto_t("Days unfit for normal work (if known)"),
+                placeholder=auto_t("Leave blank if not yet known"))
+
             reporter_suggestion = st.text_area(
                 t("incidents.suggestion_label"),
                 placeholder=t("incidents.suggestion_placeholder"),
@@ -25610,14 +25784,25 @@ def page_incidents():
                     asset_id = None
                     if selected_asset != t("incidents.none_option"):
                         asset_id = int(selected_asset.split(" ")[0].replace("#", ""))
+                    _days_unfit_val = None
+                    if _days_unfit_raw and _days_unfit_raw.strip().isdigit():
+                        _days_unfit_val = int(_days_unfit_raw.strip())
                     new_incident = create_incident(
                         incident_type, severity, location, description, full_name,
                         asset_id=asset_id, witnesses=witnesses, immediate_action=immediate_action,
                         paper_ref_no=paper_ref_no or None, reporter_id_no=reporter_id_no or None,
                         department=department or None, shift=shift,
-                        reporter_suggestion=reporter_suggestion or None)
+                        reporter_suggestion=reporter_suggestion or None,
+                        reg26_immediate_criteria=_reg26_immediate_criteria,
+                        days_unfit_for_work=_days_unfit_val)
                     if new_incident:
                         st.success(t("incidents.success_reported"))
+                        _reg26_text, _reg26_urgency = li2182_reg26_deadline(
+                            incident_type, _reg26_immediate_criteria, _days_unfit_val)
+                        if _reg26_urgency == "immediate":
+                            st.error(f"🚨 {_reg26_text}")
+                        elif _reg26_urgency == "urgent":
+                            st.warning(f"⏱️ {_reg26_text}")
                         if severity in ("Critical", "High"):
                             st.warning(t("incidents.warn_flagged"))
                         st.rerun()
@@ -26628,6 +26813,17 @@ def page_prestart_checklists():
                     st.write(f"{_r_icon} {r['item']}{_r_crit}")
                 if c.get("notes"):
                     st.caption(auto_t("Notes: {0}").format(c['notes']))
+                # L.I. 2182 Regulation 47(11): a shift-level daily
+                # record must be examined and countersigned by the
+                # manager at least once a day — this button is that
+                # sign-off, not just a note that the record exists.
+                if c.get("countersigned_by"):
+                    st.caption(auto_t("✓ Countersigned by {0} — {1}").format(
+                        c["countersigned_by"], _fmt_log_time(c.get("countersigned_at"))))
+                elif st.button(auto_t("✍️ Countersign (daily review)"), key=f"ps_countersign_{c['id']}"):
+                    if countersign_prestart_completion(c["id"], full_name):
+                        st.success(auto_t("Countersigned."))
+                        st.rerun()
 
 
 def page_logbook():
@@ -26677,6 +26873,17 @@ def page_logbook():
             f"{_icon} **{esc(e.get('created_by'))}** "
             f"{'· ' + esc(e['location']) + ' ' if e.get('location') else ''}"
             f"· {_fmt_log_time(e.get('created_at'))}  \n{esc(e.get('entry_text'))}")
+        # Same L.I. 2182 Regulation 47(11) daily-countersign reasoning
+        # as Pre-Start Checklists — gated to Supervisor/Superintendent
+        # specifically, since the regulation names the manager (or
+        # equivalent), not just anyone who happens to view the page.
+        if e.get("countersigned_by"):
+            st.caption(auto_t("✓ Countersigned by {0} — {1}").format(
+                e["countersigned_by"], _fmt_log_time(e.get("countersigned_at"))))
+        elif can(role, "task.create"):
+            if st.button(auto_t("✍️ Countersign (daily review)"), key=f"lb_countersign_{e['id']}"):
+                if countersign_logbook_entry(e["id"], full_name):
+                    st.rerun()
         st.markdown("---")
 
 
@@ -27701,6 +27908,15 @@ if selected_section == "Task Dashboard":
             if not my_tasks:
                 st.info(t("task.info_no_tasks_assigned"))
             else:
+                # Pre-fetched once for the whole list, not per-task —
+                # same reasoning as _kanban_all_permits earlier in this
+                # file: without this, attachments (cached but still a
+                # first-hit round-trip per task) and photos (never
+                # cached, by design) both become one real round-trip
+                # PER TASK on every render of this page.
+                _my_task_ids = [t['id'] for t in my_tasks]
+                _attachments_by_task = fetch_attachments_batch(_my_task_ids)
+                _photos_by_task = fetch_photos_batch(_my_task_ids)
                 for idx, task in enumerate(my_tasks):
                     priority_class = f"priority-{task['priority']}"
                     status_class = f"status-{task['status'].replace(' ', '')}"
@@ -27881,7 +28097,7 @@ if selected_section == "Task Dashboard":
                         render_comments_section(task, full_name, key_prefix=f"w{idx}", authorized=_task_authorized)
 
                     with st.expander(auto_t("📎 Attachments")):
-                        attachments = fetch_attachments(task['id'])
+                        attachments = _attachments_by_task.get(task['id'], [])
                         if attachments:
                             for a in attachments:
                                 st.markdown(auto_t("[{0}]({1}) (uploaded by {2})").format(a['file_name'], a['file_url'], a['uploaded_by']))
@@ -27909,7 +28125,7 @@ if selected_section == "Task Dashboard":
                                     st.rerun()
                                 else:
                                     st.error(t("task.err_upload_failed"))
-                    photos = fetch_photos(task['id'])
+                    photos = _photos_by_task.get(task['id'], [])
                     if photos:
                         st.markdown(t("task.txt_already_uploaded"))
                         cols = st.columns(min(4, len(photos)))
@@ -28000,6 +28216,11 @@ if selected_section == "Task Dashboard":
             # the loop — not one query per task inside it (see
             # fetch_team_members_for_tasks for why that mattered).
             _team_by_task = fetch_team_members_for_tasks(tuple(t2["id"] for t2 in _tasks_to_show))
+            # Same reasoning, same fix, for attachments and photos —
+            # see fetch_attachments_batch/fetch_photos_batch docstrings.
+            _mgmt_task_ids = [t2["id"] for t2 in _tasks_to_show]
+            _attachments_by_task = fetch_attachments_batch(_mgmt_task_ids)
+            _photos_by_task = fetch_photos_batch(_mgmt_task_ids)
             for task in _tasks_to_show:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
@@ -28050,7 +28271,7 @@ if selected_section == "Task Dashboard":
                     render_presence_indicator(f"task:{task['id']}", username, full_name)
                     render_comments_section(task, full_name, key_prefix="sup")
                 with st.expander(auto_t("📎 Attachments")):
-                    attachments = fetch_attachments(task['id'])
+                    attachments = _attachments_by_task.get(task['id'], [])
                     if attachments:
                         for a in attachments:
                             st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
@@ -28063,7 +28284,7 @@ if selected_section == "Task Dashboard":
                             if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
                                 st.success(t("task.success_attachment"))
                                 st.rerun()
-                photos = fetch_photos(task['id'])
+                photos = _photos_by_task.get(task['id'], [])
                 if photos:
                     with st.expander(auto_t("📸 Photos for Task #{0}").format(task['id'])):
                         cols = st.columns(min(4, len(photos)))
@@ -28281,6 +28502,11 @@ if selected_section == "Task Dashboard":
             # ONE query for every visible task's team members, before
             # the loop — see fetch_team_members_for_tasks for why.
             _team_by_task_s = fetch_team_members_for_tasks(tuple(t2["id"] for t2 in _mgmt_tasks))
+            # Same reasoning, same fix, for attachments and photos —
+            # see fetch_attachments_batch/fetch_photos_batch docstrings.
+            _mgmt_task_ids_s = [t2["id"] for t2 in _mgmt_tasks]
+            _attachments_by_task = fetch_attachments_batch(_mgmt_task_ids_s)
+            _photos_by_task = fetch_photos_batch(_mgmt_task_ids_s)
             for task in _mgmt_tasks:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
@@ -28336,7 +28562,7 @@ if selected_section == "Task Dashboard":
                     render_presence_indicator(f"task:{task['id']}", username, full_name)
                     render_comments_section(task, full_name, key_prefix="supt")
                 with st.expander(auto_t("📎 Attachments")):
-                    attachments = fetch_attachments(task['id'])
+                    attachments = _attachments_by_task.get(task['id'], [])
                     if attachments:
                         for a in attachments:
                             st.markdown(f"[{a['file_name']}]({a['file_url']}) (by {a['uploaded_by']})")
@@ -28349,7 +28575,7 @@ if selected_section == "Task Dashboard":
                             if upload_attachment(task['id'], bytes_data, uploaded_file.name, full_name):
                                 st.success(t("task.success_attachment"))
                                 st.rerun()
-                photos = fetch_photos(task['id'])
+                photos = _photos_by_task.get(task['id'], [])
                 if photos:
                     with st.expander(auto_t("📸 Photos for Task #{0}").format(task['id'])):
                         cols = st.columns(min(4, len(photos)))
