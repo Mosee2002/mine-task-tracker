@@ -1701,6 +1701,11 @@ _CSS_BODY = """
     padding: 1.1rem;
     margin-bottom: 0.8rem;
     box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+.landing-feature-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
 }
 .landing-feature-card .landing-feature-icon {
     font-size: 1.4rem;
@@ -1994,6 +1999,7 @@ div[data-testid="element-container"]:has(> div.action-grid) + div[data-testid="e
     margin-bottom: 0.85rem;
     box-shadow: var(--shadow-sm);
     line-height: 1.55;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
 .custom-card {
     background: var(--bg-surface);
@@ -2003,7 +2009,10 @@ div[data-testid="element-container"]:has(> div.action-grid) + div[data-testid="e
     box-shadow: var(--shadow-sm);
     padding: 0.85rem 1rem;
 }
-.custom-card:hover, .task-card:hover { box-shadow: var(--shadow-md); }
+.custom-card:hover, .task-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
 .custom-card strong, .task-card strong { color: var(--text-primary); }
 .custom-card small, .task-card small { color: var(--text-secondary); }
 .custom-card i, .task-card i { color: var(--text-secondary); }
@@ -4099,7 +4108,7 @@ AI_PROMPT_VARIANTS = {
 }
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def get_variant_feedback_counts():
     """{variant: {'up': n, 'down': n}} aggregated from every rated
     assistant message across all users — this is the bandit's reward
@@ -4711,7 +4720,7 @@ def provision_auth_accounts(usernames_to_provision, performed_by):
     return success, failures
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_all_users_from_db():
     """Return real users. Demo accounts appear only in demo mode.
 
@@ -4837,7 +4846,7 @@ def log_access_decision(target_username, target_full_name, action,
         log_error(str(e), details=payload, endpoint="log_access_decision")
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_access_decisions(limit=100):
     if not SUPABASE_AVAILABLE:
         rows = st.session_state.get("access_decisions_memory", [])
@@ -4909,6 +4918,49 @@ def approve_access(username, granted_role, decided_by, reason=None):
     except Exception as e:
         log_error(str(e), details={"username": username}, endpoint="approve_access")
         return False, str(e)
+
+
+def bulk_approve_pending_as_worker(decided_by):
+    """Approves every currently-pending access request as Worker —
+    used specifically when auto_approve_registration is switched ON,
+    to catch people who signed up BEFORE the policy changed.
+
+    That's a real gap the policy toggle alone doesn't cover:
+    is_approved is set once, at account creation, from whatever the
+    policy was AT THAT MOMENT — it's never re-evaluated later, so
+    turning auto-approve on only affects sign-ups from that point
+    forward. Someone who registered an hour earlier, while the
+    policy was still off, stays stuck on "pending" forever unless
+    something explicitly re-checks them — this is that explicit
+    re-check, run once, right when the policy changes.
+
+    Always grants Worker specifically, never each person's own
+    requested_role — same security boundary auto-approved NEW
+    sign-ups already have (see register_user_to_db), extended here
+    for consistency rather than left as a back door that grants
+    whatever role someone happened to type in a text field.
+
+    Reuses approve_access() per user rather than a separate bulk
+    write, so every notification/audit/email path it already has
+    fires correctly here too, not a second, differently-behaved copy.
+    Returns the count actually approved.
+    """
+    if not SUPABASE_AVAILABLE:
+        return 0
+    try:
+        pending = (supabase.table("facility_users").select("username")
+                  .eq("is_approved", False).eq("is_suspended", False)
+                  .is_("denial_reason", "null").execute())
+    except Exception as e:
+        log_error(str(e), endpoint="bulk_approve_pending_as_worker:fetch")
+        return 0
+    count = 0
+    for row in (pending.data or []):
+        ok, _ = approve_access(row["username"], "Worker", decided_by,
+                               reason="Bulk-approved: auto-approve registration was turned on")
+        if ok:
+            count += 1
+    return count
 
 
 def deny_access(username, decided_by, reason=None):
@@ -5686,7 +5738,7 @@ def generate_reset_token(username, email):
 # -------------------------------
 # 10. TASK FUNCTIONS (with optimistic locking)
 # -------------------------------
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_all_tasks():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("tasks_memory", [])
@@ -5889,7 +5941,7 @@ def create_task_template(name, description, work_type, default_priority, require
     return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_task_templates(active_only=True):
     if not SUPABASE_AVAILABLE:
         return []
@@ -5987,7 +6039,7 @@ def create_prestart_template(name, asset_category, items, created_by):
     return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_prestart_templates(active_only=True):
     if not SUPABASE_AVAILABLE:
         return []
@@ -6072,7 +6124,7 @@ def submit_prestart_checklist(template_id, asset_id, completed_by, results, note
     return completion
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_prestart_completions(asset_id=None, limit=50):
     if not SUPABASE_AVAILABLE:
         return []
@@ -6233,7 +6285,7 @@ def log_task_activity(task_id, user_name, action, details=None):
     except Exception as e:
         log_error(str(e), endpoint="log_task_activity")
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_task_activity(task_id):
     """log_task_activity() writes here from 7 different call sites
     across the file — wiring explicit .clear() invalidation at every
@@ -6508,7 +6560,7 @@ def send_broadcast_to_db(sender_name, sender_role, message):
     return True
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def fetch_recent_broadcasts(limit=20):
     """15s TTL for the same reason as fetch_task_activity above — a
     broadcast feed genuinely benefits from staying fresh (it's meant
@@ -6525,7 +6577,7 @@ def fetch_recent_broadcasts(limit=20):
         return []
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_favorite_pages(username):
     """A person's own pinned pages, for the "⭐ My Favorites" nav
     section — one-tap access to whatever they use most, instead of
@@ -6597,7 +6649,7 @@ def create_geofence_zone(name, zone_type, center_lat, center_lng, radius_meters,
     return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_geofence_zones(active_only=True):
     if not SUPABASE_AVAILABLE:
         return []
@@ -6744,7 +6796,7 @@ def create_logbook_entry(entry_text, location, category, created_by, photo_url=N
     return None
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=90, show_spinner=False)
 def fetch_logbook_entries(location=None, category=None, limit=100):
     """30s TTL — a logbook is meant to feel close to real-time (that's
     the whole point versus waiting for end-of-shift handover), but
@@ -6965,7 +7017,7 @@ def upload_attachment(task_id, file_bytes, filename, uploaded_by):
         log_error(str(e), details={"task_id": task_id, "filename": filename}, endpoint="attachment_upload")
         return False
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_attachments(task_id):
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("attachments_memory", [])
@@ -7073,6 +7125,7 @@ def add_comment(task_id, comment, posted_by, parent_comment_id=None):
         })
         log_audit(posted_by, "comment_add_memory", {"task_id": task_id, "comment": comment[:50]})
         fetch_comments.clear()
+        fetch_comments_batch.clear()
         _parse_comment_mentions(comment, posted_by, task_id)
         return True
     try:
@@ -7084,13 +7137,14 @@ def add_comment(task_id, comment, posted_by, parent_comment_id=None):
         log_audit(posted_by, "comment_add", {"task_id": task_id, "comment": comment[:50]})
         log_task_activity(task_id, posted_by, "commented", {"comment": comment[:50]})
         fetch_comments.clear()
+        fetch_comments_batch.clear()
         _parse_comment_mentions(comment, posted_by, task_id)
         return True
     except Exception as e:
         log_error(str(e), details={"task_id": task_id}, endpoint="add_comment")
         return False
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=90, show_spinner=False)
 def fetch_comments(task_id):
     if not SUPABASE_AVAILABLE:
         comments = st.session_state.get("comments_memory", [])
@@ -7105,7 +7159,30 @@ def fetch_comments(task_id):
     return []
 
 
-def render_comments_section(task, full_name, key_prefix, authorized=True):
+def fetch_comments_batch(task_ids):
+    """Batch version of fetch_comments — ONE query with .in_()
+    instead of one per task. render_comments_section is called for
+    every visible task in the same worker/supervisor/superintendent
+    task-detail loops that attachments/photos were fixed for earlier
+    — same N-round-trips-to-one reasoning, see
+    fetch_attachments_batch's own docstring. Returns a dict of
+    task_id -> its comments list, each already ordered the same way
+    the single-task version is."""
+    if not task_ids or not SUPABASE_AVAILABLE:
+        return {}
+    try:
+        res = supabase.table("task_comments").select("*").in_(
+            "task_id", list(task_ids)).order("posted_at", desc=False).execute()
+        out = {}
+        for row in (res.data or []):
+            out.setdefault(row["task_id"], []).append(row)
+        return out
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_comments_batch")
+        return {}
+
+
+def render_comments_section(task, full_name, key_prefix, authorized=True, comments=None):
     """Shared comments UI — threaded (one level of replies) with
     @mention support. Used by all three role-specific task detail
     views so 'add threading here' is one change, not three near-
@@ -7118,8 +7195,15 @@ def render_comments_section(task, full_name, key_prefix, authorized=True):
     superintendent. Defaults to True so any call site that hasn't
     been updated to pass it explicitly keeps its EXISTING behavior
     rather than silently losing the ability to comment.
+
+    comments, if given, is a pre-fetched list from
+    fetch_comments_batch — used by callers that render this for many
+    tasks in a loop, so the whole set gets ONE batched query instead
+    of one fetch_comments() round-trip per task. Falls back to the
+    original per-task fetch when not given.
     """
-    comments = fetch_comments(task['id'])
+    if comments is None:
+        comments = fetch_comments(task['id'])
     top_level = [c for c in comments if not c.get('parent_comment_id')]
     replies_by_parent = {}
     for c in comments:
@@ -7811,7 +7895,7 @@ def _log_offline_sync_decision(action, decision, reviewed_by, detail=None, error
         log_error(str(e), endpoint="_log_offline_sync_decision")
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=90, show_spinner=False)
 def get_processed_offline_client_ids():
     """Every client_id already reviewed (approved OR rejected) before
     — checked before Sync Review lets someone act on an action again,
@@ -9548,7 +9632,7 @@ def handle_recurring_tasks():
 # -------------------------------
 # 20A. ASSET REGISTER FUNCTIONS
 # -------------------------------
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_all_assets():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("assets_memory", [])
@@ -9691,7 +9775,7 @@ def delete_asset(asset_id, deleted_by):
         return False
 
 
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=450, show_spinner=False)
 def fetch_asset_status_history(asset_id, start_dt=None, end_dt=None):
     if not SUPABASE_AVAILABLE:
         return []
@@ -9708,7 +9792,7 @@ def fetch_asset_status_history(asset_id, start_dt=None, end_dt=None):
         return []
 
 
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=450, show_spinner=False)
 def fetch_asset_status_history_batch(asset_ids, start_dt=None, end_dt=None):
     """Batched version of fetch_asset_status_history — ONE query for
     every asset_id passed in, instead of one query per asset. Built
@@ -9823,7 +9907,7 @@ def compute_asset_downtime_cost(asset, downtime_hours):
 # -------------------------------
 # 20B. INVENTORY / PARTS FUNCTIONS
 # -------------------------------
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=450, show_spinner=False)
 def fetch_all_parts():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("inventory_memory", [])
@@ -9956,6 +10040,11 @@ def link_part_to_task(task_id, part_id, quantity_used, used_by):
         except Exception as e:
             log_error(str(e), details=payload, endpoint="link_part_to_task")
             return False
+    # Added when fetch_task_parts gained caching (previously
+    # uncached, so nothing to invalidate) — without this, a part
+    # just linked to a task wouldn't show up in that task's parts
+    # list for up to 60s, the cache TTL.
+    fetch_task_parts.clear()
     if not adjust_part_quantity(part_id, -abs(quantity_used), used_by, reason=f"used on task #{task_id}"):
         log_error("Stock adjustment failed after recording parts usage — inventory count "
                  "may now be out of sync with what was actually consumed",
@@ -9964,7 +10053,7 @@ def link_part_to_task(task_id, part_id, quantity_used, used_by):
     log_task_activity(task_id, used_by, "part_used", {"part_id": part_id, "quantity": quantity_used})
     return True
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_task_parts(task_id):
     if not SUPABASE_AVAILABLE:
         return [tp for tp in st.session_state.get("task_parts_memory", []) if tp["task_id"] == task_id]
@@ -9976,6 +10065,27 @@ def fetch_task_parts(task_id):
         log_error(str(e), endpoint="fetch_task_parts")
     return []
 
+
+def fetch_task_parts_batch(task_ids):
+    """Batch version of fetch_task_parts — ONE query with .in_()
+    instead of one per task. Used by the worker-report parts-used
+    summary, which loops over every task completed that day; without
+    this, N completed tasks meant N separate round-trips even with
+    fetch_task_parts itself now cached, since a first-time cache miss
+    is still a real query per task. Returns a dict of
+    task_id -> list of its task_parts rows."""
+    if not task_ids or not SUPABASE_AVAILABLE:
+        return {}
+    try:
+        res = supabase.table("task_parts").select("*").in_("task_id", list(task_ids)).execute()
+        out = {}
+        for row in (res.data or []):
+            out.setdefault(row["task_id"], []).append(row)
+        return out
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_task_parts_batch")
+        return {}
+
 # -------------------------------
 # 20B2. BILL OF MATERIALS + PURCHASE ORDERS
 # -------------------------------
@@ -9984,7 +10094,7 @@ def fetch_task_parts(task_id):
 # requirements (induction, insurance); a parts supplier is just who
 # you order from, and usually never needs site access at all.
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1200, show_spinner=False)
 def fetch_suppliers():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("suppliers_memory", [])
@@ -10019,7 +10129,7 @@ def create_supplier(company_name, contact_person, contact_email, contact_phone, 
     return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def get_bom_for_task(task_template_id):
     """Bill of Materials for a recurring/PM task template — which
     parts, and how many, it typically needs."""
@@ -10120,7 +10230,7 @@ def search_documents(query):
         return []
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_all_documents():
     if not SUPABASE_AVAILABLE:
         return []
@@ -10158,7 +10268,7 @@ def assign_shift(username, shift_start, shift_end, crew_name, assigned_by):
         return False
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_workers_on_shift(at_time=None):
     """Who's rostered on right now (or at a given time).
 
@@ -10182,7 +10292,7 @@ def get_workers_on_shift(at_time=None):
         return []
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_upcoming_shifts(limit=50):
     """Same crew_name='Clock' exclusion as get_workers_on_shift, and
     for the same reason — an open clock punch's far-future sentinel
@@ -10216,7 +10326,7 @@ def delete_shift(shift_id, deleted_by):
         return False
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_budgets():
     if not SUPABASE_AVAILABLE:
         return []
@@ -10259,17 +10369,25 @@ def delete_budget(budget_id, deleted_by):
         return False
 
 
-def actual_spend_for_asset(asset_id, tasks, parts_lookup):
+def actual_spend_for_asset(asset_id, tasks, parts_lookup, parts_by_task=None):
     """Real spend for one asset, computed live from actual task and
     parts cost data — the same underlying calculation cost_by_asset()
     uses elsewhere in Analytics, just scoped to a single asset_id
     instead of grouped by name. This is what Budget Center compares
     an allocated amount against, so there's never a separately-tracked
-    'spent' number that could drift from what tasks actually cost."""
-    return sum(task_total_cost(t, parts_lookup) for t in tasks if t.get("asset_id") == asset_id)
+    'spent' number that could drift from what tasks actually cost.
+
+    parts_by_task, if given, is passed straight through to
+    task_total_cost — see that function's own docstring. Matters here
+    specifically because every caller of THIS function loops over
+    many assets, calling it once per asset; without a shared
+    pre-fetched parts_by_task, that becomes one fetch_task_parts()
+    round-trip per task, repeated for every asset in the loop."""
+    return sum(task_total_cost(t, parts_lookup, parts_by_task=parts_by_task)
+              for t in tasks if t.get("asset_id") == asset_id)
 
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=3600)
 def fetch_weather_forecast():
     """Daily forecast for the configured site, next 7 days, via
     Open-Meteo — no API key needed for non-commercial use, which is
@@ -10773,7 +10891,7 @@ def mark_shipment_arrived(shipment_id, delay_reason, updated_by):
         return False
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_shipments(status=None, limit=200):
     if not SUPABASE_AVAILABLE:
         return []
@@ -11006,7 +11124,7 @@ def _meter_anomaly_from_values(vals):
     return abs(robust_z) > 3.5
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def detect_meter_anomaly(asset_id):
     """Flags the latest meter reading for an asset as anomalous.
 
@@ -11042,7 +11160,7 @@ def detect_meter_anomaly(asset_id):
     Health Dashboard), which this does NOT scale to on its own: one
     call per asset, uncached-per-argument by nature of each asset
     having a different ID, would mean 500+ separate queries for a
-    fleet this size on a single page load. Cached here too (ttl=120)
+    fleet this size on a single page load. Cached here too (ttl=300)
     since even single-asset use can genuinely repeat (expanding,
     collapsing, and re-expanding the same asset's panel).
     """
@@ -11058,7 +11176,7 @@ def detect_meter_anomaly(asset_id):
         return False
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def detect_meter_anomalies_batch(asset_ids, days=180):
     """Batched version of detect_meter_anomaly — ONE query for every
     asset_id passed in, instead of one query per asset. Built after
@@ -11289,6 +11407,7 @@ def _build_asset_feature_matrix(asset_id, lookback_days=60):
     return usable_dates, matrix, columns
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def detect_asset_anomaly_ml(asset_id, method="isolation_forest", lookback_days=60):
     """Unified anomaly check that uses every signal actually logged
     for an asset. Automatically upgrades to genuine multi-sensor
@@ -11366,11 +11485,15 @@ def detect_cost_anomalies(tasks, parts_lookup):
     worst (furthest from the mean) first.
     """
     by_category = {}
+    # Batched once for the whole task list — see task_parts_cost's
+    # own docstring for why (avoids one fetch_task_parts() round-trip
+    # per task, across every completed task on the site).
+    _parts_by_task = fetch_task_parts_batch([t2["id"] for t2 in tasks])
     for t2 in tasks:
         if t2.get("status") != "Complete":
             continue
         category = t2.get("work_type") or "Unspecified"
-        cost = task_total_cost(t2, parts_lookup)
+        cost = task_total_cost(t2, parts_lookup, parts_by_task=_parts_by_task)
         by_category.setdefault(category, []).append({"task_id": t2["id"], "title": t2.get("title"), "cost": cost})
 
     anomalies = []
@@ -11417,7 +11540,7 @@ def log_production(production_date, shift, location, material_type, quantity, un
         return None
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_production_records(start_date=None, end_date=None, limit=200):
     if not SUPABASE_AVAILABLE:
         return []
@@ -11513,7 +11636,7 @@ def compute_shift_benchmarks(records):
     return result
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def get_purchase_orders(status=None):
     if not SUPABASE_AVAILABLE:
         return []
@@ -11528,7 +11651,7 @@ def get_purchase_orders(status=None):
         return []
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def get_po_line_items(po_id):
     if not SUPABASE_AVAILABLE:
         return []
@@ -11690,7 +11813,7 @@ def _log_erp_sync(sync_type, direction, status, detail=None, record_id=None,
         log_error(str(e), endpoint="erp_sync_log_insert")
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def get_erp_sync_log(limit=50):
     if not SUPABASE_AVAILABLE:
         return []
@@ -11914,7 +12037,7 @@ def render_erp_sync_tab(current_username):
 # -------------------------------
 # 20C. INCIDENT / SAFETY REPORTING FUNCTIONS
 # -------------------------------
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_all_incidents():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("incidents_memory", [])
@@ -12115,7 +12238,7 @@ def _mem_insert(key, payload, audit_user, audit_action):
     log_audit(audit_user, audit_action + "_memory", {"id": payload["id"]})
     return payload
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=45, show_spinner=False)
 def fetch_permits(task_id=None):
     if not SUPABASE_AVAILABLE:
         rows = _mem("permits_memory")
@@ -12353,7 +12476,7 @@ def task_permit_was_closed_out(task_id, permits=None):
 # -------------------------------
 # 20F. SHIFT HANDOVER LOG
 # -------------------------------
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_handovers(limit=50):
     if not SUPABASE_AVAILABLE:
         return sorted(_mem("handovers_memory"), key=lambda x: x.get("created_at", ""), reverse=True)[:limit]
@@ -12408,7 +12531,7 @@ def acknowledge_handover(handover_id, acknowledged_by):
 # -------------------------------
 # 20G. CONTRACTOR MANAGEMENT
 # -------------------------------
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1200, show_spinner=False)
 def fetch_contractors():
     if not SUPABASE_AVAILABLE:
         return _mem("contractors_memory")
@@ -12489,7 +12612,7 @@ def contractor_compliance_status(contractor):
 # -------------------------------
 # 20H. METER READING TIME SERIES
 # -------------------------------
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_meter_readings(asset_id, limit=200):
     if not SUPABASE_AVAILABLE:
         rows = [r for r in _mem("meter_readings_memory") if r.get("asset_id") == asset_id]
@@ -12502,6 +12625,35 @@ def fetch_meter_readings(asset_id, limit=200):
     except Exception as e:
         log_error(str(e), endpoint="fetch_meter_readings")
         return []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_meter_readings_batch(asset_ids, limit_per_asset=200):
+    """Batch version of fetch_meter_readings — ONE query with .in_()
+    instead of one per asset. The Assets page renders every visible
+    asset's meter history in a loop (inside an expander, which does
+    NOT defer script execution in Streamlit — the fetch runs for
+    every asset regardless of whether that asset's expander is open),
+    so on a site with many assets this was one real round-trip per
+    asset on every cache-cold render. asset_ids must be a tuple, not
+    a list — @st.cache_data needs a hashable argument to key the
+    cache on. Returns a dict of asset_id -> its readings list, each
+    already limited and ordered the same way the single-asset version
+    is."""
+    if not asset_ids or not SUPABASE_AVAILABLE:
+        return {}
+    try:
+        res = (supabase.table("meter_readings").select("*")
+              .in_("asset_id", list(asset_ids)).order("recorded_at", desc=False).execute())
+        out = {}
+        for row in (res.data or []):
+            out.setdefault(row["asset_id"], []).append(row)
+        for aid in out:
+            out[aid] = out[aid][-limit_per_asset:]
+        return out
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_meter_readings_batch")
+        return {}
 
 def log_meter_reading(asset_id, reading, meter_unit, recorded_by, notes=None):
     fetch_meter_readings.clear()
@@ -12569,7 +12721,7 @@ def log_sensor_reading(asset_id, sensor_type, value, unit, recorded_by):
         return False
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=90, show_spinner=False)
 def fetch_sensor_readings(asset_id, sensor_type=None, limit=200):
     if not SUPABASE_AVAILABLE:
         rows = [r for r in _mem("sensor_readings_memory") if r.get("asset_id") == asset_id]
@@ -12587,7 +12739,7 @@ def fetch_sensor_readings(asset_id, sensor_type=None, limit=200):
         return []
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=90, show_spinner=False)
 def get_asset_sensor_types(asset_id):
     """Distinct sensor types actually logged for this asset — drives
     which sensor to show/select in the UI without hardcoding a list
@@ -12760,24 +12912,36 @@ def auto_generate_reorder_pos(parts_needing_reorder, created_by):
 # -------------------------------
 # 20I. WORK ORDER COSTING
 # -------------------------------
-def task_parts_cost(task_id, parts_lookup):
+def task_parts_cost(task_id, parts_lookup, parts_by_task=None):
+    """parts_by_task, if given, is a pre-fetched dict from
+    fetch_task_parts_batch — used by callers that loop over MANY
+    tasks (cost_by_asset, cost_by_category, detect_cost_anomalies),
+    so the whole set gets ONE batched query instead of one
+    fetch_task_parts() round-trip per task. Falls back to the
+    original per-task fetch when not given, so this stays a safe,
+    backward-compatible default for any single-task caller."""
     total = 0.0
-    for tp in fetch_task_parts(task_id):
+    parts = parts_by_task.get(task_id, []) if parts_by_task is not None else fetch_task_parts(task_id)
+    for tp in parts:
         part = parts_lookup.get(tp.get("part_id"))
         if part:
             total += float(part.get("unit_cost", 0) or 0) * float(tp.get("quantity_used", 0) or 0)
     return total
 
-def task_total_cost(task, parts_lookup):
+def task_total_cost(task, parts_lookup, parts_by_task=None):
     labour = float(task.get("labour_hours", 0) or 0) * float(task.get("labour_rate", 0) or 0)
-    return labour + task_parts_cost(task["id"], parts_lookup)
+    return labour + task_parts_cost(task["id"], parts_lookup, parts_by_task=parts_by_task)
 
 def cost_by_asset(tasks, assets, parts_lookup):
     totals = {}
+    # Batched once for the whole task list — see task_parts_cost's
+    # own docstring for why (avoids one fetch_task_parts() round-trip
+    # per task).
+    _parts_by_task = fetch_task_parts_batch([t2["id"] for t2 in tasks])
     for t in tasks:
         aid = t.get("asset_id")
         if aid:
-            totals[aid] = totals.get(aid, 0.0) + task_total_cost(t, parts_lookup)
+            totals[aid] = totals.get(aid, 0.0) + task_total_cost(t, parts_lookup, parts_by_task=_parts_by_task)
     lookup = {a["id"]: a["name"] for a in assets}
     return sorted(((lookup.get(k, f"Asset #{k}"), v) for k, v in totals.items()),
                   key=lambda x: x[1], reverse=True)
@@ -12800,9 +12964,11 @@ def cost_by_category(tasks, parts_lookup):
     with category, parts_cost, labour_cost, total_cost.
     """
     by_type = {}
+    # Same batching as cost_by_asset — see task_parts_cost's docstring.
+    _parts_by_task = fetch_task_parts_batch([t2["id"] for t2 in tasks])
     for t in tasks:
         category = t.get("work_type") or "Unspecified"
-        parts_cost = task_parts_cost(t["id"], parts_lookup)
+        parts_cost = task_parts_cost(t["id"], parts_lookup, parts_by_task=_parts_by_task)
         labour_cost = float(t.get("labour_hours", 0) or 0) * float(t.get("labour_rate", 0) or 0)
         if category not in by_type:
             by_type[category] = {"category": category, "parts_cost": 0.0, "labour_cost": 0.0, "total_cost": 0.0}
@@ -12976,7 +13142,7 @@ def create_outage_runbook_template(template_name, steps, created_by):
         return None
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1200, show_spinner=False)
 def fetch_outage_runbook_templates():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("outage_templates_memory", [])
@@ -13023,7 +13189,7 @@ def start_outage_event(template_id, outage_commander, description, location, sta
         return None
 
 
-@st.cache_data(ttl=20, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def fetch_outage_events(active_only=True):
     if not SUPABASE_AVAILABLE:
         events = st.session_state.get("outage_events_memory", [])
@@ -13249,7 +13415,7 @@ def create_dga_test(transformer_tag, test_date, gas_values, created_by, asset_id
         return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_dga_tests(transformer_tag=None):
     if not SUPABASE_AVAILABLE:
         tests = st.session_state.get("dga_tests_memory", [])
@@ -13330,7 +13496,7 @@ def create_fault_event(event_datetime, feeder, protection_device, fault_type, ca
         return None
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_fault_events():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("fault_events_memory", [])
@@ -13413,7 +13579,7 @@ def create_switching_order(title, feeder_circuit, scheduled_datetime, steps, cre
         return None
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_switching_orders(status=None):
     if not SUPABASE_AVAILABLE:
         orders = st.session_state.get("switching_orders_memory", [])
@@ -13563,7 +13729,7 @@ def create_relay_setting_record(relay_tag, feeder, relay_model, record_type, set
         return None
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1200, show_spinner=False)
 def fetch_relay_setting_records(relay_tag=None):
     if not SUPABASE_AVAILABLE:
         records = st.session_state.get("relay_records_memory", [])
@@ -13647,7 +13813,7 @@ def create_arc_flash_study(equipment_tag, location, study_date, performed_by_eng
         return None
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1200, show_spinner=False)
 def fetch_arc_flash_studies():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("arc_flash_studies_memory", [])
@@ -13750,7 +13916,7 @@ def create_technician_certification(technician_name, certification_type, issued_
         return None
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1200, show_spinner=False)
 def fetch_technician_certifications(technician_name=None):
     if not SUPABASE_AVAILABLE:
         certs = st.session_state.get("technician_certs_memory", [])
@@ -13934,8 +14100,9 @@ def generate_worker_report_draft(username, full_name, report_date):
 
     parts_lookup = {p["id"]: p for p in st.session_state.get("parts", [])}
     items_used = {}
+    _parts_by_task = fetch_task_parts_batch([e["task_id"] for e in completed])
     for entry in completed:
-        for tp in fetch_task_parts(entry["task_id"]):
+        for tp in _parts_by_task.get(entry["task_id"], []):
             part = parts_lookup.get(tp.get("part_id"))
             if part:
                 name = part.get("part_name", f"Part #{tp.get('part_id')}")
@@ -14171,7 +14338,7 @@ def create_worker_report(worker_name, username, department, report_date, draft, 
         return None
 
 
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=450, show_spinner=False)
 def fetch_worker_reports(department=None, report_date=None):
     if not SUPABASE_AVAILABLE:
         reports = st.session_state.get("worker_reports_memory", [])
@@ -14389,7 +14556,7 @@ def create_instrument_calibration(instrument_tag, instrument_type, location, las
         return None
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1200, show_spinner=False)
 def fetch_instrument_calibrations():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("instrument_calibrations_memory", [])
@@ -14473,7 +14640,7 @@ def create_motor_rewind(motor_tag, description, created_by, asset_id=None):
         return None
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1200, show_spinner=False)
 def fetch_motor_rewinds(include_completed=False):
     """Active (or all, if include_completed) motor rewind jobs."""
     if not SUPABASE_AVAILABLE:
@@ -14574,7 +14741,7 @@ FEEDBACK_STATUSES = ["New", "Under Review", "Planned", "Implemented", "Declined"
 # =====================================================================
 # BRANDING / COMPANY LOGO
 # =====================================================================
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=1200, show_spinner=False)
 def fetch_branding():
     """Returns the current logo URL, or None if none has been set."""
     if not SUPABASE_AVAILABLE:
@@ -14682,7 +14849,7 @@ TOGGLEABLE_MODULES = {
 }
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_feature_flags():
     """Returns {flag_key: enabled_bool} for every toggleable module.
     Fail-open by design: any module never explicitly set defaults to
@@ -17334,7 +17501,7 @@ ACCESS_POLICIES = {
 }
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_access_policies():
     """Returns {policy_key: enabled_bool}. Fails closed: anything
     never explicitly set, or any read error, resolves to False (the
@@ -17403,7 +17570,7 @@ def render_logo_bar():
     )
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_active_posters():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("posters_memory", [])
@@ -17416,7 +17583,7 @@ def fetch_active_posters():
         return []
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_all_posters():
     """Includes inactive ones too — for the management list."""
     if not SUPABASE_AVAILABLE:
@@ -17579,7 +17746,7 @@ def render_poster_slideshow(seconds_per_slide=5):
     )
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_active_announcements():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("announcements_memory", [])
@@ -17592,7 +17759,7 @@ def fetch_active_announcements():
         return []
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_all_announcements():
     """Includes inactive ones too — for the management list, so an
     admin can see and reactivate something they turned off earlier."""
@@ -17702,7 +17869,7 @@ def render_ticker_bar():
     )
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_all_feedback():
     if not SUPABASE_AVAILABLE:
         return st.session_state.get("feedback_memory", [])
@@ -17714,7 +17881,7 @@ def fetch_all_feedback():
         return st.session_state.get("feedback_memory", [])
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def fetch_all_feedback_votes():
     """All votes, fetched once and aggregated in Python — consistent
     with how the rest of this app joins related tables (task_parts,
@@ -17817,6 +17984,7 @@ def update_feedback_status(feedback_id, status, admin_response, responded_by):
 
 
 
+@st.cache_data(ttl=180, show_spinner=False)
 def compute_mttr_hours_v2(tasks):
     """Mean Time To Repair using REAL timestamps.
 
@@ -18096,7 +18264,7 @@ def _pm_asset_failure_gaps(tasks, assets):
     return result
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def train_predictive_maintenance_model(tasks, assets):
     """Builds the pooled training set and fits a RandomForestRegressor
     predicting the next failure gap (hours) from the features
@@ -18135,7 +18303,7 @@ def train_predictive_maintenance_model(tasks, assets):
     return model
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def get_ml_failure_predictions(tasks, assets):
     """Uses the trained model (if available) to predict each eligible
     asset's next failure gap from its own current history, then
@@ -18259,7 +18427,7 @@ def compute_asset_health(asset, tasks, ml_predictions_by_asset=None, anomaly_by_
     return {"level": level, "reasons": reasons}
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def compute_mtbf_hours(tasks, asset_id=None):
     """Mean Time Between Failures for reactive/breakdown work.
 
@@ -18269,7 +18437,7 @@ def compute_mtbf_hours(tasks, asset_id=None):
     Cached — called from 6 different places (multiple times on the
     same page in at least one case), each one redoing the full same
     per-asset gap calculation over the same task list from scratch.
-    Pure computation, no DB call — ttl=60 matches fetch_all_tasks'
+    Pure computation, no DB call — ttl=180 matches fetch_all_tasks'
     own cache window rather than adding a longer independent one, so
     this never stays stale longer than the underlying task data
     already can.
@@ -18297,7 +18465,7 @@ def compute_mtbf_hours(tasks, asset_id=None):
         return None, 0
     return sum(gaps) / len(gaps), len(gaps)
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=180, show_spinner=False)
 def compute_pm_compliance_v2(tasks):
     """PM compliance = PM tasks completed on or before due date / all
     PM tasks that have come due. Unlike the earlier version this
@@ -18463,8 +18631,13 @@ def top_cost_drivers(assets, tasks, parts_lookup, top_n=5):
     Budget Center, so this ranking can't disagree with those numbers.
     """
     ranked = []
+    # Batched once for every asset in this loop — see
+    # actual_spend_for_asset's own docstring for why this matters:
+    # without it, N assets meant N times fetch_task_parts() called
+    # per task, not once total.
+    _parts_by_task = fetch_task_parts_batch([t2["id"] for t2 in tasks])
     for a in assets:
-        spend = actual_spend_for_asset(a["id"], tasks, parts_lookup)
+        spend = actual_spend_for_asset(a["id"], tasks, parts_lookup, parts_by_task=_parts_by_task)
         if spend and spend > 0:
             ranked.append({"asset_id": a["id"], "asset_name": a.get("name", f"Asset #{a['id']}"), "spend": spend})
     ranked.sort(key=lambda x: x["spend"], reverse=True)
@@ -22759,7 +22932,7 @@ def send_task_completion_email(task, completed_by):
     return send_email_notification(email, subject, body_html)
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_team_members_for_tasks(task_ids):
     """Batch version of fetch_task_team_members — ONE query for every
     task_id passed in, instead of one query per task. Added after
@@ -22803,7 +22976,7 @@ def fetch_task_team_members(task_id):
         return []
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def fetch_task_ids_for_team_member(full_name):
     """The reverse lookup of fetch_task_team_members — every task ID
     this person is a team member on (not counting tasks where they're
@@ -23560,14 +23733,27 @@ def page_owner_console():
                 if st.button(auto_t("Turn ON — allow sign-in without approval"), key=f"pol_on_{_pol_key}"):
                     st.session_state[f"_confirm_pol_{_pol_key}"] = True
                 if st.session_state.get(f"_confirm_pol_{_pol_key}"):
-                    st.warning(auto_t("Anyone who reaches your sign-up page will get Worker-level "
+                    _warn_text = auto_t("Anyone who reaches your sign-up page will get Worker-level "
                              "access immediately, with nobody reviewing who they are first. "
-                             "Confirm you actually want this."))
+                             "Confirm you actually want this.")
+                    if _pol_key == "auto_approve_registration":
+                        _warn_text += " " + auto_t("This will also immediately approve, as Worker, "
+                                 "anyone who already signed up and is currently waiting in Access "
+                                 "Requests — their account was created before this setting existed, "
+                                 "so turning this on now doesn't reach them automatically otherwise.")
+                    st.warning(_warn_text)
                     _cc1, _cc2 = st.columns(2)
                     if _cc1.button("Yes, turn it on", key=f"pol_confirm_{_pol_key}", type="primary"):
                         if set_access_policy(_pol_key, True, full_name):
                             st.session_state.pop(f"_confirm_pol_{_pol_key}", None)
-                            st.success(auto_t("Turned on."))
+                            if _pol_key == "auto_approve_registration":
+                                _bulk_count = bulk_approve_pending_as_worker(full_name)
+                                if _bulk_count:
+                                    st.success(auto_t("Turned on. {0} pending request(s) approved as Worker.").format(_bulk_count))
+                                else:
+                                    st.success(auto_t("Turned on."))
+                            else:
+                                st.success(auto_t("Turned on."))
                             st.rerun()
                         else:
                             st.error(auto_t("Failed to update — check Row Level Security on app_feature_flags."))
@@ -24735,7 +24921,11 @@ def page_analytics():
             _budget_tone = "neutral"
             if _all_budgets:
                 _total_allocated = sum(b.get("allocated_amount", 0) or 0 for b in _all_budgets)
-                _total_spent = sum(actual_spend_for_asset(b.get("asset_id"), tasks, parts_lookup)
+                # Same batching fix as top_cost_drivers — see
+                # actual_spend_for_asset's own docstring.
+                _wallboard_parts_by_task = fetch_task_parts_batch([t2["id"] for t2 in tasks])
+                _total_spent = sum(actual_spend_for_asset(b.get("asset_id"), tasks, parts_lookup,
+                                                          parts_by_task=_wallboard_parts_by_task)
                                   for b in _all_budgets)
                 if _total_allocated > 0:
                     _budget_pct = _total_spent / _total_allocated * 100
@@ -25110,9 +25300,13 @@ def page_analytics():
             if not _budgets:
                 st.caption(auto_t("No budgets set yet."))
             else:
+                # Same batching fix as top_cost_drivers/Wallboard —
+                # see actual_spend_for_asset's own docstring.
+                _budget_parts_by_task = fetch_task_parts_batch([t2["id"] for t2 in tasks])
                 for _b in _budgets:
                     _b_asset_name = (_b.get("assets") or {}).get("name", "Unknown asset")
-                    _b_spent = actual_spend_for_asset(_b.get("asset_id"), tasks, parts_lookup)
+                    _b_spent = actual_spend_for_asset(_b.get("asset_id"), tasks, parts_lookup,
+                                                      parts_by_task=_budget_parts_by_task)
                     _b_allocated = _b.get("allocated_amount", 0) or 0
                     _b_pct = (_b_spent / _b_allocated * 100) if _b_allocated > 0 else None
                     with st.container(border=True):
@@ -27097,6 +27291,9 @@ def page_assets():
                 _pm_predictions_by_asset = {
                     p["asset_id"]: p for p in get_ml_failure_predictions(st.session_state.tasks, assets)
                 }
+            # Same batching fix as attachments/photos on the task
+            # views — see fetch_meter_readings_batch's own docstring.
+            _meter_readings_by_asset = fetch_meter_readings_batch(tuple(a2["id"] for a2 in filtered))
 
             for a in filtered:
                 status_class = f"asset-status-{a.get('status', 'Operational').replace(' ', '')}"
@@ -27178,7 +27375,7 @@ def page_assets():
                         st.caption(auto_t("📋 {0} maintenance task(s) linked to this asset.").format(len(related_tasks)))
 
                         st.markdown(auto_t("**📈 Meter Reading History**"))
-                        readings = fetch_meter_readings(a['id'])
+                        readings = _meter_readings_by_asset.get(a['id'], [])
                         rate = meter_usage_rate(a['id'], readings)
                         if rate is not None:
                             st.caption(auto_t("Observed usage: **{0:.1f} {1}/day** (from {2} readings)").format(rate, a.get('meter_unit','units'), len(readings))
@@ -27917,6 +28114,7 @@ if selected_section == "Task Dashboard":
                 _my_task_ids = [t['id'] for t in my_tasks]
                 _attachments_by_task = fetch_attachments_batch(_my_task_ids)
                 _photos_by_task = fetch_photos_batch(_my_task_ids)
+                _comments_by_task = fetch_comments_batch(_my_task_ids)
                 for idx, task in enumerate(my_tasks):
                     priority_class = f"priority-{task['priority']}"
                     status_class = f"status-{task['status'].replace(' ', '')}"
@@ -28094,7 +28292,7 @@ if selected_section == "Task Dashboard":
 
                     with st.expander(auto_t("💬 Comments")):
                         render_presence_indicator(f"task:{task['id']}", username, full_name)
-                        render_comments_section(task, full_name, key_prefix=f"w{idx}", authorized=_task_authorized)
+                        render_comments_section(task, full_name, key_prefix=f"w{idx}", authorized=_task_authorized, comments=_comments_by_task.get(task['id'], []))
 
                     with st.expander(auto_t("📎 Attachments")):
                         attachments = _attachments_by_task.get(task['id'], [])
@@ -28221,6 +28419,7 @@ if selected_section == "Task Dashboard":
             _mgmt_task_ids = [t2["id"] for t2 in _tasks_to_show]
             _attachments_by_task = fetch_attachments_batch(_mgmt_task_ids)
             _photos_by_task = fetch_photos_batch(_mgmt_task_ids)
+            _comments_by_task = fetch_comments_batch(_mgmt_task_ids)
             for task in _tasks_to_show:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
@@ -28269,7 +28468,7 @@ if selected_section == "Task Dashboard":
                         st.rerun()
                 with st.expander(auto_t("💬 Comments")):
                     render_presence_indicator(f"task:{task['id']}", username, full_name)
-                    render_comments_section(task, full_name, key_prefix="sup")
+                    render_comments_section(task, full_name, key_prefix="sup", comments=_comments_by_task.get(task['id'], []))
                 with st.expander(auto_t("📎 Attachments")):
                     attachments = _attachments_by_task.get(task['id'], [])
                     if attachments:
@@ -28507,6 +28706,7 @@ if selected_section == "Task Dashboard":
             _mgmt_task_ids_s = [t2["id"] for t2 in _mgmt_tasks]
             _attachments_by_task = fetch_attachments_batch(_mgmt_task_ids_s)
             _photos_by_task = fetch_photos_batch(_mgmt_task_ids_s)
+            _comments_by_task = fetch_comments_batch(_mgmt_task_ids_s)
             for task in _mgmt_tasks:
                 priority_class = f"priority-{task['priority']}"
                 status_class = f"status-{task['status'].replace(' ', '')}"
@@ -28560,7 +28760,7 @@ if selected_section == "Task Dashboard":
                         st.error(t("task.err_delete_failed"))
                 with st.expander(auto_t("💬 Comments")):
                     render_presence_indicator(f"task:{task['id']}", username, full_name)
-                    render_comments_section(task, full_name, key_prefix="supt")
+                    render_comments_section(task, full_name, key_prefix="supt", comments=_comments_by_task.get(task['id'], []))
                 with st.expander(auto_t("📎 Attachments")):
                     attachments = _attachments_by_task.get(task['id'], [])
                     if attachments:
