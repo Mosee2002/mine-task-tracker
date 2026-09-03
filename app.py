@@ -867,11 +867,11 @@ _CSS_BODY = """
    inline h2) could end up different visual sizes even though both
    were "the same heading level" in the code. This makes the scale
    deliberate instead of incidental. */
-.stApp h1 { font-size: 2.0rem; }
+.stApp h1 { font-size: 2rem; }
 .stApp h2 { font-size: 1.6rem; }
 .stApp h3 { font-size: 1.3rem; }
 .stApp h4 { font-size: 1.1rem; }
-.stApp h5 { font-size: 1.0rem; }
+.stApp h5 { font-size: 1rem; }
 .stApp h6 { font-size: 0.9rem; }
 /* Consistent vertical rhythm — headings previously relied on
    whatever margin the surrounding Streamlit block happened to add,
@@ -21816,7 +21816,7 @@ def page_production():
                 if _chart_rows:
                     _dfp = pd.DataFrame(_chart_rows)
                     st.plotly_chart(px.bar(_dfp, x="Date", y="Quantity", color="Material",
-                                          title="Daily production by material",
+                                          title=auto_t("Daily production by material"),
                                           color_discrete_sequence=GMC_CHART_COLORS),
                                     use_container_width=True)
 
@@ -25123,7 +25123,7 @@ def page_analytics():
             if ranking and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 dfr = pd.DataFrame(ranking[:15], columns=["Asset", "Tasks"])
                 st.plotly_chart(px.bar(dfr, x="Asset", y="Tasks",
-                                        title="Maintenance tasks per asset (proxy for downtime frequency)",
+                                        title=auto_t("Maintenance tasks per asset (proxy for downtime frequency)"),
                                         color_discrete_sequence=GMC_CHART_COLORS),
                                 use_container_width=True)
             elif ranking:
@@ -25200,7 +25200,7 @@ def page_analytics():
 )
                 if PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                     dfb = pd.DataFrame(list(buckets.items()), columns=["Age", "Open tasks"])
-                    st.plotly_chart(px.bar(dfb, x="Age", y="Open tasks", title="Open work by age",
+                    st.plotly_chart(px.bar(dfb, x="Age", y="Open tasks", title=auto_t("Open work by age"),
                                           color_discrete_sequence=GMC_CHART_COLORS),
                                     use_container_width=True)
 
@@ -25223,7 +25223,7 @@ def page_analytics():
                     if PLOTLY_AVAILABLE:
                         dfp = pd.DataFrame(rows)
                         st.plotly_chart(px.bar(dfp, x="Failure Mode", y="Count",
-                                                title="Failure modes by frequency",
+                                                title=auto_t("Failure modes by frequency"),
                                                 color_discrete_sequence=GMC_CHART_COLORS),
                                         use_container_width=True)
                 else:
@@ -25246,7 +25246,7 @@ def page_analytics():
                     st.dataframe(dfc, use_container_width=True)
                     if PLOTLY_AVAILABLE:
                         st.plotly_chart(px.bar(dfc.head(15), x="Asset", y="Cost",
-                                                title="Cost by asset", color_discrete_sequence=GMC_CHART_COLORS),
+                                                title=auto_t("Cost by asset"), color_discrete_sequence=GMC_CHART_COLORS),
                                         use_container_width=True)
                 st.caption(auto_t("Currency is whatever you enter — the app does not assume or convert units."))
 
@@ -25271,7 +25271,7 @@ def page_analytics():
                             {"parts_cost": "Parts", "labour_cost": "Labour"})
                         st.plotly_chart(
                             px.bar(_stacked, x="category", y="Cost", color="Component", barmode="stack",
-                                  title="Cost by work type (parts vs labour)",
+                                  title=auto_t("Cost by work type (parts vs labour)"),
                                   color_discrete_sequence=GMC_CHART_COLORS),
                             use_container_width=True)
                 else:
@@ -25369,12 +25369,12 @@ def page_analytics():
             if incidents and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 dfi = pd.DataFrame(incidents)
                 if 'severity' in dfi.columns:
-                    st.plotly_chart(px.pie(dfi, names='severity', title='Incidents by severity',
+                    st.plotly_chart(px.pie(dfi, names='severity', title=auto_t('Incidents by severity'),
                                           color_discrete_sequence=GMC_CHART_COLORS),
                                     use_container_width=True)
                 if 'incident_type' in dfi.columns:
                     st.plotly_chart(px.bar(dfi.groupby('incident_type').size().reset_index(name='count'),
-                                            x='incident_type', y='count', title='Incidents by type',
+                                            x='incident_type', y='count', title=auto_t('Incidents by type'),
                                             color_discrete_sequence=GMC_CHART_COLORS),
                                     use_container_width=True)
 
@@ -28615,14 +28615,14 @@ if selected_section == "Task Dashboard":
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
-                fig1 = px.pie(df, names='status', title='Tasks by Status', color_discrete_sequence=GMC_CHART_COLORS)
+                fig1 = px.pie(df, names='status', title=auto_t('Tasks by Status'), color_discrete_sequence=GMC_CHART_COLORS)
                 st.plotly_chart(fig1, use_container_width=True)
-                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status', color_discrete_sequence=GMC_CHART_COLORS)
+                fig2 = px.bar(df, x='priority', color='status', title=auto_t('Tasks by Priority and Status'), color_discrete_sequence=GMC_CHART_COLORS)
                 st.plotly_chart(fig2, use_container_width=True)
                 if 'created_at' in df.columns:
                     df['created_at'] = pd.to_datetime(df['created_at'])
                     df['day'] = df['created_at'].dt.date
-                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day', color_discrete_sequence=GMC_CHART_COLORS)
+                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title=auto_t('Tasks Created Per Day'), color_discrete_sequence=GMC_CHART_COLORS)
                     st.plotly_chart(fig3, use_container_width=True)
             elif not PANDAS_AVAILABLE or not PLOTLY_AVAILABLE:
                 st.warning(t("task.warn_plotly"))
@@ -28817,14 +28817,14 @@ if selected_section == "Task Dashboard":
             st.markdown("---")
             if tasks and PANDAS_AVAILABLE and PLOTLY_AVAILABLE:
                 df = pd.DataFrame(tasks)
-                fig1 = px.pie(df, names='status', title='Tasks by Status', color_discrete_sequence=GMC_CHART_COLORS)
+                fig1 = px.pie(df, names='status', title=auto_t('Tasks by Status'), color_discrete_sequence=GMC_CHART_COLORS)
                 st.plotly_chart(fig1, use_container_width=True)
-                fig2 = px.bar(df, x='priority', color='status', title='Tasks by Priority and Status', color_discrete_sequence=GMC_CHART_COLORS)
+                fig2 = px.bar(df, x='priority', color='status', title=auto_t('Tasks by Priority and Status'), color_discrete_sequence=GMC_CHART_COLORS)
                 st.plotly_chart(fig2, use_container_width=True)
                 if 'created_at' in df.columns:
                     df['created_at'] = pd.to_datetime(df['created_at'])
                     df['day'] = df['created_at'].dt.date
-                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title='Tasks Created Per Day', color_discrete_sequence=GMC_CHART_COLORS)
+                    fig3 = px.line(df.groupby('day').size().reset_index(name='count'), x='day', y='count', title=auto_t('Tasks Created Per Day'), color_discrete_sequence=GMC_CHART_COLORS)
                     st.plotly_chart(fig3, use_container_width=True)
             elif not PANDAS_AVAILABLE or not PLOTLY_AVAILABLE:
                 st.warning(t("task.warn_plotly"))
