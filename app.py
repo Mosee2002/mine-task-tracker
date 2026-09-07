@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import hashlib
 import base64
 import hmac
@@ -10014,6 +10014,190 @@ def delete_part(part_id, deleted_by):
         log_error(str(e), details={"part_id": part_id}, endpoint="delete_part")
         return False
 
+
+# -------------------------------
+# CANTEEN — menu, self-service attendance, and food/supply stock.
+# Deliberately not role-gated (see page_canteen): everyone can view
+# the menu and check themselves in for a meal, and any worker can log
+# stock, matching how this module was actually scoped rather than
+# restricting it to a dedicated "canteen staff" role that doesn't
+# exist elsewhere in this app's role model.
+# -------------------------------
+@st.cache_data(ttl=180, show_spinner=False)
+def fetch_canteen_menu(meal_date=None):
+    """meal_date, if given (a date object or ISO string), returns just
+    that day's entries. Otherwise returns the most recent 30 days,
+    for the menu history view."""
+    if not SUPABASE_AVAILABLE:
+        rows = st.session_state.get("canteen_menu_memory", [])
+        if meal_date:
+            return [r for r in rows if r.get("meal_date") == str(meal_date)]
+        return sorted(rows, key=lambda r: r.get("meal_date", ""), reverse=True)
+    try:
+        q = supabase.table("canteen_menu").select("*")
+        if meal_date:
+            q = q.eq("meal_date", str(meal_date))
+        res = q.order("meal_date", desc=True).limit(90).execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_canteen_menu")
+        return []
+
+
+def set_canteen_menu(meal_date, meal_type, description, set_by):
+    """Upsert on (meal_date, meal_type) — setting the same meal twice
+    for the same day updates it rather than creating a duplicate row,
+    matching the UNIQUE constraint on the table."""
+    fetch_canteen_menu.clear()
+    payload = {"meal_date": str(meal_date), "meal_type": meal_type,
+              "description": description, "set_by": set_by}
+    if not SUPABASE_AVAILABLE:
+        rows = st.session_state.setdefault("canteen_menu_memory", [])
+        existing = next((r for r in rows if r["meal_date"] == payload["meal_date"]
+                        and r["meal_type"] == meal_type), None)
+        if existing:
+            existing.update(payload)
+        else:
+            payload["id"] = max([r["id"] for r in rows], default=0) + 1
+            rows.append(payload)
+        log_audit(set_by, "canteen_menu_set_memory", {"meal_date": payload["meal_date"], "meal_type": meal_type})
+        return True
+    try:
+        res = supabase.table("canteen_menu").upsert(
+            payload, on_conflict="meal_date,meal_type").execute()
+        if not res.data:
+            return False
+        log_audit(set_by, "canteen_menu_set", {"meal_date": payload["meal_date"], "meal_type": meal_type})
+        return True
+    except Exception as e:
+        log_error(str(e), details=payload, endpoint="set_canteen_menu")
+        return False
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_canteen_attendance(meal_date=None):
+    if not SUPABASE_AVAILABLE:
+        rows = st.session_state.get("canteen_attendance_memory", [])
+        if meal_date:
+            return [r for r in rows if r.get("meal_date") == str(meal_date)]
+        return rows
+    try:
+        q = supabase.table("canteen_attendance").select("*")
+        if meal_date:
+            q = q.eq("meal_date", str(meal_date))
+        res = q.order("checked_in_at", desc=True).limit(2000).execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_canteen_attendance")
+        return []
+
+
+def log_canteen_attendance(worker_name, meal_date, meal_type):
+    """Self-check-in for one meal. The UNIQUE(worker_name, meal_date,
+    meal_type) constraint is the actual source of truth for
+    'already checked in' — this returns False on a duplicate attempt
+    (caught as an insert conflict) rather than silently double-
+    counting someone for the same meal."""
+    fetch_canteen_attendance.clear()
+    payload = {"worker_name": worker_name, "meal_date": str(meal_date), "meal_type": meal_type}
+    if not SUPABASE_AVAILABLE:
+        rows = st.session_state.setdefault("canteen_attendance_memory", [])
+        if any(r["worker_name"] == worker_name and r["meal_date"] == payload["meal_date"]
+              and r["meal_type"] == meal_type for r in rows):
+            return False
+        payload["id"] = max([r["id"] for r in rows], default=0) + 1
+        rows.append(payload)
+        return True
+    try:
+        res = supabase.table("canteen_attendance").insert(payload).execute()
+        return bool(res.data)
+    except Exception as e:
+        # A unique-constraint violation (already checked in) lands
+        # here too — that's an expected, not-actually-erroneous case,
+        # so it's not logged as an application error.
+        if "duplicate" not in str(e).lower() and "unique" not in str(e).lower():
+            log_error(str(e), details=payload, endpoint="log_canteen_attendance")
+        return False
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def fetch_canteen_stock():
+    if not SUPABASE_AVAILABLE:
+        return st.session_state.get("canteen_stock_memory", [])
+    try:
+        res = supabase.table("canteen_stock").select("*").order("item_name").execute()
+        return res.data or []
+    except Exception as e:
+        log_error(str(e), endpoint="fetch_canteen_stock")
+        return []
+
+
+def create_canteen_stock_item(item_name, category, quantity_on_hand, unit, reorder_point, created_by):
+    fetch_canteen_stock.clear()
+    payload = {"item_name": item_name, "category": category, "quantity_on_hand": quantity_on_hand,
+              "unit": unit, "reorder_point": reorder_point, "updated_by": created_by}
+    if not SUPABASE_AVAILABLE:
+        rows = st.session_state.setdefault("canteen_stock_memory", [])
+        payload["id"] = max([r["id"] for r in rows], default=0) + 1
+        rows.append(payload)
+        log_audit(created_by, "canteen_stock_create_memory", {"item_name": item_name})
+        return payload
+    try:
+        res = supabase.table("canteen_stock").insert(payload).execute()
+        if res.data:
+            log_audit(created_by, "canteen_stock_create", {"item_name": item_name})
+            return res.data[0]
+    except Exception as e:
+        log_error(str(e), details=payload, endpoint="create_canteen_stock_item")
+    return None
+
+
+def adjust_canteen_stock_quantity(item_id, delta, adjusted_by, reason="manual adjustment"):
+    """delta can be negative (used in a meal) or positive (delivery
+    received) — same delta-based, floors-at-0 shape as
+    adjust_part_quantity, for the same reason: never trust a
+    read-then-write from the caller's side against a number someone
+    else might be changing at the same time."""
+    fetch_canteen_stock.clear()
+    if not SUPABASE_AVAILABLE:
+        for r in st.session_state.get("canteen_stock_memory", []):
+            if r["id"] == item_id:
+                r["quantity_on_hand"] = max(0, r.get("quantity_on_hand", 0) + delta)
+                log_audit(adjusted_by, "canteen_stock_adjust_memory", {"item_id": item_id, "delta": delta, "reason": reason})
+                return True
+        return False
+    try:
+        current = supabase.table("canteen_stock").select("quantity_on_hand").eq("id", item_id).execute()
+        if not current.data:
+            return False
+        new_qty = max(0, current.data[0]["quantity_on_hand"] + delta)
+        res = supabase.table("canteen_stock").update(
+            {"quantity_on_hand": new_qty, "updated_by": adjusted_by}).eq("id", item_id).execute()
+        if not res.data:
+            return False
+        log_audit(adjusted_by, "canteen_stock_adjust", {"item_id": item_id, "delta": delta, "reason": reason})
+        return True
+    except Exception as e:
+        log_error(str(e), details={"item_id": item_id, "delta": delta}, endpoint="adjust_canteen_stock_quantity")
+        return False
+
+
+def delete_canteen_stock_item(item_id, deleted_by):
+    fetch_canteen_stock.clear()
+    if not SUPABASE_AVAILABLE:
+        st.session_state.canteen_stock_memory = [r for r in st.session_state.get("canteen_stock_memory", []) if r["id"] != item_id]
+        log_audit(deleted_by, "canteen_stock_delete_memory", {"item_id": item_id})
+        return True
+    try:
+        res = supabase.table("canteen_stock").delete().eq("id", item_id).execute()
+        if not res.data:
+            return False
+        log_audit(deleted_by, "canteen_stock_delete", {"item_id": item_id})
+        return True
+    except Exception as e:
+        log_error(str(e), details={"item_id": item_id}, endpoint="delete_canteen_stock_item")
+        return False
+
 def link_part_to_task(task_id, part_id, quantity_used, used_by):
     """Records parts consumption against a task/work order and decrements stock.
 
@@ -14839,6 +15023,7 @@ TOGGLEABLE_MODULES = {
                         "overdue tasks, meter anomalies, ML predictions) into one view.",
     "Permits": "Permit to Work / LOTO isolation records.",
     "Inventory": "Spare parts stock and reorder tracking.",
+    "Canteen": "Daily menu, self-service meal check-in, and food/supply stock tracking.",
     "Incidents": "Hazard, near-miss, and injury reporting.",
     "Handover": "Shift handover logging.",
     "Contractors": "Contractor induction/insurance compliance tracking.",
@@ -15082,7 +15267,7 @@ NAV_CATEGORIES = {
                               "Outage Commander", "Transformer Health", "Fault Recorder",
                               "HV Switching Schedule", "Relay Settings", "Arc Flash Studies"],
     "Communication & Admin": ["Handover", "Daily Report", "Worker Reports", "Chat", "Feedback", "Profile", "Admin",
-                              "Owner Console", "About", "Help"],
+                              "Owner Console", "About", "Help", "Canteen"],
 }
 # A quick-lookup the other direction — which category a given section
 # belongs to, needed so the category containing the CURRENTLY active
@@ -20182,13 +20367,13 @@ except ImportError:
     st.error(auto_t("streamlit-option-menu not installed. Please run: pip install streamlit-option-menu"))
     st.stop()
 
-nav_options = ["Task Dashboard", "Kanban Board", "Task Templates", "Pre-Start Checklists", "Logbook", "Scan Hub", "Offline Mode", "Sync Review", "Help", "Production", "Haulage", "Assets", "Equipment Health", "Permits", "Inventory", "Incidents",
+nav_options = ["Task Dashboard", "Kanban Board", "Task Templates", "Pre-Start Checklists", "Logbook", "Scan Hub", "Offline Mode", "Sync Review", "Help", "Production", "Haulage", "Assets", "Equipment Health", "Permits", "Inventory", "Canteen", "Incidents",
                "Handover", "Daily Report", "Worker Reports", "Contractors", "Analytics", "Chat", "Feedback", "Admin", "Profile",
                "Timeline", "About", "Wallboard", "Crew Clock", "JSA Library", "Job Plans", "Locations",
                "Electrical Overview", "Motor Rewinds", "Instrument Calibration", "Outage Commander",
                "Transformer Health", "Fault Recorder", "HV Switching Schedule", "Relay Settings",
                "Arc Flash Studies", "Technician Certifications"]
-nav_icons = ["list-task", "columns-gap", "card-checklist", "check2-square", "book-fill", "qr-code-scan", "wifi-off", "arrow-repeat", "question-circle-fill", "bar-chart-fill", "truck", "hdd-stack-fill", "heart-pulse-fill", "shield-lock-fill", "box-seam-fill",
+nav_icons = ["list-task", "columns-gap", "card-checklist", "check2-square", "book-fill", "qr-code-scan", "wifi-off", "arrow-repeat", "question-circle-fill", "bar-chart-fill", "truck", "hdd-stack-fill", "heart-pulse-fill", "shield-lock-fill", "box-seam-fill", "cup-hot-fill",
              "exclamation-triangle-fill", "newspaper", "arrow-left-right", "journal-text", "people-fill",
              "graph-up-arrow", "chat-dots-fill", "lightbulb-fill", "gear-fill", "person-circle",
              "clock-history", "info-circle-fill", "tv-fill", "clock-fill", "file-earmark-text-fill",
@@ -26471,6 +26656,151 @@ def page_inventory():
 
 # ---- INCIDENT REPORTS ----
 
+# ---- CANTEEN ----
+
+CANTEEN_MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Night Shift Meal"]
+
+
+def page_canteen():
+    """Deliberately open to every role — not gated behind can(role,
+    ...) anywhere in this function. Requested as a module the whole
+    site uses directly (workers checking the menu and checking
+    themselves in, any worker logging stock), not one restricted to
+    a dedicated canteen-staff role this app's role model doesn't
+    otherwise have."""
+    render_section_header("🍽️ Canteen")
+    canteen_sub = option_menu(
+        menu_title=None,
+        options=["Menu", "Attendance", "Stock"],
+        icons=["journal-text", "people-fill", "box-seam-fill"],
+        orientation="horizontal",
+        default_index=0,
+        styles=menu_styles(),
+    )
+    _today = date.today()
+
+    if canteen_sub == "Menu":
+        _menu_date = st.date_input(auto_t("Date"), value=_today, key="canteen_menu_date")
+        _today_menu = fetch_canteen_menu(_menu_date)
+        _menu_by_type = {r["meal_type"]: r for r in _today_menu}
+
+        st.markdown(f"##### {auto_t('Menu for {0}').format(_menu_date.strftime('%A, %d %B %Y'))}")
+        for meal_type in CANTEEN_MEAL_TYPES:
+            existing = _menu_by_type.get(meal_type)
+            with st.container(border=True):
+                st.markdown(f"**{auto_t(meal_type)}**")
+                _new_desc = st.text_area(
+                    auto_t("What's being served"),
+                    value=(existing or {}).get("description", ""),
+                    key=f"canteen_menu_{meal_type}_{_menu_date}",
+                    placeholder=auto_t("e.g. Jollof rice, grilled tilapia, salad"),
+                    label_visibility="collapsed",
+                )
+                if existing:
+                    st.caption(auto_t("Last set by {0}").format(existing.get("set_by", "—")))
+                if st.button(auto_t("Save"), key=f"canteen_menu_save_{meal_type}_{_menu_date}"):
+                    if _new_desc.strip():
+                        if set_canteen_menu(_menu_date, meal_type, _new_desc.strip(), full_name):
+                            st.success(auto_t("Saved."))
+                            st.rerun()
+                        else:
+                            st.error(auto_t("Failed to save — please try again."))
+                    else:
+                        st.warning(auto_t("Enter what's being served first."))
+
+        st.markdown("---")
+        with st.expander(auto_t("📖 Recent menu history")):
+            _history = fetch_canteen_menu()
+            if not _history:
+                st.caption(auto_t("No menu history yet."))
+            else:
+                _by_date = {}
+                for r in _history:
+                    _by_date.setdefault(r["meal_date"], []).append(r)
+                for d in sorted(_by_date.keys(), reverse=True)[:14]:
+                    st.markdown(f"**{d}**")
+                    for r in _by_date[d]:
+                        st.write(f"— {auto_t(r['meal_type'])}: {esc(r.get('description', ''))}")
+
+    elif canteen_sub == "Attendance":
+        st.caption(auto_t("Check yourself in for a meal — this helps the canteen plan how much to prepare."))
+        _my_checkins_today = {r["meal_type"] for r in fetch_canteen_attendance(_today) if r["worker_name"] == full_name}
+        _cols = st.columns(len(CANTEEN_MEAL_TYPES))
+        for i, meal_type in enumerate(CANTEEN_MEAL_TYPES):
+            with _cols[i]:
+                st.markdown(f"**{auto_t(meal_type)}**")
+                if meal_type in _my_checkins_today:
+                    st.success(auto_t("✅ Checked in"))
+                elif st.button(auto_t("Check in"), key=f"canteen_checkin_{meal_type}"):
+                    if log_canteen_attendance(full_name, _today, meal_type):
+                        st.rerun()
+                    else:
+                        st.info(auto_t("Already checked in."))
+
+        st.markdown("---")
+        st.markdown("##### " + auto_t("Today's attendance summary"))
+        _today_attendance = fetch_canteen_attendance(_today)
+        if not _today_attendance:
+            st.caption(auto_t("No check-ins yet today."))
+        else:
+            _summary_cols = st.columns(len(CANTEEN_MEAL_TYPES))
+            for i, meal_type in enumerate(CANTEEN_MEAL_TYPES):
+                _count = sum(1 for r in _today_attendance if r["meal_type"] == meal_type)
+                _summary_cols[i].metric(auto_t(meal_type), _count)
+
+    elif canteen_sub == "Stock":
+        _stock = fetch_canteen_stock()
+        _low_stock = [r for r in _stock if r.get('quantity_on_hand', 0) <= r.get('reorder_point', 0)]
+        if _low_stock:
+            st.warning(auto_t("⚠️ {0} item(s) at or below reorder point.").format(len(_low_stock)))
+
+        with st.expander(auto_t("➕ Add stock item")):
+            with st.form("canteen_stock_add_form", clear_on_submit=True):
+                _c1, _c2 = st.columns(2)
+                with _c1:
+                    _new_item_name = st.text_input(auto_t("Item name"))
+                    _new_item_category = st.text_input(auto_t("Category"), placeholder="e.g. Grains, Vegetables, Meat")
+                with _c2:
+                    _new_item_unit = st.selectbox(auto_t("Unit"), ["kg", "L", "bags", "boxes", "pieces"])
+                    _new_item_reorder = st.number_input(auto_t("Reorder point"), min_value=0.0, value=0.0)
+                _new_item_qty = st.number_input(auto_t("Starting quantity"), min_value=0.0, value=0.0)
+                if st.form_submit_button(auto_t("Add item")):
+                    if _new_item_name.strip():
+                        if create_canteen_stock_item(_new_item_name.strip(), _new_item_category.strip() or None,
+                                                     _new_item_qty, _new_item_unit, _new_item_reorder, full_name):
+                            st.success(auto_t("Added."))
+                            st.rerun()
+                    else:
+                        st.error(auto_t("Item name is required."))
+
+        if not _stock:
+            render_empty_state("fa-kitchen-set", "No canteen stock items yet",
+                              "Add food and supply items to track stock levels and set reorder points.")
+        else:
+            _stock_search = st.text_input(auto_t("🔍 Search by item name or category"), "", key="canteen_stock_search")
+            _visible_stock = quick_filter(_stock, _stock_search, ["item_name", "category"])
+            for r in _visible_stock:
+                _is_low = r.get('quantity_on_hand', 0) <= r.get('reorder_point', 0)
+                _stock_class = "stock-low" if _is_low else "stock-ok"
+                _stock_label = auto_t("LOW STOCK") if _is_low else auto_t("IN STOCK")
+                st.markdown(
+                    f"""<div class="custom-card"> <strong>{esc(r['item_name'])}</strong>"""
+                    f""" ({esc(r.get('category') or '—')})"""
+                    f""" <span class="stock-badge {_stock_class}">{_stock_label}</span>"""
+                    f""" <p>{r.get('quantity_on_hand', 0):g} {esc(r.get('unit', ''))}"""
+                    f""" (reorder at {r.get('reorder_point', 0):g})</p> </div>""",
+                    unsafe_allow_html=True)
+                _acol1, _acol2, _acol3 = st.columns(3)
+                _delta = _acol1.number_input(auto_t("Adjust by"), value=0.0, key=f"canteen_stock_delta_{r['id']}",
+                                            label_visibility="collapsed")
+                if _acol2.button(auto_t("Apply"), key=f"canteen_stock_apply_{r['id']}"):
+                    if _delta != 0:
+                        adjust_canteen_stock_quantity(r['id'], _delta, full_name)
+                        st.rerun()
+                if _acol3.button(auto_t("🗑️ Delete"), key=f"canteen_stock_del_{r['id']}"):
+                    delete_canteen_stock_item(r['id'], full_name)
+                    st.rerun()
+
 
 def page_equipment_health():
     render_section_header("🩺 Equipment Health Dashboard")
@@ -28910,6 +29240,9 @@ elif selected_section == "Equipment Health":
 elif selected_section == "Inventory":
     with st.container(key="page_Inventory"):
         page_inventory()
+elif selected_section == "Canteen":
+    with st.container(key="page_Canteen"):
+        page_canteen()
 elif selected_section == "Incidents":
     with st.container(key="page_Incidents"):
         page_incidents()
